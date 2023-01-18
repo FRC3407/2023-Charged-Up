@@ -1,3 +1,5 @@
+[![Build Robot Code](https://github.com/FRC3407/2023-Charged-Up/actions/workflows/build.yml/badge.svg)](https://github.com/FRC3407/2023-Charged-Up/actions/workflows/build.yml)
+
 # 2023 Charged Up
 Team 3407's robot code for the FRC 2023 game: Charged Up.
 

@@ -1,0 +1,3 @@
+[submodule "src/main/java/frc/robot/team3407"]
+	path = src/main/java/frc/robot/team3407
+	url = https://github.com/S1ink/FRC-Java-Modules

@@ -1,16 +1,43 @@
 package frc.robot;
 
 import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import frc.robot.team3407.Input;
+import frc.robot.team3407.Input.InputDevice;
+import frc.robot.team3407.commandbased.LambdaCommand;
+import frc.robot.team3407.debug.Debug;
 
 
 public class Robot extends TimedRobot {
 
-	public Robot() {}
+	public InputDevice input = new InputDevice(0);
+
+	public Robot() {
+		Debug.log("ROBOT STARTING.");
+		if(this.input.isConnected()) {
+			Debug.log("Xbox Controller Connected.");
+		} else {
+			System.out.println("Checking for inputs...");
+			new Thread(()->{
+				for(;;) {
+					try{ Thread.sleep(500); }	// half a second
+					catch(InterruptedException e) { System.out.println(e.getMessage()); }
+					if(this.input.isConnected()) {
+						Debug.log("Xbox Controller Connected!");
+						this.input.getTrigger(Input.Xbox.Digital.A.value).onTrue(new LambdaCommand(()->Debug.log("Hello World")));
+						return;
+					}
+				}
+			}).start();
+		}
+	}
 
 	@Override
 	public void robotInit() {}
 	@Override
-	public void robotPeriodic() {}
+	public void robotPeriodic() {
+		CommandScheduler.getInstance().run();
+	}
 
 	@Override
 	public void disabledInit() {}

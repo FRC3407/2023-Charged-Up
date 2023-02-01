@@ -1,5 +1,6 @@
 package frc.robot;
 
+import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.util.sendable.SendableBuilder;
@@ -133,6 +134,11 @@ public class DriveBase implements Subsystem, Sendable {
 	public Rotation2d getRotation() {
 		return this.gyro.getRotation2d();
 	}
+
+
+    public static class Drive implements Command {
+        
+    }
 
 
 }

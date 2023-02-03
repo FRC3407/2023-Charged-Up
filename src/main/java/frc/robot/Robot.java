@@ -6,11 +6,19 @@ import frc.robot.team3407.Input;
 import frc.robot.team3407.Input.InputDevice;
 import frc.robot.team3407.commandbased.LambdaCommand;
 import frc.robot.team3407.debug.Debug;
+import frc.robot.team3407.ADIS16470;
 
 
 public class Robot extends TimedRobot {
 
 	public InputDevice input = new InputDevice(0);
+
+	public ADIS16470 imu_gyro = new ADIS16470();
+	public DriveBase drivebase = new DriveBase(
+		Constants.DRIVEBASE_LAYOUT,
+		imu_gyro,
+		Constants.DRIVEBASE_PARAMS
+	);
 
 	public Robot() {
 		Debug.log("ROBOT STARTING.");

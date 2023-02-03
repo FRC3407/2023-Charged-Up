@@ -14,8 +14,19 @@ public final class Constants {
             Inversions.NEITHER,
             DriveLayout.DIFFERENTIAL
         );
-	public static final Inversions
-		DRIVEBASE_ENCODER_INVERSIONS = Inversions.NEITHER;
+    public static final DriveBase.ClosedLoopParams
+        DRIVEBASE_PARAMS = new DriveBase.ClosedLoopParams(
+            1.0,
+            0.3,
+            1.1185,
+            2.1132,
+            1.0668,
+            3.5176,
+            10.0,
+            2.5,
+            2.5,
+            Inversions.NEITHER
+        );
 
 
 	// define motor ports and sensor ids here

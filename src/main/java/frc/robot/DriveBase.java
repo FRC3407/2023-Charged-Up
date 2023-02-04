@@ -4,7 +4,9 @@ import edu.wpi.first.math.kinematics.DifferentialDriveWheelSpeeds;
 import edu.wpi.first.math.kinematics.DifferentialDriveKinematics;
 import edu.wpi.first.math.kinematics.DifferentialDriveOdometry;
 import edu.wpi.first.math.controller.SimpleMotorFeedforward;
+import edu.wpi.first.math.controller.ProfiledPIDController;
 import edu.wpi.first.math.controller.PIDController;
+import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj2.command.CommandBase;
 import edu.wpi.first.wpilibj2.command.Subsystem;
@@ -28,18 +30,21 @@ public class DriveBase implements Subsystem, Sendable {
             track_width_meters,
             wheel_diameter_meters,
 
-			static_voltage,					// kS -- drive motor feedforward term -- "voltage to overcome static friction" -- volts
-			volt_seconds_per_meter,			// kV -- drive motor feedforward term -- "voltage to hold a given velocity" -- volts * seconds / meters
-			volt_seconds_sqrd_per_meter,	// kA -- drive motor feedforward term -- "voltage to hold an acceleration" -- volts * seconds^2 / meters
-			volt_seconds_per_meter_gain,	// kP -- proportional feedback gain -- "voltage applied per unit velocity error" -- volts * seconds / meters
+			static_voltage,					    // kS -- drive motor feedforward term -- "voltage to overcome static friction" -- volts
+			volt_seconds_per_meter,			    // kV -- drive motor feedforward term -- "voltage to hold a given velocity" -- volts * seconds / meters
+			volt_seconds_sqrd_per_meter,	    // kA -- drive motor feedforward term -- "voltage to hold an acceleration" -- volts * seconds^2 / meters
+			volt_seconds_per_meter_gain,	    // kP -- proportional feedback gain -- "voltage applied per unit velocity error" -- volts * seconds / meters
+            volts_per_meter_gain,               // kI -- integral feedback gain -- "voltage applied per unit displacement error" -- volts / meters
+            volt_seconds_sqrd_per_meter_gain,   // kD -- derivitive feedback gain -- "voltage applied per unit acceleration error" -- volts * seconds^2 / meters
 
 			max_voltage_output,				// maximum voltage to be applied to the drivebase motors -- volts
-			max_velocity_mps,				// maximum velocity of either side -- meters / second
-			max_acceleration_mpss			// maximum acceleration of either side -- meters / second^2
+			max_velocity,				    // maximum velocity of either side -- meters / second
+			max_acceleration    			// maximum acceleration of either side -- meters / second^2
         ;
         public ClosedLoopParams(
             double trackwidth, double wheeldiameter,
-            double kS, double kV, double kA, double kP,
+            double kS, double kV, double kA,
+            double kP, double kI, double kD,
             double max_volts, double max_vel, double max_acc,
             Inversions encoderinversions
         ) {
@@ -50,14 +55,18 @@ public class DriveBase implements Subsystem, Sendable {
             this.volt_seconds_per_meter = kV;
             this.volt_seconds_sqrd_per_meter = kA;
             this.volt_seconds_per_meter_gain = kP;
+            this.volts_per_meter_gain = kI;
+            this.volt_seconds_sqrd_per_meter_gain = kD;
             this.max_voltage_output = max_volts;
-            this.max_velocity_mps = max_vel;
-            this.max_acceleration_mpss = max_acc;
+            this.max_velocity = max_vel;
+            this.max_acceleration = max_acc;
         }
         public double kS() { return this.static_voltage; }
 		public double kV() { return this.volt_seconds_per_meter; }
 		public double kA() { return this.volt_seconds_sqrd_per_meter; }
 		public double kP() { return this.volt_seconds_per_meter_gain; }
+        public double kI() { return this.volts_per_meter_gain; }
+        public double kD() { return this.volt_seconds_sqrd_per_meter_gain; }
         public SimpleMotorFeedforward getFeedforward() {
 			return new SimpleMotorFeedforward(
 				this.kS(),
@@ -66,7 +75,13 @@ public class DriveBase implements Subsystem, Sendable {
 			);
 		}
         public PIDController getFeedbackController() {	// should probably be a 'generator' rather than a 'getter'
-            return new PIDController(this.kP(), 0, 0);
+            return new PIDController(this.kP(), this.kI(), this.kD());
+        }
+        public ProfiledPIDController getProfiledFeedbackController() {
+            return new ProfiledPIDController(
+                this.kP(), this.kI(), this.kD(),
+                new TrapezoidProfile.Constraints(this.max_velocity, this.max_acceleration)
+            );
         }
     }
     
@@ -254,6 +269,7 @@ public class DriveBase implements Subsystem, Sendable {
             this.right = r;
             this.left_fb = db.parameters.getFeedbackController();
             this.right_fb = db.parameters.getFeedbackController();
+            super.addRequirements(db);
         }
 
         @Override
@@ -276,6 +292,52 @@ public class DriveBase implements Subsystem, Sendable {
 			);
         }
 		@Override
+		public void end(boolean interrupted) {
+			this.drivebase.setDriveVoltage(0.0, 0.0);
+		}
+		@Override
+		public boolean isFinished() {
+			return false;
+		}
+
+
+    }
+    public static class TankDriveVelocity_P extends CommandBase {
+
+        private final DriveBase drivebase;
+        private final AnalogSupplier left, right;
+        private final ProfiledPIDController left_fb, right_fb;
+
+        public TankDriveVelocity_P(
+            DriveBase db, AnalogSupplier l, AnalogSupplier r
+        ) {
+            this.drivebase = db;
+            this.left = l;
+            this.right = r;
+            this.left_fb = db.parameters.getProfiledFeedbackController();
+            this.right_fb = db.parameters.getProfiledFeedbackController();
+        }
+
+        @Override
+        public void initialize() {
+            this.left_fb.reset(0);
+            this.right_fb.reset(0);
+        }
+        @Override
+        public void execute() {
+			double
+				lt = this.left.get(),	// the target velocity from the left input --> METERS PER SECOND
+				rt = this.right.get(),	// ^^^ for the right side
+				lc = this.drivebase.getLeftVelocity(),  // the actual velocity
+				rc = this.drivebase.getRightVelocity();
+            this.drivebase.setDriveVoltage(
+				this.drivebase.feedforward.calculate(lt) +  // the calculated feedforward
+					this.left_fb.calculate(lc, lt),   		// add the feedback adjustment
+				this.drivebase.feedforward.calculate(rt) +
+					this.right_fb.calculate(rc, rt)
+			);
+        }
+        @Override
 		public void end(boolean interrupted) {
 			this.drivebase.setDriveVoltage(0.0, 0.0);
 		}

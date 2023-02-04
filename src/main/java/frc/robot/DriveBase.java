@@ -1,18 +1,27 @@
 package frc.robot;
 
-import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.Subsystem;
-import edu.wpi.first.wpilibj.interfaces.Gyro;
-import edu.wpi.first.util.sendable.SendableBuilder;
-import edu.wpi.first.util.sendable.Sendable;
+import com.ctre.phoenix.motorcontrol.FeedbackDevice;
+import com.ctre.phoenix.motorcontrol.InvertType;
+import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
+
 import edu.wpi.first.math.geometry.Rotation2d;
-import com.ctre.phoenix.motorcontrol.can.*;
-import com.ctre.phoenix.motorcontrol.*;
-import frc.robot.team3407.drive.Types.*;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.kinematics.DifferentialDriveOdometry;
+import edu.wpi.first.math.trajectory.Trajectory;
+import edu.wpi.first.util.sendable.Sendable;
+import edu.wpi.first.util.sendable.SendableBuilder;
+import edu.wpi.first.wpilibj.interfaces.Gyro;
+import edu.wpi.first.wpilibj2.command.CommandBase;
+import edu.wpi.first.wpilibj2.command.RamseteCommand;
+import edu.wpi.first.wpilibj2.command.Subsystem;
+import frc.robot.team3407.drive.Types.DriveMap_4;
+import frc.robot.team3407.drive.Types.Inversions;
 
 
-public class DriveBase implements Subsystem, Sendable {
-
+public class DriveBase implements Subsystem, Sendable { 
+    //what is this? why not "public class ClosedLoopDifferentialDrive extends DriveBase"
+    //RIP the more I think about this the less I understand 
+    
     public static class ClosedLoopParams {
         public final Inversions
             encoder_inversions;
@@ -31,6 +40,8 @@ public class DriveBase implements Subsystem, Sendable {
         }
     }
     
+
+
     private Gyro 
         gyro;
     private WPI_TalonSRX
@@ -38,6 +49,7 @@ public class DriveBase implements Subsystem, Sendable {
         right, right2;
     private ClosedLoopParams
         parameters;
+    private final DifferentialDriveOdometry odometry;
 
     public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params) {
         this.parameters = params;
@@ -46,6 +58,8 @@ public class DriveBase implements Subsystem, Sendable {
         this.right = map.front_right;
         this.left2 = map.back_left;
         this.right2 = map.back_right;
+        this.odometry = new DifferentialDriveOdometry(this.gyro.getRotation2d()); 
+        /* why??? The DDO parameters worked for Rapid React */
 
         this.left.configFactoryDefault();
         this.right.configFactoryDefault();
@@ -135,9 +149,81 @@ public class DriveBase implements Subsystem, Sendable {
 		return this.gyro.getRotation2d();
 	}
 
+    public Pose2d getCurrentPose() {	// in meters
+		return this.odometry.getPoseMeters();
+	}
+    // this was in Rapid React so I added it Justin Case:
+    // public Pose2d getTotalPose() {	// in meters
+	// 	//return this.odometry.getPoseMeters().plus(this.position_offset);
+	// 	Pose2d current = this.getCurrentPose();
+	// 	return this.position_offset.plus(new Transform2d(current.getTranslation(), current.getRotation()));
+	// }
+    
+    
+    public FollowTrajectory followTrajectory(Trajectory t)
+    {
+        return new FollowTrajectory(this, t);
+    }
 
-    public static class Drive implements Command {
-        
+    public static class FollowTrajectory extends CommandBase{
+        private final DriveBase drivebase; 
+        private final Trajectory trajectory;
+        private final RamseteCommand controller;
+        private final boolean stop; // for what?
+
+        @Override public void initialize(){}
+        @Override public void execute(){}
+        @Override public void end(boolean interrupted){}
+        @Override public boolean isFinished(){
+            return false; // just so it isn't red anymore 
+        }
+
+
+        FollowTrajectory(DriveBase db, Trajectory t)
+        {
+            this(db, t, true);
+        }
+        // FollowTrajectory(DriveBase db, Path json_path)
+        // {
+        //     this(db, json_path, true);
+        //     // calciumatator
+        // }
+        FollowTrajectory(DriveBase db, Trajectory t, boolean s)
+        {
+            super();
+            this.trajectory = t;
+            this.stop = s;
+            this.controller = new RamseteCommand
+                (
+                this.trajectory, 
+                super.DriveBase.getCurrentPose(), 
+                /* <-- vs DriveBase::getCurrentPose??? */
+                this.controller, 
+                /* ^^^ new RamseteController(Constants.ramsete_B, Constants.ramsete_Zeta)*/
+                /* why all this? Cant we initialize it when it's declared? */
+                super.DriveBase.feedforward, 
+                /* ^^^ Do we need this? "protected final ClosedLoopDifferentialDrive drivebase_cl;" */
+                /* thats an object of the CLDD class, meaning it is a drive object, we need a drive object */
+                /* we have private final DriveBase drivebase; in the FollowT class, do we just need to initlaize it?*/
+                /* there is no "DriveBase Object to refrence and get info from" */
+                super.DriveBase.kinematics,  
+                super.DriveBase::wheelspeed,
+                null, 
+                /* new PIDController(super.drivebase_cl.params.kP(), 0, 0), huh? */  
+                null, 
+                /* new PIDController(super.drivebase_cl.params.kP(), 0, 0), */
+                super::setDriveVoltage
+                );
+        }
+        // FollowTrajectory(DriveBase db, Path json_path, boolean s)
+        // {
+        //     // this isn't right
+        //     super(db);
+        //     this.Trajectory = json_path;
+        //     this.stop = s;
+        // }
+
+
     }
 
 

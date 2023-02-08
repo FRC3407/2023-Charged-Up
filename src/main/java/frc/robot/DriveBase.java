@@ -1,24 +1,25 @@
 package frc.robot;
 
-import edu.wpi.first.math.kinematics.DifferentialDriveWheelSpeeds;
+import com.ctre.phoenix.motorcontrol.FeedbackDevice;
+import com.ctre.phoenix.motorcontrol.InvertType;
+import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
+
+import edu.wpi.first.math.controller.PIDController;
+import edu.wpi.first.math.controller.ProfiledPIDController;
+import edu.wpi.first.math.controller.SimpleMotorFeedforward;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.DifferentialDriveKinematics;
 import edu.wpi.first.math.kinematics.DifferentialDriveOdometry;
-import edu.wpi.first.math.controller.SimpleMotorFeedforward;
-import edu.wpi.first.math.controller.ProfiledPIDController;
-import edu.wpi.first.math.controller.PIDController;
+import edu.wpi.first.math.kinematics.DifferentialDriveWheelSpeeds;
 import edu.wpi.first.math.trajectory.TrapezoidProfile;
-import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.util.sendable.Sendable;
+import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj2.command.CommandBase;
 import edu.wpi.first.wpilibj2.command.Subsystem;
-import edu.wpi.first.wpilibj.interfaces.Gyro;
-import edu.wpi.first.util.sendable.SendableBuilder;
-import edu.wpi.first.util.sendable.Sendable;
-
-import com.ctre.phoenix.motorcontrol.can.*;
-import com.ctre.phoenix.motorcontrol.*;
-
+import frc.robot.team3407.ADIS16470;
 import frc.robot.team3407.Input.AnalogSupplier;
-import frc.robot.team3407.drive.Types.*;
+import frc.robot.team3407.drive.Types.DriveMap_4;
+import frc.robot.team3407.drive.Types.Inversions;
 
 
 public class DriveBase implements Subsystem, Sendable {
@@ -85,8 +86,8 @@ public class DriveBase implements Subsystem, Sendable {
         }
     }
     
-    private final Gyro 
-        gyro;
+    private final ADIS16470 
+        imu;
     private final WPI_TalonSRX
         left, left2,
         right, right2;
@@ -97,15 +98,15 @@ public class DriveBase implements Subsystem, Sendable {
     private final DifferentialDriveKinematics kinematics;
     private final SimpleMotorFeedforward feedforward;
 
-    public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params) {
+    public DriveBase(DriveMap_4<WPI_TalonSRX> map, ADIS16470 imu, ClosedLoopParams params) {
         this.parameters = params;
-        this.gyro = gy;
+        this.imu = imu;
         this.left = map.front_left;
         this.right = map.front_right;
         this.left2 = map.back_left;
         this.right2 = map.back_right;
 
-        this.odometry = new DifferentialDriveOdometry(this.gyro.getRotation2d(), 0, 0);
+        this.odometry = new DifferentialDriveOdometry(this.imu.getRotation2d(), 0, 0);
         this.kinematics = new DifferentialDriveKinematics(this.parameters.track_width_meters);
         this.feedforward = this.parameters.getFeedforward();
 
@@ -143,7 +144,7 @@ public class DriveBase implements Subsystem, Sendable {
 		this.right.setSelectedSensorPosition(0.0);
 	}
     public void zeroHeading() {
-		this.gyro.reset();
+		this.imu.reset();
 	}
 
 
@@ -188,16 +189,16 @@ public class DriveBase implements Subsystem, Sendable {
 	}
 
     public double getContinuousAngle() {	// in degrees
-		return this.gyro.getAngle();
+		return this.imu.getAngle();
 	}
 	public double getHeading() {			// from -180 to 180
-		return this.gyro.getRotation2d().getDegrees();
+		return this.imu.getRotation2d().getDegrees();
 	}
 	public double getTurnRate() {	        // in degrees per second
-		return -this.gyro.getRate();
+		return -this.imu.getRate();
 	}
 	public Rotation2d getRotation() {
-		return this.gyro.getRotation2d();
+		return this.imu.getRotation2d();
 	}
 
 
@@ -348,6 +349,63 @@ public class DriveBase implements Subsystem, Sendable {
 
 
     }
+    public static class AutoBalanceDrive extends CommandBase {
+        private final DriveBase drivebase;
 
+        public AutoBalanceDrive(DriveBase db) {
+            this.drivebase = db;
+        }
+        
+        @Override
+        public void initialize() {
+
+        }
+
+        @Override
+        public void execute() {
+
+        }
+
+        @Override
+        public void end(boolean interrupted){
+
+        }
+
+        @Override
+        public boolean isFinished() {
+            return false;
+        }
+    }
+    
+    public static class AutoBalance extends CommandBase {
+        private final DriveBase drivebase;
+
+        public AutoBalance(DriveBase db) {
+            this.drivebase = db;
+        }
+
+        @Override
+        public void initialize() {
+
+        }
+
+        @Override
+        public void execute() {
+
+        }
+
+        @Override
+        public void end(boolean interrupted){
+
+        }
+
+        @Override
+        public boolean isFinished() {
+            return false;
+        }
+    
+    }
+
+    
 
 }

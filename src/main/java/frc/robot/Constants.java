@@ -15,9 +15,9 @@ public final class Constants {
             DriveLayout.DIFFERENTIAL
         );
     public static final DriveBase.ClosedLoopParams
-        DRIVEBASE_PARAMS = new DriveBase.ClosedLoopParams(
-            1.0,
-            0.3,
+        DRIVEBASE_PARAMS = new DriveBase.ClosedLoopParams(  // MAKE SURE THESE ARE ALL CORRECT BEFORE TEST DRIVING IT!!!
+            0.5,
+            0.1524,
             1.1185,
             2.1132,
             1.0668,

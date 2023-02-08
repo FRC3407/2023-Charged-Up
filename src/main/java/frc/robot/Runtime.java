@@ -36,8 +36,7 @@ public class Runtime extends TimedRobot {
 						this.input.getTrigger(Input.Xbox.Digital.A.value).onTrue(new LambdaCommand(()->System.out.println("Hello World")));
 						
 						TeleopTrigger.Get().onTrue(
-							new DriveBase.TankDriveVelocity(
-								this.drivebase,
+							drivebase.tankDriveVelocity(
 								Input.Xbox.Analog.LY.getSupplier(this.input),
 								Input.Xbox.Analog.RY.getSupplier(this.input)
 							)
@@ -48,6 +47,9 @@ public class Runtime extends TimedRobot {
 				}
 			}).start();
 		}
+		AutonomousTrigger.Get().onTrue(
+			drivebase.activePark(5.0)
+		);
 	}
 
 	@Override

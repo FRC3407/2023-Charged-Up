@@ -1,5 +1,7 @@
 package frc.robot;
 
+import java.util.function.DoubleSupplier;
+
 import edu.wpi.first.math.kinematics.DifferentialDriveWheelSpeeds;
 import edu.wpi.first.math.kinematics.DifferentialDriveKinematics;
 import edu.wpi.first.math.kinematics.DifferentialDriveOdometry;
@@ -9,6 +11,7 @@ import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj2.command.CommandBase;
+import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.util.sendable.SendableBuilder;
@@ -93,9 +96,9 @@ public class DriveBase implements Subsystem, Sendable {
     private final ClosedLoopParams
         parameters;
 
+    private final SimpleMotorFeedforward feedforward;
     private final DifferentialDriveOdometry odometry;
     private final DifferentialDriveKinematics kinematics;
-    private final SimpleMotorFeedforward feedforward;
 
     public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params) {
         this.parameters = params;
@@ -134,6 +137,44 @@ public class DriveBase implements Subsystem, Sendable {
         // add data to send
     }
 
+
+    /** Get a tankdrive command, controlled by inputs that return input percentages (ei. joystick axis outputs: -1 to 1 )
+     * @param l a -1 to 1 ranged input supplier for the left side
+     * @param r a -1 to 1 ranged input supplier for the right side
+     * @return A command for driving the drivebase using tankdrive
+     */
+    public Command tankDrivePercent(DoubleSupplier l, DoubleSupplier r) {
+        return new TankDrivePercent(this, l, r);
+    }
+    /** Get a tankdrive command, controlled by inputs that return voltages for each side
+     * @param lvt a ~-12 to ~12 ranged input supplier for the left side motor voltages
+     * @param rvt a ~-12 to ~12 ranged input supplier for the right side motor voltages
+     * @return A command for driving the drivebase using tankdrive
+     */
+    public Command tankDriveVoltage(DoubleSupplier lvt, DoubleSupplier rvt) {
+        return new TankDriveVoltage(this, lvt, rvt);
+    }
+    /** Get a tankdrive command, controlled by inputs that provide target velocities for each side
+     * @param lv a velocity supplier in METERS PER SECOND for the left side
+     * @param rv a velocity supplier in METERS PER SECOND for the right side
+     * @return A command for driving the drivebase using tankdrive
+     */
+    public Command tankDriveVelocity(DoubleSupplier lv, DoubleSupplier rv) {
+        return new TankDriveVelocity(this, lv, rv);
+    }
+    /** Get a tankdrive command, controlled by inputs that provide target velocities for each side -- transitions are limited by a trapazoid profile generator
+     * @param lv a velocity supplier in METERS PER SECOND for the left side
+     * @param rv a velocity supplier in METERS PER SECOND for the right side
+     * @return A command for driving the drivebase using tankdrive
+     */
+    public Command tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv) {
+        return new TankDriveVelocity_P(this, lv, rv);
+    }
+    public Command activePark(double p_gain) {
+        return new ActivePark(this, p_gain);
+    }
+
+
     public void setDriveVoltage(double lv, double rv) {
         this.left.setVoltage(lv);
         this.right.setVoltage(rv);
@@ -145,6 +186,19 @@ public class DriveBase implements Subsystem, Sendable {
     public void zeroHeading() {
 		this.gyro.reset();
 	}
+
+    public void setCoastMode() {
+        this.left.setNeutralMode(NeutralMode.Coast);
+        this.left2.setNeutralMode(NeutralMode.Coast);
+        this.right.setNeutralMode(NeutralMode.Coast);
+        this.right2.setNeutralMode(NeutralMode.Coast);
+    }
+    public void setBrakeMode() {
+        this.left.setNeutralMode(NeutralMode.Brake);
+        this.left2.setNeutralMode(NeutralMode.Brake);
+        this.right.setNeutralMode(NeutralMode.Brake);
+        this.right2.setNeutralMode(NeutralMode.Brake);
+    }
 
 
     public double getRawLeftPosition() {
@@ -206,9 +260,9 @@ public class DriveBase implements Subsystem, Sendable {
     public static class TankDriveVoltage extends CommandBase {
         
         private final DriveBase drivebase;
-        private final AnalogSupplier left, right;
+        private final DoubleSupplier left, right;
 
-        public TankDriveVoltage(DriveBase db, AnalogSupplier lv, AnalogSupplier rv) {
+        public TankDriveVoltage(DriveBase db, DoubleSupplier lv, DoubleSupplier rv) {
             this.drivebase = db;
             this.left = lv;
             this.right = rv;
@@ -222,8 +276,8 @@ public class DriveBase implements Subsystem, Sendable {
         @Override
         public void execute() {
             this.drivebase.setDriveVoltage(
-                this.left.get(),
-                this.right.get()
+                this.left.getAsDouble(),
+                this.right.getAsDouble()
             );
         }
         @Override
@@ -240,15 +294,15 @@ public class DriveBase implements Subsystem, Sendable {
 	/** TankDrive that is controlled by 2 'percent-returning' analog suppliers -- ex. joystick axis */
 	public static class TankDrivePercent extends TankDriveVoltage {
 
-		public TankDrivePercent(DriveBase db, AnalogSupplier l, AnalogSupplier r) {
+		public TankDrivePercent(DriveBase db, DoubleSupplier l, DoubleSupplier r) {
 			super(db, l, r);
 		}
 
 		@Override
 		public void execute() {
 			super.drivebase.setDriveVoltage(
-				super.left.get() * super.drivebase.parameters.max_voltage_output,
-				super.right.get() * super.drivebase.parameters.max_voltage_output
+				super.left.getAsDouble() * super.drivebase.parameters.max_voltage_output,
+				super.right.getAsDouble() * super.drivebase.parameters.max_voltage_output
 			);
 		}
 
@@ -258,11 +312,11 @@ public class DriveBase implements Subsystem, Sendable {
     public static class TankDriveVelocity extends CommandBase {
 
         private final DriveBase drivebase;
-        private final AnalogSupplier left, right;
+        private final DoubleSupplier left, right;
         private final PIDController left_fb, right_fb;	// feedback controllers for left and
 
         public TankDriveVelocity(
-            DriveBase db, AnalogSupplier l, AnalogSupplier r
+            DriveBase db, DoubleSupplier l, DoubleSupplier r
         ) {
             this.drivebase = db;
             this.left = l;
@@ -280,8 +334,8 @@ public class DriveBase implements Subsystem, Sendable {
         @Override
         public void execute() {
 			double
-				lt = this.left.get(),	// the target velocity from the left input --> METERS PER SECOND
-				rt = this.right.get(),	// ^^^ for the right side
+				lt = this.left.getAsDouble(),	// the target velocity from the left input --> METERS PER SECOND
+				rt = this.right.getAsDouble(),	// ^^^ for the right side
 				lc = this.drivebase.getLeftVelocity(),  // the actual velocity
 				rc = this.drivebase.getRightVelocity();
             this.drivebase.setDriveVoltage(
@@ -305,11 +359,11 @@ public class DriveBase implements Subsystem, Sendable {
     public static class TankDriveVelocity_P extends CommandBase {
 
         private final DriveBase drivebase;
-        private final AnalogSupplier left, right;
+        private final DoubleSupplier left, right;
         private final ProfiledPIDController left_fb, right_fb;
 
         public TankDriveVelocity_P(
-            DriveBase db, AnalogSupplier l, AnalogSupplier r
+            DriveBase db, DoubleSupplier l, DoubleSupplier r
         ) {
             this.drivebase = db;
             this.left = l;
@@ -326,8 +380,8 @@ public class DriveBase implements Subsystem, Sendable {
         @Override
         public void execute() {
 			double
-				lt = this.left.get(),	// the target velocity from the left input --> METERS PER SECOND
-				rt = this.right.get(),	// ^^^ for the right side
+				lt = this.left.getAsDouble(),	// the target velocity from the left input --> METERS PER SECOND
+				rt = this.right.getAsDouble(),	// ^^^ for the right side
 				lc = this.drivebase.getLeftVelocity(),  // the actual velocity
 				rc = this.drivebase.getRightVelocity();
             this.drivebase.setDriveVoltage(
@@ -345,6 +399,44 @@ public class DriveBase implements Subsystem, Sendable {
 		public boolean isFinished() {
 			return false;
 		}
+
+
+    }
+
+
+    public static class ActivePark extends CommandBase {
+
+        private final DriveBase drivebase;
+        private final double volts_per_meter;
+        private double linit, rinit;
+
+        public ActivePark(DriveBase db, double p) { // p is the proportional gain, in volts per meter [error]
+            this.drivebase = db;
+            this.volts_per_meter = p;
+        }
+
+        @Override
+        public void initialize() {
+            this.linit = this.drivebase.getLeftPosition();
+            this.rinit = this.drivebase.getRightPosition();
+        }
+        @Override
+        public void execute() {
+            double le = this.drivebase.getLeftPosition() - this.linit;
+            double re = this.drivebase.getRightPosition() - this.rinit;
+            this.drivebase.setDriveVoltage(
+                -le * this.volts_per_meter,     // we are assuming that positive position for the encoders is the same direction as positive voltage
+                -re * this.volts_per_meter
+            );
+        }
+        @Override
+        public void end(boolean interrupted) {
+            this.drivebase.setDriveVoltage(0.0, 0.0);
+        }
+        @Override
+        public boolean isFinished() {
+            return false;
+        }
 
 
     }

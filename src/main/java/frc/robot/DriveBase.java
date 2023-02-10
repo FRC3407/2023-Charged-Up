@@ -8,23 +8,33 @@ import edu.wpi.first.math.kinematics.DifferentialDriveOdometry;
 import edu.wpi.first.math.controller.SimpleMotorFeedforward;
 import edu.wpi.first.math.controller.ProfiledPIDController;
 import edu.wpi.first.math.controller.PIDController;
+import edu.wpi.first.math.trajectory.TrajectoryConfig;
 import edu.wpi.first.math.trajectory.TrapezoidProfile;
+import edu.wpi.first.math.trajectory.constraint.DifferentialDriveVoltageConstraint;
+import edu.wpi.first.math.geometry.Transform2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.wpilibj2.command.CommandBase;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Subsystem;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
+import edu.wpi.first.wpilibj.MotorSafety;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.util.sendable.Sendable;
 
 import com.ctre.phoenix.motorcontrol.can.*;
 import com.ctre.phoenix.motorcontrol.*;
 
+import com.pathplanner.lib.PathPlanner;
+import com.pathplanner.lib.PathPlannerTrajectory;
+
 import frc.robot.team3407.Input.AnalogSupplier;
 import frc.robot.team3407.drive.Types.*;
 
 
-public class DriveBase implements Subsystem, Sendable {
+public class DriveBase extends MotorSafety implements Subsystem, Sendable {
 
     public static class ClosedLoopParams {
         public final Inversions
@@ -100,6 +110,8 @@ public class DriveBase implements Subsystem, Sendable {
     private final DifferentialDriveOdometry odometry;
     private final DifferentialDriveKinematics kinematics;
 
+    private Pose2d elapsed_cache;
+
     public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params) {
         this.parameters = params;
         this.gyro = gy;
@@ -130,11 +142,55 @@ public class DriveBase implements Subsystem, Sendable {
 
     @Override
     public void periodic() {
-        // update field position and other tethered stats
+        this.odometry.update(
+			this.gyro.getRotation2d(),
+			this.getLeftPosition(),
+			this.getRightPosition()
+		);
     }
     @Override
     public void initSendable(SendableBuilder b) {
-        // add data to send
+        b.setSmartDashboardType("DriveBase [4x TalonSRX Differential]");
+        b.addDoubleProperty("Left Distance", this::getLeftPosition, null);
+		b.addDoubleProperty("Right Distance", this::getRightPosition, null);
+		b.addDoubleProperty("Left Velocity", this::getLeftVelocity, null);
+		b.addDoubleProperty("Right Velocity", this::getRightVelocity, null);
+		b.addDoubleProperty("Rotation (Total)", this::getContinuousAngle, null);
+        b.addDoubleArrayProperty("Output Voltage [L1, R1, L2, R2]",
+            ()->{ return new double[]{
+                this.left.getMotorOutputVoltage(),
+                this.right.getMotorOutputVoltage(),
+                this.left2.getMotorOutputVoltage(),
+                this.right2.getMotorOutputVoltage()
+            }; }, null);
+        b.addDoubleArrayProperty("Output Current [L1, R1, L2, R2]",
+            ()->{ return new double[]{
+                this.left.getStatorCurrent(),
+                this.right.getStatorCurrent(),
+                this.left2.getStatorCurrent(),
+                this.right2.getStatorCurrent()
+            }; }, null);
+    }
+    @Override
+    public void stopMotor() {
+        this.left.stopMotor();
+        this.left2.stopMotor();
+        this.right.stopMotor();
+        this.right2.stopMotor();
+        super.feed();
+    }
+    @Override
+    public String getDescription() {
+        return "DriveBase [2023]";
+    }
+
+    public Field2d getSendableLocation() {
+        Field2d map = new Field2d();
+        SmartDashboard.putData("Robot Location", map);
+        return map;
+    }
+    public void updateFieldLocation(Field2d map) {
+        map.setRobotPose(this.getTotalPose());
     }
 
 
@@ -170,6 +226,10 @@ public class DriveBase implements Subsystem, Sendable {
     public Command tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv) {
         return new TankDriveVelocity_P(this, lv, rv);
     }
+    /** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
+     * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
+     * @return A command for active parking
+     */
     public Command activePark(double p_gain) {
         return new ActivePark(this, p_gain);
     }
@@ -178,6 +238,7 @@ public class DriveBase implements Subsystem, Sendable {
     public void setDriveVoltage(double lv, double rv) {
         this.left.setVoltage(lv);
         this.right.setVoltage(rv);
+        super.feed();
     }
     public void resetEncoders() {
 		this.left.setSelectedSensorPosition(0.0);
@@ -185,6 +246,12 @@ public class DriveBase implements Subsystem, Sendable {
 	}
     public void zeroHeading() {
 		this.gyro.reset();
+	}
+    public void resetOdometry(Pose2d p) {
+		this.resetEncoders();
+		this.elapsed_cache = this.getTotalPose();
+		this.odometry.resetPosition(
+            this.getRotation(), 0.0, 0.0, p);
 	}
 
     public void setCoastMode() {
@@ -252,6 +319,30 @@ public class DriveBase implements Subsystem, Sendable {
 	}
 	public Rotation2d getRotation() {
 		return this.gyro.getRotation2d();
+	}
+
+    public Pose2d getDeltaPose() {
+        return this.odometry.getPoseMeters();
+    }
+    public Pose2d getTotalPose() {
+        Pose2d current = this.getDeltaPose();
+        return this.elapsed_cache.plus(new Transform2d(current.getTranslation(), current.getRotation()));
+    }
+
+    public DifferentialDriveVoltageConstraint getVoltageConstraint() {
+		return new DifferentialDriveVoltageConstraint(
+			this.feedforward, this.kinematics, this.parameters.max_voltage_output
+		);
+	}
+	public TrajectoryConfig getTrajectoryConfig() {
+		return new TrajectoryConfig(
+			this.parameters.max_velocity,
+			this.parameters.max_acceleration
+		).setKinematics(
+			this.kinematics
+		).addConstraint(
+			this.getVoltageConstraint()
+		);
 	}
 
 
@@ -353,6 +444,13 @@ public class DriveBase implements Subsystem, Sendable {
 		public boolean isFinished() {
 			return false;
 		}
+
+        @Override
+        public void initSendable(SendableBuilder b) {
+            super.initSendable(b);
+            b.addDoubleProperty("Left Target M/S", this.left, null);
+            b.addDoubleProperty("Right Target M/S", this.right, null);
+        }
 
 
     }

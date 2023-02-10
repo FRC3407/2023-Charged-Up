@@ -30,6 +30,14 @@ public final class Constants {
             Inversions.NEITHER
         );
 
+    public static final double
+        DRIVE_INPUT_DEADZONE = 0.08,
+        DRIVE_INPUT_VEL_SCALE = -2.5,
+        DRIVE_INPUT_EXP_POWER = 2.0,
+
+        ACTIVE_PARK_VOLTS_PER_METER = 100.0
+    ;
+
 
 	// define motor ports and sensor ids here
 

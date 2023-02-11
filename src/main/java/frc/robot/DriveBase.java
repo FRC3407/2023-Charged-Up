@@ -170,6 +170,13 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
                 this.left2.getStatorCurrent(),
                 this.right2.getStatorCurrent()
             }; }, null);
+        b.addDoubleArrayProperty("Controller Temps [L1, R1, L2, R2]",
+            ()->{ return new double[]{
+                this.left.getTemperature(),
+                this.right.getTemperature(),
+                this.left2.getTemperature(),
+                this.right2.getTemperature()
+            }; }, null);
     }
     @Override
     public void stopMotor() {

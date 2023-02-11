@@ -12,16 +12,17 @@ import frc.robot.team3407.Input.InputDevice;
 import frc.robot.team3407.commandbased.EventTriggers.*;
 import frc.robot.team3407.commandbased.LambdaCommand;
 import frc.robot.team3407.ADIS16470;
+import frc.robot.team3407.ADIS16470_3X;
 
 
 public class Runtime extends TimedRobot {
 
 	public InputDevice input = new InputDevice(0);
 
-	public ADIS16470 imu_gyro = new ADIS16470();
+	public ADIS16470_3X imu_gyro = new ADIS16470_3X();
 	public DriveBase drivebase = new DriveBase(
 		Constants.DRIVEBASE_LAYOUT,
-		this.imu_gyro,
+		this.imu_gyro.getGyroAxis(ADIS16470_3X.IMUAxis.kZ),
 		Constants.DRIVEBASE_PARAMS
 	);
 

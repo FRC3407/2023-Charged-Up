@@ -16,8 +16,8 @@ public final class Constants {
         );
     public static final DriveBase.ClosedLoopParams
         DRIVEBASE_PARAMS = new DriveBase.ClosedLoopParams(  // MAKE SURE THESE ARE ALL CORRECT BEFORE TEST DRIVING IT!!!
-            0.5,
-            0.1524,
+            0.0,        // use the 'empirical' value from characterization here rather than the actual width
+            0.1524, // 6 inches, coverted to meters
             1.1185,
             2.1132,
             1.0668,

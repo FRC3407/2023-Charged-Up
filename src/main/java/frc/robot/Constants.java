@@ -26,6 +26,10 @@ public final class Constants {
 
 	// add physical properties here
 
+    // closed loop drive params
+    public static final double ramsete_B = 2.0;
+    public static final double ramsete_Zeta = 0.7;    // constants for ramsete command -> recommended in WPILib docs
+
 	
 	public static final double
 		SRX_MAG_UNITS_PER_REVOLUTION = 4096,

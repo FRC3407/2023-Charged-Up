@@ -14,8 +14,29 @@ public final class Constants {
             Inversions.NEITHER,
             DriveLayout.DIFFERENTIAL
         );
-	public static final Inversions
-		DRIVEBASE_ENCODER_INVERSIONS = Inversions.NEITHER;
+    public static final DriveBase.ClosedLoopParams
+        DRIVEBASE_PARAMS = new DriveBase.ClosedLoopParams(  // MAKE SURE THESE ARE ALL CORRECT BEFORE TEST DRIVING IT!!!
+            0.0,        // use the 'empirical' value from characterization here rather than the actual width
+            0.1524, // 6 inches, coverted to meters
+            1.1185,
+            2.1132,
+            1.0668,
+            3.5176,
+            0.0,
+            0.0,
+            10.0,
+            2.5,
+            2.5,
+            Inversions.NEITHER
+        );
+
+    public static final double
+        DRIVE_INPUT_DEADZONE = 0.08,
+        DRIVE_INPUT_VEL_SCALE = -2.5,
+        DRIVE_INPUT_EXP_POWER = 2.0,
+
+        ACTIVE_PARK_VOLTS_PER_METER = 100.0
+    ;
 
 
 	// define motor ports and sensor ids here

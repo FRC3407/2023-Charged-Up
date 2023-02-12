@@ -1,37 +1,45 @@
 package frc.robot;
 
+import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.function.DoubleSupplier;
 
-import edu.wpi.first.math.kinematics.DifferentialDriveWheelSpeeds;
+import com.ctre.phoenix.motorcontrol.FeedbackDevice;
+import com.ctre.phoenix.motorcontrol.InvertType;
+import com.ctre.phoenix.motorcontrol.NeutralMode;
+import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
+import com.pathplanner.lib.PathPlannerTrajectory;
+import com.pathplanner.lib.commands.PPRamseteCommand;
+
+import edu.wpi.first.math.controller.PIDController;
+import edu.wpi.first.math.controller.ProfiledPIDController;
+import edu.wpi.first.math.controller.RamseteController;
+import edu.wpi.first.math.controller.SimpleMotorFeedforward;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Transform2d;
 import edu.wpi.first.math.kinematics.DifferentialDriveKinematics;
 import edu.wpi.first.math.kinematics.DifferentialDriveOdometry;
-import edu.wpi.first.math.controller.SimpleMotorFeedforward;
-import edu.wpi.first.math.controller.ProfiledPIDController;
-import edu.wpi.first.math.controller.PIDController;
+import edu.wpi.first.math.kinematics.DifferentialDriveWheelSpeeds;
+import edu.wpi.first.math.trajectory.Trajectory;
 import edu.wpi.first.math.trajectory.TrajectoryConfig;
+import edu.wpi.first.math.trajectory.TrajectoryUtil;
 import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.math.trajectory.constraint.DifferentialDriveVoltageConstraint;
-import edu.wpi.first.math.geometry.Transform2d;
-import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.wpilibj2.command.CommandBase;
-import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.Subsystem;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-import edu.wpi.first.wpilibj.smartdashboard.Field2d;
-import edu.wpi.first.wpilibj.interfaces.Gyro;
-import edu.wpi.first.wpilibj.MotorSafety;
-import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.util.sendable.Sendable;
-
-import com.ctre.phoenix.motorcontrol.can.*;
-import com.ctre.phoenix.motorcontrol.*;
-
-import com.pathplanner.lib.PathPlanner;
-import com.pathplanner.lib.PathPlannerTrajectory;
-
-import frc.robot.team3407.Input.AnalogSupplier;
-import frc.robot.team3407.drive.Types.*;
+import edu.wpi.first.util.sendable.SendableBuilder;
+import edu.wpi.first.wpilibj.MotorSafety;
+import edu.wpi.first.wpilibj.interfaces.Gyro;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.CommandBase;
+import edu.wpi.first.wpilibj2.command.InstantCommand;
+import edu.wpi.first.wpilibj2.command.RamseteCommand;
+import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
+import edu.wpi.first.wpilibj2.command.Subsystem;
+import frc.robot.team3407.drive.Types.DriveMap_4;
+import frc.robot.team3407.drive.Types.Inversions;
 
 
 public class DriveBase extends MotorSafety implements Subsystem, Sendable {
@@ -328,6 +336,7 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
 		return this.gyro.getRotation2d();
 	}
 
+
     public Pose2d getDeltaPose() {
         return this.odometry.getPoseMeters();
     }
@@ -543,8 +552,119 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
             return false;
         }
 
-
     }
 
 
-}
+	public FollowTrajectory followTrajectory(Trajectory t)
+    {
+        return new FollowTrajectory(this, t);
+    }
+
+    public static class FollowTrajectory extends CommandBase {
+        private final DriveBase drivebase; 
+        private final Trajectory trajectory;
+        private final RamseteCommand controller;
+        private final boolean stop;
+
+        @Override public void initialize(){}
+        @Override public void execute(){}
+        @Override public void end(boolean interrupted){}
+        @Override public boolean isFinished(){
+            return false; // just so it isn't red anymore 
+        }
+
+
+        FollowTrajectory(DriveBase db, Trajectory t)
+        {
+            this(db, t, true);
+        }
+
+        FollowTrajectory(DriveBase db, Path json_path)
+        {
+            this(db, json_path, true);
+            // calciumatator
+        }
+
+        FollowTrajectory(DriveBase db, Trajectory t, boolean s)
+        {
+            super();
+            this.trajectory = t;
+            this.stop = s;
+            this.drivebase = db;
+            this.controller = new RamseteCommand
+                (
+                this.trajectory, 
+                this.drivebase::getDeltaPose, 
+                /* recives a function, and keeps getting new info */
+                new RamseteController(Constants.ramsete_B, Constants.ramsete_Zeta),
+                this.drivebase.feedforward, 
+                this.drivebase.kinematics,  
+                this.drivebase::getWheelSpeeds, 
+                this.drivebase.parameters.getFeedbackController(), 
+                this.drivebase.parameters.getFeedbackController(), 
+                this.drivebase::setDriveVoltage
+                );
+        }
+
+        FollowTrajectory(DriveBase db, Path json_path, boolean s)
+        {
+            super();
+            this.drivebase = db;
+            this.stop = s;
+			Trajectory temp;
+			try {
+				temp = TrajectoryUtil.fromPathweaverJson(json_path);
+			} catch(Exception e) {
+				System.err.println("FAILED TO READ TRAJECTORY: " + json_path.toString() + " -> " + e.getMessage());
+				temp = new Trajectory(Arrays.asList(new Trajectory.State()));	// do-nothing trajectory as placeholder
+			}
+			this.trajectory = temp;
+			this.controller = new RamseteCommand
+            (
+				this.trajectory,
+				this.drivebase::getDeltaPose,
+				new RamseteController(Constants.ramsete_B, Constants.ramsete_Zeta),
+				this.drivebase.feedforward,
+				this.drivebase.kinematics,
+				this.drivebase::getWheelSpeeds,
+				this.drivebase.parameters.getFeedbackController(), 
+                this.drivebase.parameters.getFeedbackController(),
+				this.drivebase::setDriveVoltage
+			);
+
+        }
+    
+    /* 
+                          NOT DONE YET!!!!!!!
+    */ 
+
+
+    //     // Assuming this method is part of a drivetrain subsystem that provides the necessary methods
+    // public Command followTrajectoryCommand(PathPlannerTrajectory traj, boolean isFirstPath) {
+    //     return new SequentialCommandGroup(
+    //         new InstantCommand(() -> {
+    //         // Reset odometry for the first path you run during auto
+    //         if(isFirstPath){
+    //             this.resetOdometry(traj.getInitialPose());
+    //         }
+    //         }),
+    //         new PPRamseteCommand(
+    //             traj, 
+    //             this::getPose, // Pose supplier
+    //             new RamseteController(),
+    //             new SimpleMotorFeedforward(KS, KV, KA),
+    //             this.kinematics, // DifferentialDriveKinematics
+    //             this::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
+    //             new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
+    //             new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
+    //             this::outputVolts, // Voltage biconsumer
+    //             true, // Should the path be automatically mirrored depending on alliance color. Optional, defaults to true
+    //             this // Requires this drive subsystem
+    //         )
+    //     );
+    // }
+
+
+    }
+
+ }

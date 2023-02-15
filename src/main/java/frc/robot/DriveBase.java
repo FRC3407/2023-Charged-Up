@@ -61,6 +61,9 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
             volts_per_meter_gain,               // kI -- integral feedback gain -- "voltage applied per unit displacement error" -- volts / meters
             volt_seconds_sqrd_per_meter_gain,   // kD -- derivitive feedback gain -- "voltage applied per unit acceleration error" -- volts * seconds^2 / meters
 
+            ramsete_B,
+            ramsete_Z,
+
 			max_voltage_output,				// maximum voltage to be applied to the drivebase motors -- volts
 			max_velocity,				    // maximum velocity of either side -- meters / second
 			max_acceleration    			// maximum acceleration of either side -- meters / second^2
@@ -69,6 +72,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
             double trackwidth, double wheeldiameter,
             double kS, double kV, double kA,
             double kP, double kI, double kD,
+            double ramsete_B, double ramsete_Z,
             double max_volts, double max_vel, double max_acc,
             Inversions encoderinversions
         ) {
@@ -81,6 +85,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
             this.volt_seconds_per_meter_gain = kP;
             this.volts_per_meter_gain = kI;
             this.volt_seconds_sqrd_per_meter_gain = kD;
+            this.ramsete_B = ramsete_B;
+            this.ramsete_Z = ramsete_Z;
             this.max_voltage_output = max_volts;
             this.max_velocity = max_vel;
             this.max_acceleration = max_acc;
@@ -91,6 +97,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		public double kP() { return this.volt_seconds_per_meter_gain; }
         public double kI() { return this.volts_per_meter_gain; }
         public double kD() { return this.volt_seconds_sqrd_per_meter_gain; }
+        public PIDConstants kPID() { return new PIDConstants(this.kP(), this.kI(), this.kD()); }
         public SimpleMotorFeedforward getFeedforward() {
 			return new SimpleMotorFeedforward(
 				this.kS(),
@@ -107,6 +114,11 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
                 new TrapezoidProfile.Constraints(this.max_velocity, this.max_acceleration)
             );
         }
+        public RamseteController getRamseteController() {
+            return new RamseteController(
+                this.ramsete_B, this.ramsete_Z
+            );
+        }
     }
     
     private final Gyro 
@@ -120,6 +132,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
     private final SimpleMotorFeedforward feedforward;
     private final DifferentialDriveOdometry odometry;
     private final DifferentialDriveKinematics kinematics;
+
+    private RamseteAutoBuilder autobuilder = null;
 
     private Pose2d elapsed_cache;
 
@@ -365,23 +379,21 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	}
 
     public RamseteAutoBuilder getAutoBuilder(HashMap<String, Command> events) {
-        return new RamseteAutoBuilder(
-            this::getDeltaPose,
-            this::resetOdometry,
-            new RamseteController(
-                Constants.ramsete_B,
-                Constants.ramsete_Zeta),
-            this.kinematics,
-            this.feedforward,
-            this::getWheelSpeeds,
-            new PIDConstants(
-                this.parameters.kP(),
-                this.parameters.kI(),
-                this.parameters.kD()),
-            this::setDriveVoltage,
-            events,
-            this
-        );
+        if(this.autobuilder == null) {  // or if new event map
+            this.autobuilder = new RamseteAutoBuilder(
+                this::getDeltaPose,
+                this::resetOdometry,
+                this.parameters.getRamseteController(),
+                this.kinematics,
+                this.feedforward,
+                this::getWheelSpeeds,
+                this.parameters.kPID(),
+                this::setDriveVoltage,
+                events,
+                this
+            );
+        }
+        return this.autobuilder;
     }
 
 
@@ -630,7 +642,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
                 this.trajectory, 
                 this.drivebase::getDeltaPose, 
                 /* recives a function, and keeps getting new info */
-                new RamseteController(Constants.ramsete_B, Constants.ramsete_Zeta),
+                this.drivebase.parameters.getRamseteController(),
                 this.drivebase.feedforward, 
                 this.drivebase.kinematics,  
                 this.drivebase::getWheelSpeeds, 
@@ -657,7 +669,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
             (
 				this.trajectory,
 				this.drivebase::getDeltaPose,
-				new RamseteController(Constants.ramsete_B, Constants.ramsete_Zeta),
+				this.drivebase.parameters.getRamseteController(),
 				this.drivebase.feedforward,
 				this.drivebase.kinematics,
 				this.drivebase::getWheelSpeeds,

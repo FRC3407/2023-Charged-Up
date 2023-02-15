@@ -1,6 +1,11 @@
 package frc.robot;
 
+import java.util.HashMap;
+
+import edu.wpi.first.wpilibj2.command.Command;
+
 import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
+
 import frc.robot.team3407.drive.*;
 import frc.robot.team3407.drive.Types.*;
 
@@ -56,6 +61,9 @@ public final class Constants {
 		SRX_MAG_UNITS_PER_REVOLUTION = 4096,
 		FALCON_UNITS_PER_REVOLUTION = 2048
 	;
+
+
+    private static final HashMap<String, Command> AUTO_EVENTS = new HashMap<>();
 
 
 }

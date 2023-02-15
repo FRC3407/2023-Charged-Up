@@ -14,7 +14,7 @@ OBJ_DIR := obj
 OUT_DIR := out
 VS_DIR := VisionServer/lib-vs
 
-NAME := chared-up-vision
+NAME := charged-up-vision
 PROGRAM := $(OUT_DIR)/$(NAME)
 #PROGRAM_VS1 := $(PROGRAM)-vs1
 VISIONSERVER := $(VS_DIR)/out/libvs3407.so

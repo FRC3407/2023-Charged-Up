@@ -2,6 +2,7 @@ package frc.robot;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.function.DoubleSupplier;
 
 import com.ctre.phoenix.motorcontrol.FeedbackDevice;
@@ -9,6 +10,8 @@ import com.ctre.phoenix.motorcontrol.InvertType;
 import com.ctre.phoenix.motorcontrol.NeutralMode;
 import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
 import com.pathplanner.lib.PathPlannerTrajectory;
+import com.pathplanner.lib.auto.PIDConstants;
+import com.pathplanner.lib.auto.RamseteAutoBuilder;
 import com.pathplanner.lib.commands.PPRamseteCommand;
 
 import edu.wpi.first.math.controller.PIDController;
@@ -42,7 +45,7 @@ import frc.robot.team3407.drive.Types.DriveMap_4;
 import frc.robot.team3407.drive.Types.Inversions;
 
 
-public class DriveBase extends MotorSafety implements Subsystem, Sendable {
+public final class DriveBase extends MotorSafety implements Subsystem, Sendable {
 
     public static class ClosedLoopParams {
         public final Inversions
@@ -361,6 +364,26 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
 		);
 	}
 
+    public RamseteAutoBuilder getAutoBuilder(HashMap<String, Command> events) {
+        return new RamseteAutoBuilder(
+            this::getDeltaPose,
+            this::resetOdometry,
+            new RamseteController(
+                Constants.ramsete_B,
+                Constants.ramsete_Zeta),
+            this.kinematics,
+            this.feedforward,
+            this::getWheelSpeeds,
+            new PIDConstants(
+                this.parameters.kP(),
+                this.parameters.kI(),
+                this.parameters.kD()),
+            this::setDriveVoltage,
+            events,
+            this
+        );
+    }
+
 
 
 	/** TankDrive that is controlled by 2 'voltage-returning' analog suppliers */
@@ -553,6 +576,17 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
         }
 
     }
+
+
+
+    // public static class FollowTrajectory extends CommandBase {
+
+    //     private final DriveBase drivebase;
+    //     private final Command controller;
+    //     private final 
+
+        
+    // }
 
 
 	public FollowTrajectory followTrajectory(Trajectory t)

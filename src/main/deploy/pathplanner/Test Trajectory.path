@@ -39,9 +39,11 @@
       "isReversal": true,
       "velOverride": null,
       "isLocked": false,
-      "isStopPoint": true,
+      "isStopPoint": false,
       "stopEvent": {
-        "names": [],
+        "names": [
+          "Grab"
+        ],
         "executionBehavior": "parallel",
         "waitBehavior": "none",
         "waitTime": 0
@@ -198,5 +200,18 @@
   "maxVelocity": 2.5,
   "maxAcceleration": 2.5,
   "isReversed": false,
-  "markers": []
+  "markers": [
+    {
+      "position": 0.0,
+      "names": [
+        "event"
+      ]
+    },
+    {
+      "position": 1.0,
+      "names": [
+        "event"
+      ]
+    }
+  ]
 }

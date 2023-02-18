@@ -126,10 +126,10 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
     private final WPI_TalonSRX
         left, left2,
         right, right2;
-    private final ClosedLoopParams
+    public final ClosedLoopParams
         parameters;
 
-    private final SimpleMotorFeedforward feedforward;
+    public final SimpleMotorFeedforward feedforward;
     private final DifferentialDriveOdometry odometry;
     private final DifferentialDriveKinematics kinematics;
 
@@ -257,13 +257,6 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      */
     public Command tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv) {
         return new TankDriveVelocity_P(this, lv, rv);
-    }
-    /** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
-     * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
-     * @return A command for active parking
-     */
-    public Command activePark(double p_gain) {
-        return new ActivePark(this, p_gain);
     }
 
 
@@ -549,43 +542,6 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			return false;
 		}
 
-
-    }
-
-
-    public static class ActivePark extends CommandBase {
-
-        private final DriveBase drivebase;
-        private final double volts_per_meter;
-        private double linit, rinit;
-
-        public ActivePark(DriveBase db, double p) { // p is the proportional gain, in volts per meter [error]
-            this.drivebase = db;
-            this.volts_per_meter = p;
-        }
-
-        @Override
-        public void initialize() {
-            this.linit = this.drivebase.getLeftPosition();
-            this.rinit = this.drivebase.getRightPosition();
-        }
-        @Override
-        public void execute() {
-            double le = this.drivebase.getLeftPosition() - this.linit;
-            double re = this.drivebase.getRightPosition() - this.rinit;
-            this.drivebase.setDriveVoltage(
-                -le * this.volts_per_meter,     // we are assuming that positive position for the encoders is the same direction as positive voltage
-                -re * this.volts_per_meter
-            );
-        }
-        @Override
-        public void end(boolean interrupted) {
-            this.drivebase.setDriveVoltage(0.0, 0.0);
-        }
-        @Override
-        public boolean isFinished() {
-            return false;
-        }
 
     }
 

@@ -42,7 +42,11 @@ public final class Constants {
         DRIVE_INPUT_VEL_SCALE = -2.5,
         DRIVE_INPUT_EXP_POWER = 2.0,
 
-        ACTIVE_PARK_VOLTS_PER_METER = 100.0
+        IMU_RATE_FILTER = 0.25,
+
+        ACTIVE_PARK_VOLTS_PER_METER = 100.0,
+        BALANCE_PARK_VOLTS_PER_DEGREE = 0.2,
+        AUTO_PAD_INCLINE_VELOCITY = 0.2
     ;
 
 

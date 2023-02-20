@@ -153,16 +153,16 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
         this.right.configFactoryDefault();
         this.left2.configFactoryDefault();
         this.right2.configFactoryDefault();
-        this.left.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
-		this.right.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
-        this.left.setSelectedSensorPosition(0.0);
-		this.right.setSelectedSensorPosition(0.0);
-		this.left.setSensorPhase(parameters.encoder_inversions.left);
-		this.right.setSensorPhase(parameters.encoder_inversions.right);
         this.left2.follow(this.left);
         this.right2.follow(this.right);
         this.left2.setInverted(InvertType.FollowMaster);
         this.right2.setInverted(InvertType.FollowMaster);
+        this.left.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
+		this.right.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
+        this.left.setSelectedSensorPosition(0.0);
+		this.right.setSelectedSensorPosition(0.0);
+        this.left.setSensorPhase(parameters.encoder_inversions.left);
+		this.right.setSensorPhase(parameters.encoder_inversions.right);
     }
 
     @Override
@@ -187,6 +187,13 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
                 this.right.getMotorOutputVoltage(),
                 this.left2.getMotorOutputVoltage(),
                 this.right2.getMotorOutputVoltage()
+            }; }, null);
+		b.addDoubleArrayProperty("Input Current [L1, R1, L2, R2]",
+            ()->{ return new double[]{
+                this.left.getSupplyCurrent(),
+                this.right.getSupplyCurrent(),
+                this.left2.getSupplyCurrent(),
+                this.right2.getSupplyCurrent()
             }; }, null);
         b.addDoubleArrayProperty("Output Current [L1, R1, L2, R2]",
             ()->{ return new double[]{

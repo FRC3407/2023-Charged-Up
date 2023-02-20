@@ -19,19 +19,19 @@
 #include "field.h"
 
 
-static const inline CalibList
+static inline const CalibList
 	calibrations{
 		{
 			{ "lifecam_hd3000", {
 				{ cv::Size{640, 480}, {
-					cv::Mat1f{{3, 3},{
+					cv::Mat1f{ {3, 3}, {
 						673.6653136395231, 0, 339.861572657799,
 						0, 666.1104961259615, 244.21065776461745,
-						0, 0, 1}},
-					cv::Mat1f{{1, 5},{
+						0, 0, 1 } },
+					cv::Mat1f{ {1, 5}, {
 						0.04009256446529976, -0.4529245799337021,
 						-0.001655316303789686, -0.00019284071985319236,
-						0.5736326357832554}}
+						0.5736326357832554 } }
 				} }
 			} }
 		}
@@ -48,28 +48,31 @@ public:
 	}
 
 	virtual void process(cv::Mat& io_frame) override {
-		this->_proc(io_frame);
+		this->_detect(io_frame);
+		this->_estimate(io_frame);
+		this->_draw(io_frame);
+		this->_profile(io_frame);
 		
-		cv::Mat_<float> R, t, T;
+		cv::Mat_<float> R, t;
 		cv::Rodrigues(this->rvec, R);		// get rotation matrix (3x3)
 		R = R.t();							// invert rotation mat
+		cv::Rodrigues(R, this->rvec);
 		t = cv::Mat_<float>(3, 1, this->tvec.data());
-		// std::cout << R << std::endl;
-		// std::cout << t << std::endl;
 		t = -R * t;						// invert tvec
-		T = cv::Mat::eye(4, 4, R.type());	// generate 4x4 blank transformation mat
-		T(cv::Range(0, 3), cv::Range(0, 3)) = R * 1;	// copy R into the top-leftmost 3x3 locations
-		T(cv::Range(0, 3), cv::Range(3, 4)) = t * 1; 	// copy t into rightmost top 3 locations
+		// T = cv::Mat::eye(4, 4, R.type());	// generate 4x4 blank transformation mat
+		// T(cv::Range(0, 3), cv::Range(0, 3)) = R * 1;	// copy R into the top-leftmost 3x3 locations
+		// T(cv::Range(0, 3), cv::Range(3, 4)) = t * 1; 	// copy t into rightmost top 3 locations
 
-		this->getTable()->PutNumber("X", t.at<float>(0, 0));
-		this->getTable()->PutNumber("Y", t.at<float>(0, 1));
-		this->getTable()->PutNumber("Z", t.at<float>(0, 2));
+
+		this->getTable()->PutNumber("X", this->tvec[0]);
+		this->getTable()->PutNumber("Y", this->tvec[1]);
+		this->getTable()->PutNumber("Z", this->tvec[2]);
 		this->getTable()->PutNumber("RX", this->rvec[0] / CV_PI * 180.f);
 		this->getTable()->PutNumber("RY", this->rvec[1] / CV_PI * 180.f);
 		this->getTable()->PutNumber("RZ", this->rvec[2] / CV_PI * 180.f);
 		frc::Pose2d pose = frc::Pose2d(
-			units::inch_t(t.at<float>(0, 0)),
-			units::inch_t(t.at<float>(0, 1)),
+			units::inch_t(this->tvec[0]),
+			units::inch_t(this->tvec[1]),
 			frc::Rotation2d(units::radian_t(this->rvec[1]))
 		);
 		this->position.SetRobotPose(pose);
@@ -92,9 +95,12 @@ int main(int argc, char** argv) {
 
 	std::vector<VisionCamera> cameras;
 
-	if(argc > 1 && initNT(argv[1]) && createCameras(cameras, calibrations, argv[1])) {}
-	else if(initNT() && createCameras(cameras, calibrations)) {}
-	else { return EXIT_FAILURE; }
+	// initSimNT("192.168.0.8");
+	initNT();
+	createCameras(cameras, calibrations);
+	// if(argc > 1 && initNT(argv[1]) && createCameras(cameras, calibrations, argv[1])) {}
+	// else if(initNT() && createCameras(cameras, calibrations)) {}
+	// else { return EXIT_FAILURE; }
 
 	cv::Ptr<cv::aruco::DetectorParameters> aparams = cv::aruco::DetectorParameters::create();
 	AprilPoseExt ap{FIELD_2023, aparams};

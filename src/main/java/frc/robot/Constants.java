@@ -14,7 +14,7 @@ public final class Constants {
 
     public static final DriveMap_4<WPI_TalonSRX>
         DRIVEBASE_LAYOUT = new DriveMap_4<>(
-            0, 1, 2, 3,			// note that the 'front' motors for each side should be the ones that have the encoders plugged in
+            2, 4, 3, 5,			// note that the 'front' motors for each side should be the ones that have the encoders plugged in
             Motors.can_talonsrx,
             Inversions.NEITHER,
             DriveLayout.DIFFERENTIAL
@@ -34,8 +34,13 @@ public final class Constants {
             10.0,
             2.5,
             2.5,
-            Inversions.NEITHER
+            Inversions.BOTH
         );
+	public static final int
+		ARM_WINCH_CAN_ID = 10,
+		GRABBER_CAN_ID = 11,
+		GRABBER_WRIST_PWM_PORT = 0
+	;
 
     public static final double
         DRIVE_INPUT_DEADZONE = 0.08,
@@ -46,22 +51,35 @@ public final class Constants {
 
         ACTIVE_PARK_VOLTS_PER_METER = 100.0,
         BALANCE_PARK_VOLTS_PER_DEGREE = 0.2,
-        AUTO_PAD_INCLINE_VELOCITY = 0.2
+        AUTO_PAD_INCLINE_VELOCITY = 0.2,
+
+		ARM_ANGLE_KF = 1.0,
+		ARM_ANGLE_KP = 1.0,
+		ARM_ANGLE_KI = 0.0,
+		ARM_ANGLE_KD = 0.0,
+		ARM_ANGLE_CRUISE_DEG_PER_SEC = 60.0,
+		ARM_ANGLE_ACC_DEG_PER_SEC_SQRD = 120.0,
+
+		GRAB_POSITION_KF = 1.0,
+		GRAB_POSITION_KP = 1.0,
+		GRAB_POSITION_KI = 0.0,
+		GRAB_POSITION_KD = 0.0
     ;
 
-
-	// define motor ports and sensor ids here
-
-
-    // add voltage limits/params here
-
-
-	// add physical properties here
-
+    public static final double
+        GRABBER_ROT_RADIUS_INCHES = 4.9787,				// the radius of the gear-driven linkage
+        GRABBER_FINGER_OFFSET_INCHES = 1.5093,			// offset between linkage pivot and finger "grab surface"
+		GRABBER_PIVOT_OFFSET_INCHES = 1.8889,			// offset between large gear pivot and "center" - half the distance between large gear centers
+        GRABBER_GEARING_IN2OUT = (28.0 / 12.0),			// Input has 12 teeth, output has 28 teeth - "input rotations per output rotations"
+		GRABBER_A0_WIDTH_INCHES = Manipulator.Grabber.grabAngleToWidth(0.0),
+		GRABBER_W0_ANGLE_DEGREES = Manipulator.Grabber.grabWidthToAngle(0.0);
+    ;
 	
-	public static final double
+	public static final int		// see: https://docs.ctre-phoenix.com/en/latest/ch14_MCSensor.html#sensor-resolution
 		SRX_MAG_UNITS_PER_REVOLUTION = 4096,
-		FALCON_UNITS_PER_REVOLUTION = 2048
+		FALCON_UNITS_PER_REVOLUTION = 2048,
+        NEVEREST_UNITS_PER_REVOLUTION = (7 * 60 * 4),	// 7 pulse/rot * 60:1 gearing * 4 counts/pulse as counted by TalonSRX
+        ANALOG_POT_UNITS_PER_REVOLUTION = 1024
 	;
 
 

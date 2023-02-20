@@ -34,13 +34,22 @@ public final class Runtime extends TimedRobot {
 			this.imu_3x.getGyroAxis(IMUAxis.kZ),
 			Constants.DRIVEBASE_PARAMS
 		);
+		private final Manipulator manipulator = new Manipulator(
+			new Manipulator.Arm(
+				Constants.ARM_WINCH_CAN_ID),
+			new Manipulator.Grabber(
+				Constants.GRABBER_CAN_ID,
+				Constants.GRABBER_WRIST_PWM_PORT)
+		);
 
 		@Override
 		public void initSendable(SendableBuilder b) {}
 		public void startLogging() {
 			SmartDashboard.putData("Robot", this);
-			SmartDashboard.putData("Robot/Drivebase", this.drivebase);
 			SmartDashboard.putData("Robot/IMU", this.imu_3x);
+			SmartDashboard.putData("Robot/Drivebase", this.drivebase);
+			SmartDashboard.putData("Robot/Manipulator/Arm", this.manipulator.arm);
+			SmartDashboard.putData("Robot/Manipulator/Grabber", this.manipulator.grabber);
 		}
 	}
 	private final Robot robot = new Robot();

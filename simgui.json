@@ -39,7 +39,8 @@
       "/LiveWindow/Ungrouped/Talon SRX [2]": "Motor Controller",
       "/LiveWindow/Ungrouped/Talon SRX [3]": "Motor Controller",
       "/SmartDashboard/Commands/Climb Pad": "Command",
-      "/SmartDashboard/Control Scheme": "String Chooser"
+      "/SmartDashboard/Control Scheme": "String Chooser",
+      "/SmartDashboard/Robot Location": "Field2d"
     },
     "windows": {
       "/SmartDashboard/Control Scheme": {
@@ -50,6 +51,14 @@
     }
   },
   "NetworkTables": {
+    "Persistent Values": {
+      "open": false
+    },
+    "retained": {
+      "Vision Server": {
+        "open": true
+      }
+    },
     "transitory": {
       "SmartDashboard": {
         "Commands": {

@@ -11,9 +11,7 @@ import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
 import com.pathplanner.lib.PathConstraints;
 import com.pathplanner.lib.PathPlanner;
 import com.pathplanner.lib.PathPlannerTrajectory;
-import com.pathplanner.lib.PathPlannerTrajectory.PathPlannerState;
 import com.pathplanner.lib.commands.PPRamseteCommand;
- 
 
 import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.math.controller.ProfiledPIDController;
@@ -116,7 +114,7 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
         left, left2,
         right, right2;
     private final ClosedLoopParams
-        parameters;
+        parameters; 
 
     private final SimpleMotorFeedforward feedforward;
     private final DifferentialDriveOdometry odometry;
@@ -568,6 +566,7 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
         private final DriveBase drivebase; 
         private final Trajectory trajectory;
         private final RamseteCommand controller;
+        private final PPRamseteCommand pcontroller;
         private final boolean stop;
 
         @Override public void initialize(){}
@@ -638,7 +637,7 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
 			);
         }
     
-
+////////////////////////////////////////////////////////////////////////////////
 
         FollowTrajectory(DriveBase db, PathPlannerTrajectory ppt)
         {
@@ -650,8 +649,43 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
             this(db, path, true);
         }
     
-    }
+        FollowTrajectory(DriveBase db, PathPlannerTrajectory ppt, boolean s)
+        {
+            super();
+            this.trajectory = ppt;
+            this.stop = s;
+            this.drivebase = db;
 
+            // Is this necessary??? vvv
+
+            // return new SequentialCommandGroup(
+            // new InstantCommand(() -> {
+            // // Reset odometry for the first path you run during auto
+            // if(isFirstPath){
+            //     drivebase.resetOdometry(traj.getInitialPose());
+            // }
+            // }),
+
+            this.pcontroller = new PPRamseteCommand(
+            ppt, 
+            db.getDeltaPose(),
+            new RamseteController(),
+            this.drivebase.feedforward,
+            this.drivebase.kinematics, // DifferentialDriveKinematics
+            db::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
+            new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
+            new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
+            // vvv this is supposed to be type BiConsumer<Double, Double>
+            drivebase.parameters.max_voltage_output, // Voltage biconsumer
+            true, // Should the path be automatically mirrored depending on alliance color. Optional, defaults to true
+            this // Requires this drive subsystem
+        );
+
+
+        }
+        
+
+        
     // I dont understand this vvv //
 
 
@@ -686,29 +720,30 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
         }
     }
 
-    // Assuming this method is part of a drivetrain subsystem that provides the necessary methods
-    public Command followTrajectoryCommand(PathPlannerTrajectory traj, boolean isFirstPath) {
-        return new SequentialCommandGroup(
-            new InstantCommand(() -> {
-            // Reset odometry for the first path you run during auto
-            if(isFirstPath){
-                drivebase.resetOdometry(traj.getInitialPose());
-            }
-            }),
-            new PPRamseteCommand(
-                traj, 
-                this::getPose, // Pose supplier
-                new RamseteController(),
-                new SimpleMotorFeedforward(KS, KV, KA),
-                drivebase.kinematics, // DifferentialDriveKinematics
-                this::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
-                new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
-                new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
-                this::outputVolts, // Voltage biconsumer
-                true, // Should the path be automatically mirrored depending on alliance color. Optional, defaults to true
-                this // Requires this drive subsystem
-            )
-        );
-    }
+    // // Assuming this method is part of a drivetrain subsystem that provides the necessary methods
+    // public Command followTrajectoryCommand(PathPlannerTrajectory traj, boolean isFirstPath) {
+    //     return new SequentialCommandGroup(
+    //         new InstantCommand(() -> {
+    //         // Reset odometry for the first path you run during auto
+    //         if(isFirstPath){
+    //             drivebase.resetOdometry(traj.getInitialPose());
+    //         }
+    //         }),
+    //         new PPRamseteCommand(
+    //             traj, 
+    //             this::getPose, // Pose supplier
+    //             new RamseteController(),
+    //             new SimpleMotorFeedforward(KS, KV, KA),
+    //             drivebase.kinematics, // DifferentialDriveKinematics
+    //             this::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
+    //             new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
+    //             new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
+    //             this::outputVolts, // Voltage biconsumer
+    //             true, // Should the path be automatically mirrored depending on alliance color. Optional, defaults to true
+    //             this // Requires this drive subsystem
+    //         )
+    //     );
+    // }
 
  }
+}

@@ -54,7 +54,7 @@ LDFLAGS := -pthread -Wall -L$(VS_DIR)/out -L$(VS_DIR)/lib \
 # 	-lopencv_flann -lopencv_videoio -lopencv_imgcodecs \
 # 	-lopencv_imgproc -lopencv_core -lvs3407 -lcameraserver \
 # 	-lntcore -lcscore -lwpiutil -lwpimath -lwpilibc -lopencv_aruco -lpigpio
-LDLIBS := -lcscore -lwpiutil
+LDLIBS := -lcscore -lwpiutil -lopencv_core -lopencv_imgproc
 
 
 ifeq ($(OS),Windows_NT)

@@ -20,7 +20,8 @@ PROGRAM := $(OUT_DIR)/$(NAME)
 VISIONSERVER := $(VS_DIR)/out/libvs3407.so
 PACKAGE_DEPS := $(VS_DIR)/lib/libtensorflowlite.so $(VS_DIR)/lib/libedgetpu.so $(VISIONSERVER)
 
-SRCS := $(call rwildcard,$(SRC_DIR)/,*.cpp *.c *.S *.s)
+# SRCS := $(call rwildcard,$(SRC_DIR)/,*.cpp *.c *.S *.s)
+SRCS := src/chargedup.cpp
 OBJS := $(SRCS:$(SRC_DIR)/%=$(OBJ_DIR)/%.o)
 #SRCS_VS1 := main.cpp $(call rwildcard,$(SRC_DIR)/additions-compile/,*.cpp *.c) $(call rwildcard,$(VS_DIR)/src/vs1-legacy/,*.cpp *.c *.S *.s)
 #SRCS_VS1 := $(SRCS:%=$(OBJ_DIR)/%.o)
@@ -46,13 +47,14 @@ ASMFLAGS := -mcpu=cortex-a72 #-mfpu=neon-fp-armv8
 LDFLAGS := -pthread -Wall -L$(VS_DIR)/out -L$(VS_DIR)/lib \
 	-Wl,--unresolved-symbols=ignore-in-shared-libs -Wl,-rpath=$$ORIGIN
 #libs to link against - see complete list in VisionServer/lib-vs/makefile
-LDLIBS := -ltensorflowlite -ledgetpu -lopencv_gapi \
-	-lopencv_highgui -lopencv_ml -lopencv_objdetect \
-	-lopencv_photo -lopencv_stitching -lopencv_video \
-	-lopencv_calib3d -lopencv_features2d -lopencv_dnn \
-	-lopencv_flann -lopencv_videoio -lopencv_imgcodecs \
-	-lopencv_imgproc -lopencv_core -lvs3407 -lcameraserver \
-	-lntcore -lcscore -lwpiutil -lwpimath -lwpilibc -lopencv_aruco -lpigpio
+# LDLIBS := -ltensorflowlite -ledgetpu -lopencv_gapi \
+# 	-lopencv_highgui -lopencv_ml -lopencv_objdetect \
+# 	-lopencv_photo -lopencv_stitching -lopencv_video \
+# 	-lopencv_calib3d -lopencv_features2d -lopencv_dnn \
+# 	-lopencv_flann -lopencv_videoio -lopencv_imgcodecs \
+# 	-lopencv_imgproc -lopencv_core -lvs3407 -lcameraserver \
+# 	-lntcore -lcscore -lwpiutil -lwpimath -lwpilibc -lopencv_aruco -lpigpio
+LDLIBS := -lcscore -lwpiutil
 
 
 ifeq ($(OS),Windows_NT)

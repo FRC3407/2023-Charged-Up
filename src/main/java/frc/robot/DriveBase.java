@@ -623,7 +623,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
                 this.trajectory, 
                 this.drivebase::getDeltaPose, 
                 /* recives a function, and keeps getting new info */
-                new RamseteController(Constants.ramsete_B, Constants.ramsete_Zeta),
+                this.drivebase.parameters.getRamseteController(),
                 this.drivebase.feedforward, 
                 this.drivebase.kinematics,  
                 this.drivebase::getWheelSpeeds, 
@@ -653,7 +653,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
             (
 				this.trajectory,
 				this.drivebase::getDeltaPose,
-				new RamseteController(Constants.ramsete_B, Constants.ramsete_Zeta),
+				this.drivebase.parameters.getRamseteController(),
 				this.drivebase.feedforward,
 				this.drivebase.kinematics,
 				this.drivebase::getWheelSpeeds,

@@ -14,9 +14,9 @@ public final class Constants {
 
     public static final DriveMap_4<WPI_TalonSRX>
         DRIVEBASE_LAYOUT = new DriveMap_4<>(
-            2, 4, 3, 5,			// note that the 'front' motors for each side should be the ones that have the encoders plugged in
+            5, 2, 4, 3,			// note that the 'front' motors for each side should be the ones that have the encoders plugged in
             Motors.can_talonsrx,
-            Inversions.NEITHER,
+            Inversions.RIGHT,
             DriveLayout.DIFFERENTIAL
         );
     public static final DriveBase.ClosedLoopParams
@@ -38,26 +38,28 @@ public final class Constants {
         );
 	public static final int
 		ARM_WINCH_CAN_ID = 10,
+        ARM_EXTENDER_CAN_ID = 12,
 		GRABBER_CAN_ID = 11,
 		GRABBER_WRIST_PWM_PORT = 0
 	;
 
     public static final double
-        DRIVE_INPUT_DEADZONE = 0.08,
+        DRIVE_INPUT_DEADZONE = 0.05,
         DRIVE_INPUT_VEL_SCALE = -2.5,
-        DRIVE_INPUT_EXP_POWER = 2.0,
+        DRIVE_INPUT_EXP_POWER = 1.0,
 
-        IMU_RATE_FILTER = 0.25,
+        IMU_RATE_FILTER = 0.35,
 
         ACTIVE_PARK_VOLTS_PER_METER = 100.0,
         BALANCE_PARK_VOLTS_PER_DEGREE = 0.2,
-        AUTO_PAD_INCLINE_VELOCITY = 0.2,
+        AUTO_PAD_ENGAGE_VELOCITY = 0.8,
+        AUTO_PAD_INCLINE_VELOCITY = 0.1,
 
 		ARM_ANGLE_KF = 1.0,
 		ARM_ANGLE_KP = 1.0,
 		ARM_ANGLE_KI = 0.0,
 		ARM_ANGLE_KD = 0.0,
-		ARM_ANGLE_CRUISE_DEG_PER_SEC = 60.0,
+		ARM_ANGLE_CRUISE_DEG_PER_SEC = 60.0,	// mike said ~10-15% output for cruising speed
 		ARM_ANGLE_ACC_DEG_PER_SEC_SQRD = 120.0,
 
 		GRAB_POSITION_KF = 1.0,
@@ -83,7 +85,7 @@ public final class Constants {
 	;
 
 
-    private static final HashMap<String, Command> AUTO_EVENTS = new HashMap<>();
+    // private static final HashMap<String, Command> AUTO_EVENTS = new HashMap<>();
 
 
 }

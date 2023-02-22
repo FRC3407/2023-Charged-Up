@@ -17,6 +17,7 @@ import com.pathplanner.lib.server.PathPlannerServer;
 
 import frc.robot.team3407.controls.Input.*;
 import frc.robot.team3407.controls.ControlSchemeManager;
+import frc.robot.team3407.controls.ControlSchemeManager.CompatibilityTester;
 import frc.robot.team3407.commandbased.EventTriggers.*;
 import frc.robot.team3407.ADIS16470_3X.IMUAxis;
 import frc.robot.team3407.ADIS16470_3X;
@@ -68,42 +69,19 @@ public final class Runtime extends TimedRobot {
 		PathPlannerServer.startServer(5811);
 		this.robot.startLogging();
 
-		this.controls.addScheme("Xbox Controls",
-			(InputDevice... inputs)->{
-				for(int i = 0; i < inputs.length; i++) {
-					if(Xbox.Analog.TOTAL.compatible(inputs[i]) && Xbox.Digital.TOTAL.compatible(inputs[i])) {
-						return new int[]{i};
-					}
-				}
-				return null;
-			},
-			this::setupXbox
-		);
-		this.controls.addScheme("Arcade Controls",
-			(InputDevice... inputs)->{
-				int[] ret = new int[2];
-				int found = 0;
-				for(int i = 0; i < inputs.length; i++) {
-					if(Attack3.Analog.TOTAL.compatible(inputs[i]) && Attack3.Digital.TOTAL.compatible(inputs[i])) {
-						ret[found] = i;
-						found++;
-						if(found == 2) {
-							return ret;
-						}
-					}
-				}
-				return null;
-			},
-			this::setupArcade
-		);
+		this.controls.addScheme("Xbox Controls", new CompatibilityTester(Xbox.Map), this::setupXbox);
+		//this.controls.addScheme("Xbox Test Controls", new CompatibilityTester(Xbox.Map, Xbox.Map), this::setupTestXbox);
+		this.controls.addScheme("Arcade Controls", new CompatibilityTester(Attack3.Map, Attack3.Map), this::setupArcade);
 		this.controls.publishSelector();
 		this.controls.runInitial();
 
 		Gyro pitch = this.robot.imu_3x.getGyroAxis(IMUAxis.kX);
 
-		this.auto.addOption("Active Park", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
+		this.auto.addOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
+		this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
 		this.auto.setDefaultOption("Climb Charging Pad",
-			send(Auto.climbPad(this.robot.drivebase, pitch, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
+			send(Auto.climbPad(this.robot.drivebase, pitch,
+				Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
 		AutonomousTrigger.OnTrue(new InstantCommand(()->this.auto.getSelected().schedule()));
 	}
 	@Override
@@ -152,14 +130,31 @@ public final class Runtime extends TimedRobot {
 			)
 		);
 	}
+	// private void setupTestXbox(InputDevice... inputs) {
+	// 	System.out.println("Initializing Xbox Test Control Scheme.");
+	// 	TeleopTrigger.OnTrue(
+	// 		this.robot.drivebase.tankDriveVelocity(
+	// 			Xbox.Analog.LY.getDriveInputSupplier(inputs[0],
+	// 				Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+	// 			Xbox.Analog.LY.getDriveInputSupplier(inputs[1],
+	// 				Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER)
+	// 		)
+	// 	);
+	// }
 	private void setupArcade(InputDevice... inputs) {
 		System.out.println("Initializing Arcade Board Control Scheme.");
 		TeleopTrigger.OnTrue(
-			this.robot.drivebase.tankDriveVelocity(
-				Xbox.Analog.RY.getDriveInputSupplier(inputs[0],
-					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-				Xbox.Analog.RY.getDriveInputSupplier(inputs[1],
-					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER)
+			// this.robot.drivebase.tankDriveVelocity(
+			// 	Xbox.Analog.RY.getDriveInputSupplier(inputs[0],
+			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+			// 	Xbox.Analog.RY.getDriveInputSupplier(inputs[1],
+			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER)
+			// )
+			this.robot.drivebase.tankDrivePercent(
+				Attack3.Analog.Y.getDriveInputSupplier(inputs[0],
+					Constants.DRIVE_INPUT_DEADZONE, -1.0, Constants.DRIVE_INPUT_EXP_POWER),
+				Attack3.Analog.Y.getDriveInputSupplier(inputs[1],
+					Constants.DRIVE_INPUT_DEADZONE, -1.0, Constants.DRIVE_INPUT_EXP_POWER)
 			)
 		);
 	}

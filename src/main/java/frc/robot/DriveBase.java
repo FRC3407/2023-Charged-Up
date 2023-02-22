@@ -11,6 +11,7 @@ import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
 import com.pathplanner.lib.PathConstraints;
 import com.pathplanner.lib.PathPlanner;
 import com.pathplanner.lib.PathPlannerTrajectory;
+import com.pathplanner.lib.PathPlannerTrajectory.PathPlannerState;
 import com.pathplanner.lib.commands.PPRamseteCommand;
 
 import edu.wpi.first.math.controller.PIDController;
@@ -566,15 +567,32 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
         private final DriveBase drivebase; 
         private final Trajectory trajectory;
         private final RamseteCommand controller;
-        private final PPRamseteCommand pcontroller;
         private final boolean stop;
 
-        @Override public void initialize(){}
-        @Override public void execute(){}
-        @Override public void end(boolean interrupted){}
+        private final PPRamseteCommand pcontroller;
+        private final PathPlannerTrajectory ptrajectory;
+        private final String path;
+
+        @Override public void initialize()
+        {
+            drivebase.resetOdometry(this.trajectory.getInitialPose());
+			this.controller.initialize();
+			System.out.println("FollowTrajectory: Running...");
+        }
+        @Override public void execute()
+        {
+            this.controller.execute();
+        }
+        @Override public void end(boolean interrupted)
+        {
+            this.controller.end(interrupted);
+			if(this.stop) {
+				drivebase.setDriveVoltage(0, 0);
+			}
+        }
         @Override public boolean isFinished()
         {
-            return false; // just so it isn't red anymore 
+            return this.controller.isFinished();
         }
 
 
@@ -595,6 +613,12 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
             this.trajectory = t;
             this.stop = s;
             this.drivebase = db;
+
+            
+            this.pcontroller = null;
+            this.path = null;
+            this.ptrajectory = null;
+
             this.controller = new RamseteCommand
                 (
                 this.trajectory, 
@@ -615,6 +639,9 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
             super();
             this.drivebase = db;
             this.stop = s;
+            this.pcontroller = null;
+            this.path = null;
+            this.ptrajectory = null;
 			Trajectory temp;
 			try {
 				temp = TrajectoryUtil.fromPathweaverJson(json_path);
@@ -652,98 +679,55 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
         FollowTrajectory(DriveBase db, PathPlannerTrajectory ppt, boolean s)
         {
             super();
-            this.trajectory = ppt;
+            this.ptrajectory = ppt;
             this.stop = s;
             this.drivebase = db;
-
-            // Is this necessary??? vvv
-
-            // return new SequentialCommandGroup(
-            // new InstantCommand(() -> {
-            // // Reset odometry for the first path you run during auto
-            // if(isFirstPath){
-            //     drivebase.resetOdometry(traj.getInitialPose());
-            // }
-            // }),
+            this.path = null;
+            this.controller = null;
+            this.trajectory = null;
 
             this.pcontroller = new PPRamseteCommand(
-            ppt, 
-            db.getDeltaPose(),
-            new RamseteController(),
-            this.drivebase.feedforward,
-            this.drivebase.kinematics, // DifferentialDriveKinematics
-            db::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
-            new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
-            new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
-            // vvv this is supposed to be type BiConsumer<Double, Double>
-            drivebase.parameters.max_voltage_output, // Voltage biconsumer
-            true, // Should the path be automatically mirrored depending on alliance color. Optional, defaults to true
-            this // Requires this drive subsystem
-        );
-
+                ptrajectory, 
+                this.drivebase::getDeltaPose,
+                new RamseteController(),
+                this.drivebase.feedforward,
+                this.drivebase.kinematics, // DifferentialDriveKinematics
+                this.drivebase::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
+                new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
+                new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
+                // vvv this is supposed to be type BiConsumer<Double, Double>
+                this.drivebase::setDriveVoltage, // Voltage biconsumer
+                true, // Should the path be automatically mirrored depending on alliance color. Optional, defaults to true
+                this.drivebase // Requires this drive subsystem
+            );
 
         }
         
-
-        
-    // I dont understand this vvv //
-
-
-    public class PlanningPath extends CommandBase {
-        private final DriveBase drivebase; 
-        public String path_name;
-        double state_time;
-        PathPlannerTrajectory path;
-
-        PlanningPath(DriveBase db, String name, double time)
+        FollowTrajectory(DriveBase db, String apath, boolean s)
         {
             super();
+            this.path = apath;
+            this.stop = s;
             this.drivebase = db;
-            this.path_name = name;
-            this.state_time = time;
-
+            this.pcontroller = null;
+            this.controller = null;
+            this.trajectory = null;
+            this.ptrajectory = null;
 
             // This will load the file "Example Path.path" and generate it with a max velocity of 4 m/s and a max acceleration of 3 m/s^2
-            path = PathPlanner.loadPath(
-                this.path_name, 
-                new PathConstraints(drivebase.parameters.max_velocity, drivebase.parameters.max_velocity));
+            PathPlannerTrajectory examplePath = PathPlanner.loadPath(path, new PathConstraints(4, 3));
 
-            // // This trajectory can then be passed to a path follower such as a PPSwerveControllerCommand
-            // // Or the path can be sampled at a given point in time for custom path following
+            // This trajectory can then be passed to a path follower such as a PPSwerveControllerCommand
+            // Or the path can be sampled at a given point in time for custom path following
 
+            // Sample the state of the path at 1.2 seconds
+            PathPlannerState exampleState = (PathPlannerState) examplePath.sample(1.2);
+
+            // Print the velocity at the sampled time
+            System.out.println(exampleState.velocityMetersPerSecond);
             
-            // // Sample the state of the path at 1.2 seconds
-            // PathPlannerState path_state = (PathPlannerState) path.sample(state_time);
-
-            // // Print the velocity at the sampled time
-            // System.out.println(path_state.velocityMetersPerSecond);       
         }
+
     }
 
-    // // Assuming this method is part of a drivetrain subsystem that provides the necessary methods
-    // public Command followTrajectoryCommand(PathPlannerTrajectory traj, boolean isFirstPath) {
-    //     return new SequentialCommandGroup(
-    //         new InstantCommand(() -> {
-    //         // Reset odometry for the first path you run during auto
-    //         if(isFirstPath){
-    //             drivebase.resetOdometry(traj.getInitialPose());
-    //         }
-    //         }),
-    //         new PPRamseteCommand(
-    //             traj, 
-    //             this::getPose, // Pose supplier
-    //             new RamseteController(),
-    //             new SimpleMotorFeedforward(KS, KV, KA),
-    //             drivebase.kinematics, // DifferentialDriveKinematics
-    //             this::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
-    //             new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
-    //             new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
-    //             this::outputVolts, // Voltage biconsumer
-    //             true, // Should the path be automatically mirrored depending on alliance color. Optional, defaults to true
-    //             this // Requires this drive subsystem
-    //         )
-    //     );
-    // }
-
- }
 }

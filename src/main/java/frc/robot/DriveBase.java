@@ -2,6 +2,7 @@ package frc.robot;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.function.DoubleSupplier;
 
 import com.ctre.phoenix.motorcontrol.FeedbackDevice;
@@ -12,6 +13,8 @@ import com.pathplanner.lib.PathConstraints;
 import com.pathplanner.lib.PathPlanner;
 import com.pathplanner.lib.PathPlannerTrajectory;
 import com.pathplanner.lib.PathPlannerTrajectory.PathPlannerState;
+import com.pathplanner.lib.auto.PIDConstants;
+import com.pathplanner.lib.auto.RamseteAutoBuilder;
 import com.pathplanner.lib.commands.PPRamseteCommand;
 
 import edu.wpi.first.math.controller.PIDController;
@@ -45,7 +48,7 @@ import frc.robot.team3407.drive.Types.DriveMap_4;
 import frc.robot.team3407.drive.Types.Inversions;
 
 
-public class DriveBase extends MotorSafety implements Subsystem, Sendable {
+public final class DriveBase extends MotorSafety implements Subsystem, Sendable {
 
     public static class ClosedLoopParams {
         public final Inversions
@@ -61,6 +64,9 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
             volts_per_meter_gain,               // kI -- integral feedback gain -- "voltage applied per unit displacement error" -- volts / meters
             volt_seconds_sqrd_per_meter_gain,   // kD -- derivitive feedback gain -- "voltage applied per unit acceleration error" -- volts * seconds^2 / meters
 
+            ramsete_B,
+            ramsete_Z,
+
 			max_voltage_output,				// maximum voltage to be applied to the drivebase motors -- volts
 			max_velocity,				    // maximum velocity of either side -- meters / second
 			max_acceleration    			// maximum acceleration of either side -- meters / second^2
@@ -69,6 +75,7 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
             double trackwidth, double wheeldiameter,
             double kS, double kV, double kA,
             double kP, double kI, double kD,
+            double ramsete_B, double ramsete_Z,
             double max_volts, double max_vel, double max_acc,
             Inversions encoderinversions
         ) {
@@ -81,6 +88,8 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
             this.volt_seconds_per_meter_gain = kP;
             this.volts_per_meter_gain = kI;
             this.volt_seconds_sqrd_per_meter_gain = kD;
+            this.ramsete_B = ramsete_B;
+            this.ramsete_Z = ramsete_Z;
             this.max_voltage_output = max_volts;
             this.max_velocity = max_vel;
             this.max_acceleration = max_acc;
@@ -91,6 +100,7 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
 		public double kP() { return this.volt_seconds_per_meter_gain; }
         public double kI() { return this.volts_per_meter_gain; }
         public double kD() { return this.volt_seconds_sqrd_per_meter_gain; }
+        public PIDConstants kPID() { return new PIDConstants(this.kP(), this.kI(), this.kD()); }
         public SimpleMotorFeedforward getFeedforward() {
 			return new SimpleMotorFeedforward(
 				this.kS(),
@@ -107,6 +117,11 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
                 new TrapezoidProfile.Constraints(this.max_velocity, this.max_acceleration)
             );
         }
+        public RamseteController getRamseteController() {
+            return new RamseteController(
+                this.ramsete_B, this.ramsete_Z
+            );
+        }
     }
     
     private final Gyro 
@@ -114,12 +129,14 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
     private final WPI_TalonSRX
         left, left2,
         right, right2;
-    private final ClosedLoopParams
-        parameters; 
+    public final ClosedLoopParams
+        parameters;
 
-    private final SimpleMotorFeedforward feedforward;
+    public final SimpleMotorFeedforward feedforward;
     private final DifferentialDriveOdometry odometry;
     private final DifferentialDriveKinematics kinematics;
+
+    private RamseteAutoBuilder autobuilder = null;
 
     private Pose2d elapsed_cache;
 
@@ -139,16 +156,16 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
         this.right.configFactoryDefault();
         this.left2.configFactoryDefault();
         this.right2.configFactoryDefault();
-        this.left.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
-		this.right.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
-        this.left.setSelectedSensorPosition(0.0);
-		this.right.setSelectedSensorPosition(0.0);
-		this.left.setSensorPhase(parameters.encoder_inversions.left);
-		this.right.setSensorPhase(parameters.encoder_inversions.right);
         this.left2.follow(this.left);
         this.right2.follow(this.right);
         this.left2.setInverted(InvertType.FollowMaster);
         this.right2.setInverted(InvertType.FollowMaster);
+        this.left.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
+		this.right.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
+        this.left.setSelectedSensorPosition(0.0);
+		this.right.setSelectedSensorPosition(0.0);
+        this.left.setSensorPhase(parameters.encoder_inversions.left);
+		this.right.setSensorPhase(parameters.encoder_inversions.right);
     }
 
     @Override
@@ -173,6 +190,13 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
                 this.right.getMotorOutputVoltage(),
                 this.left2.getMotorOutputVoltage(),
                 this.right2.getMotorOutputVoltage()
+            }; }, null);
+		b.addDoubleArrayProperty("Input Current [L1, R1, L2, R2]",
+            ()->{ return new double[]{
+                this.left.getSupplyCurrent(),
+                this.right.getSupplyCurrent(),
+                this.left2.getSupplyCurrent(),
+                this.right2.getSupplyCurrent()
             }; }, null);
         b.addDoubleArrayProperty("Output Current [L1, R1, L2, R2]",
             ()->{ return new double[]{
@@ -243,13 +267,6 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
      */
     public Command tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv) {
         return new TankDriveVelocity_P(this, lv, rv);
-    }
-    /** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
-     * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
-     * @return A command for active parking
-     */
-    public Command activePark(double p_gain) {
-        return new ActivePark(this, p_gain);
     }
 
 
@@ -363,6 +380,24 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
 			this.getVoltageConstraint()
 		);
 	}
+
+    public RamseteAutoBuilder getAutoBuilder(HashMap<String, Command> events) {
+        if(this.autobuilder == null) {  // or if new event map
+            this.autobuilder = new RamseteAutoBuilder(
+                this::getDeltaPose,
+                this::resetOdometry,
+                this.parameters.getRamseteController(),
+                this.kinematics,
+                this.feedforward,
+                this::getWheelSpeeds,
+                this.parameters.kPID(),
+                this::setDriveVoltage,
+                events,
+                this
+            );
+        }
+        return this.autobuilder;
+    }
 
 
 
@@ -521,44 +556,8 @@ public class DriveBase extends MotorSafety implements Subsystem, Sendable {
     }
 
 
-    public static class ActivePark extends CommandBase {
 
-        private final DriveBase drivebase;
-        private final double volts_per_meter;
-        private double linit, rinit;
-
-        public ActivePark(DriveBase db, double p) { // p is the proportional gain, in volts per meter [error]
-            this.drivebase = db;
-            this.volts_per_meter = p;
-        }
-
-        @Override
-        public void initialize() {
-            this.linit = this.drivebase.getLeftPosition();
-            this.rinit = this.drivebase.getRightPosition();
-        }
-        @Override
-        public void execute() {
-            double le = this.drivebase.getLeftPosition() - this.linit;
-            double re = this.drivebase.getRightPosition() - this.rinit;
-            this.drivebase.setDriveVoltage(
-                -le * this.volts_per_meter,     // we are assuming that positive position for the encoders is the same direction as positive voltage
-                -re * this.volts_per_meter
-            );
-        }
-        @Override
-        public void end(boolean interrupted) {
-            this.drivebase.setDriveVoltage(0.0, 0.0);
-        }
-        @Override
-        public boolean isFinished() {
-            return false;
-        }
-
-    }
-
-
-	public FollowTrajectory followTrajectory(Trajectory t)
+    public FollowTrajectory followTrajectory(Trajectory t)
     {
         return new FollowTrajectory(this, t);
     }

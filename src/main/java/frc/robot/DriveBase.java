@@ -163,6 +163,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		this.right.setSelectedSensorPosition(0.0);
         this.left.setSensorPhase(parameters.encoder_inversions.left);
 		this.right.setSensorPhase(parameters.encoder_inversions.right);
+        this.setBrakeMode();
     }
 
     @Override

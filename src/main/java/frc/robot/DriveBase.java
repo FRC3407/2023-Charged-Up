@@ -122,6 +122,9 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
                 this.ramsete_B, this.ramsete_Z
             );
         }
+        public PathConstraints getPathConstraints() {
+            return new PathConstraints(this.max_velocity, this.max_acceleration);
+        }
     }
     
     private final Gyro 
@@ -268,6 +271,11 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      */
     public Command tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv) {
         return new TankDriveVelocity_P(this, lv, rv);
+    }
+
+    public Command followPath(String ppfile) {
+        return this.getAutoBuilder(Constants.AUTO_EVENTS).followPath(
+            PathPlanner.loadPath(ppfile, this.parameters.getPathConstraints()));
     }
 
 

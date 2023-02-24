@@ -87,6 +87,7 @@ public final class Runtime extends TimedRobot {
 
 		this.auto.addOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
 		this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
+		this.auto.addOption("Test Trajectory", this.robot.drivebase.followPath(Constants.TEST_TRAJECTORY));
 		this.auto.setDefaultOption("Climb Charging Pad",
 			send(Auto.climbPad(this.robot.drivebase, pitch,
 				Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));

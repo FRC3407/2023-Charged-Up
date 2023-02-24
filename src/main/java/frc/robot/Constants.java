@@ -92,8 +92,9 @@ public final class Constants {
         ANALOG_POT_UNITS_PER_REVOLUTION = 1024
 	;
 
-
-    // private static final HashMap<String, Command> AUTO_EVENTS = new HashMap<>();
+	public static final String
+		TEST_TRAJECTORY = "Test Auto";
+	public static final HashMap<String, Command> AUTO_EVENTS = new HashMap<>();
 
 
 

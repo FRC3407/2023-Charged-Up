@@ -2,12 +2,15 @@ package frc.robot;
 
 import java.util.HashMap;
 
+import edu.wpi.first.wpilibj.GenericHID;
 import edu.wpi.first.wpilibj2.command.Command;
 
 import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
 
 import frc.robot.team3407.drive.*;
 import frc.robot.team3407.drive.Types.*;
+import frc.robot.team3407.controls.Input.*;
+import frc.robot.team3407.ADIS16470_3X.IMUAxis;
 
 
 public final class Constants {
@@ -41,6 +44,11 @@ public final class Constants {
         ARM_EXTENDER_CAN_ID = 12,
 		GRABBER_CAN_ID = 11,
 		GRABBER_WRIST_PWM_PORT = 0
+	;
+
+	public static final IMUAxis
+		IMU_YAW_AXIS = IMUAxis.kZ,
+		IMU_PITCH_AXIS = IMUAxis.kY		// on the new robot the IMU is turned sidewasy so pitch is kY, not kX like before
 	;
 
     public static final double
@@ -86,6 +94,29 @@ public final class Constants {
 
 
     // private static final HashMap<String, Command> AUTO_EVENTS = new HashMap<>();
+
+
+
+	public static class ButtonBox extends InputMap {
+		public static enum Digital implements DigitalMap {
+			B1(1), B2(2), B3(3), B4(4), B5(5), B6(6),
+			S1(7), S2(8), TOTAL(8);
+
+			public final int value;
+			private Digital(int v) { this.value = v; }
+
+			public int getValue() { return this.value; }
+			public int getTotal() { return TOTAL.value; }
+		}
+
+		private ButtonBox() {}
+		public static final ButtonBox Map = new ButtonBox();
+
+		public boolean compatible(GenericHID i)
+			{ return Digital.TOTAL.compatible(i); }
+		public boolean compatible(int p)
+			{ return Digital.TOTAL.compatible(p); }
+	}
 
 
 }

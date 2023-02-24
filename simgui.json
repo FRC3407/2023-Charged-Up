@@ -72,6 +72,15 @@
           },
           "open": true
         },
+        "Vision": {
+          "Stats": {
+            "open": true
+          },
+          "open": true
+        },
+        "open": true
+      },
+      "Vision": {
         "open": true
       }
     }

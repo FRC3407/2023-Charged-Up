@@ -37,14 +37,14 @@ LOPTS := -g
 endif
 
 #preprocessor flags
-CPPFLAGS := -pthread -I$(VS_DIR)/include -I$(VS_DIR)/src \
+CPPFLAGS := -pthread -I$(VS_DIR)/include -I$(VS_DIR)/src  -I$(SRC_DIR)/libpixy/include \
 	-I$(VS_DIR)/additions -I$(VS_DIR)/include/opencv4 -MMD -MP
 #compile flags
 CFLAGS := -Wall -fpermissive
 #flags for compiling assembly source
 ASMFLAGS := -mcpu=cortex-a72 #-mfpu=neon-fp-armv8
 #linker flags
-LDFLAGS := -pthread -Wall -L$(VS_DIR)/out -L$(VS_DIR)/lib \
+LDFLAGS := -pthread -Wall -L$(VS_DIR)/out -L$(VS_DIR)/lib -L$(SRC_DIR)/libpixy/out \
 	-Wl,--unresolved-symbols=ignore-in-shared-libs -Wl,-rpath=$$ORIGIN
 #libs to link against - see complete list in VisionServer/lib-vs/makefile
 # LDLIBS := -ltensorflowlite -ledgetpu -lopencv_gapi \
@@ -54,7 +54,7 @@ LDFLAGS := -pthread -Wall -L$(VS_DIR)/out -L$(VS_DIR)/lib \
 # 	-lopencv_flann -lopencv_videoio -lopencv_imgcodecs \
 # 	-lopencv_imgproc -lopencv_core -lvs3407 -lcameraserver \
 # 	-lntcore -lcscore -lwpiutil -lwpimath -lwpilibc -lopencv_aruco -lpigpio
-LDLIBS := -lcscore -lwpiutil -lopencv_core -lopencv_imgproc
+LDLIBS := -lcscore -lntcore -lwpiutil -lwpilibc -lopencv_core -lopencv_imgproc
 
 
 ifeq ($(OS),Windows_NT)

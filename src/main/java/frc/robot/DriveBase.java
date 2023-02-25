@@ -159,6 +159,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
         this.right.configFactoryDefault();
         this.left2.configFactoryDefault();
         this.right2.configFactoryDefault();
+		this.setNeutralMode(Constants.DRIVEBASE_NEUTRAL_MODE);
         this.left2.follow(this.left);
         this.right2.follow(this.right);
         this.left2.setInverted(InvertType.FollowMaster);
@@ -169,7 +170,6 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		this.right.setSelectedSensorPosition(0.0);
         this.left.setSensorPhase(parameters.encoder_inversions.left);
 		this.right.setSensorPhase(parameters.encoder_inversions.right);
-        this.setBrakeMode();
     }
 
     @Override
@@ -298,18 +298,14 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
             this.getRotation(), 0.0, 0.0, p);
 	}
 
-    public void setCoastMode() {
-        this.left.setNeutralMode(NeutralMode.Coast);
-        this.left2.setNeutralMode(NeutralMode.Coast);
-        this.right.setNeutralMode(NeutralMode.Coast);
-        this.right2.setNeutralMode(NeutralMode.Coast);
+    public void setNeutralMode(NeutralMode m) {
+        this.left.setNeutralMode(m);
+        this.left2.setNeutralMode(m);
+        this.right.setNeutralMode(m);
+        this.right2.setNeutralMode(m);
     }
-    public void setBrakeMode() {
-        this.left.setNeutralMode(NeutralMode.Brake);
-        this.left2.setNeutralMode(NeutralMode.Brake);
-        this.right.setNeutralMode(NeutralMode.Brake);
-        this.right2.setNeutralMode(NeutralMode.Brake);
-    }
+	public void setCoastMode() { this.setNeutralMode(NeutralMode.Coast); }
+    public void setBrakeMode() { this.setNeutralMode(NeutralMode.Brake); }
 
 
     public double getRawLeftPosition() {

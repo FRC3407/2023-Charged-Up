@@ -1,11 +1,6 @@
 {
   "HALProvider": {
     "Other Devices": {
-      "ADIS16470[0]": {
-        "header": {
-          "open": true
-        }
-      },
       "Talon SRX[0]": {
         "header": {
           "open": true
@@ -26,10 +21,20 @@
           "open": true
         }
       },
+      "Talon SRX[4]": {
+        "header": {
+          "open": true
+        }
+      },
       "Talon SRX[5]": {
         "header": {
           "open": true
         }
+      }
+    },
+    "PWM Outputs": {
+      "window": {
+        "visible": true
       }
     }
   },
@@ -70,6 +75,24 @@
           "Climb Pad": {
             "open": true
           },
+          "Manipulator Test": {
+            "open": true
+          },
+          "open": true
+        },
+        "Robot": {
+          "Drivebase": {
+            "open": true
+          },
+          "Manipulator": {
+            "Arm": {
+              "open": true
+            },
+            "Grabber": {
+              "open": true
+            },
+            "open": true
+          },
           "open": true
         },
         "Vision": {
@@ -78,9 +101,6 @@
           },
           "open": true
         },
-        "open": true
-      },
-      "Vision": {
         "open": true
       }
     }

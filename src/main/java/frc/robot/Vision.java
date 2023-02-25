@@ -113,7 +113,7 @@ public class Vision {
 
 		@Override
 		public void initialize() {
-			System.out.println("Initialized Camera Control Command.");
+			// System.out.println("Initialized Camera Control Command.");
 			CameraSelect[] vals = CameraSelect.values();
 			int id = getSelectedCamera();
 			selected = vals[id >= vals.length ? vals.length - 1 : id];
@@ -121,7 +121,6 @@ public class Vision {
 		@Override
 		public void execute() {
 			if(this.increment.getAsBoolean()) {
-				System.out.println("Increment Camera.");
 				Vision.selectCamera(this.selected = this.selected.increment());
 			} else if(this.decrement.getAsBoolean()) {
 				Vision.selectCamera(this.selected = this.selected.decrement());

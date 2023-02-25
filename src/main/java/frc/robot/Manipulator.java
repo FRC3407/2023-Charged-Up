@@ -1,6 +1,7 @@
 package frc.robot;
 
 import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
 
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
@@ -31,8 +32,9 @@ public final class Manipulator implements Sendable {
 			FB_UNITS_PER_ROTATION = Constants.ANALOG_POT_UNITS_PER_REVOLUTION,
 			CONTROL_LOOP_IDX = 0;
 		public static final boolean
-			INVERT_ANGLE_ENCODER = false,
-			CLEAR_ANGLE_ON_BOTTOM = true;
+			INVERT_ARM_ANGLE_ENCODER = false,
+			CLEAR_ANGLE_ON_BOTTOM = false,
+			CLEAR_ANGLE_ON_TOP = false;
 
         private final WPI_TalonSRX winch;
 		// private final WPI_TalonSRX extender;
@@ -42,11 +44,11 @@ public final class Manipulator implements Sendable {
 
             this.winch.configFactoryDefault();
             this.winch.configSelectedFeedbackSensor(WINCH_FEEDBACK_TYPE, CONTROL_LOOP_IDX, 0);
-            this.winch.setSelectedSensorPosition(0.0, CONTROL_LOOP_IDX, 0);      // or other relevant value here
-			this.winch.setSensorPhase(INVERT_ANGLE_ENCODER);
+            //this.winch.setSelectedSensorPosition(0.0, CONTROL_LOOP_IDX, 0);      // if the potentiometer is absolute, then we probably want the absolute value right?
+			this.winch.setSensorPhase(INVERT_ARM_ANGLE_ENCODER);
 			this.winch.configForwardLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
 			this.winch.configReverseLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
-			this.winch.configClearPositionOnLimitF(!CLEAR_ANGLE_ON_BOTTOM, 0);
+			this.winch.configClearPositionOnLimitF(CLEAR_ANGLE_ON_TOP, 0);
 			this.winch.configClearPositionOnLimitR(CLEAR_ANGLE_ON_BOTTOM, 0);
 			this.winch.config_kF(CONTROL_LOOP_IDX, Constants.ARM_ANGLE_KF);
 			this.winch.config_kP(CONTROL_LOOP_IDX, Constants.ARM_ANGLE_KP);
@@ -61,12 +63,13 @@ public final class Manipulator implements Sendable {
 
 		@Override
 		public void initSendable(SendableBuilder b) {
+			b.addDoubleProperty("Arm Encoder Value Raw", this::getWinchRawPosition, null);
 			b.addDoubleProperty("Arm Angle (degrees)", this::getWinchDegPosition, null);
 			b.addDoubleProperty("Arm Angle Rate", this::getWinchDegVelocity, null);
 			b.addIntegerProperty("Winch Lower Limit", this.winch::isRevLimitSwitchClosed, null);
 			b.addIntegerProperty("Winch Upper Limit", this.winch::isFwdLimitSwitchClosed, null);
 			b.addDoubleProperty("Winch Voltage", this.winch::getMotorOutputVoltage, null);
-			b.addDoubleArrayProperty("Winch Current [In/Out]",
+			b.addDoubleArrayProperty("Winch Current [In:Out]",
 				()->{ return new double[]{
 					this.winch.getSupplyCurrent(),
 					this.winch.getStatorCurrent()
@@ -157,10 +160,11 @@ public final class Manipulator implements Sendable {
 			b.addDoubleProperty("Wrist Angle", this::getWristAngle, null);
 			b.addDoubleProperty("Wrist Percent Output", this::getWristPercent, null);
 			b.addDoubleProperty("Grabber Rotation (degrees)", this::getGrabDegPosition, null);
+			b.addDoubleProperty("Grabber Encoder Raw", this::getGrabRawPosition, null);
 			b.addDoubleProperty("Grabber Rotation Rate", this::getGrabDegVelocity, null);
 			b.addDoubleProperty("Grabber Width (inches)", this::getGrabWidth, null);
 			b.addDoubleProperty("Grab Motor Voltage", this.main::getMotorOutputVoltage, null);
-			b.addDoubleArrayProperty("Grab Motor Current [In/Out]", ()->{
+			b.addDoubleArrayProperty("Grab Motor Current [In:Out]", ()->{
 				return new double[]{
 					this.main.getSupplyCurrent(),
 					this.main.getStatorCurrent()
@@ -255,6 +259,58 @@ public final class Manipulator implements Sendable {
 	}
 
 
+
+
+
+	public static class TestManipulator extends CommandBase {
+
+		public static final double
+			ARM_WINCH_VOLTAGE_SCALE = 10.0,
+			GRAB_CLAW_VOLTAGE_SCALE = 10.0;
+
+		private final Manipulator
+			manipulator;
+		private final DoubleSupplier
+			arm_percent,
+			grab_percent,
+			wrist_set;
+
+		public TestManipulator(Manipulator m, DoubleSupplier a, DoubleSupplier g, DoubleSupplier w) {
+			this.manipulator = m;
+			this.arm_percent = a;
+			this.grab_percent = g;
+			this.wrist_set = w;
+		}
+
+		@Override
+		public void initialize() {
+			// System.out.println("Starting manipulator test!");
+		}
+		@Override
+		public void execute() {
+			this.manipulator.arm.setWinchVoltage(this.arm_percent.getAsDouble() * ARM_WINCH_VOLTAGE_SCALE);
+			this.manipulator.grabber.setGrabberVoltage(this.grab_percent.getAsDouble() * GRAB_CLAW_VOLTAGE_SCALE);
+			this.manipulator.grabber.setWristPercent(this.wrist_set.getAsDouble());
+		}
+		@Override
+		public boolean isFinished() {
+			return false;
+		}
+		@Override
+		public void end(boolean isfinished) {
+			this.manipulator.arm.setWinchVoltage(0);
+			this.manipulator.grabber.setGrabberVoltage(0);
+			this.manipulator.grabber.setWristPercent(0);
+		}
+
+		@Override
+		public void initSendable(SendableBuilder b) {
+			b.addDoubleProperty("Winch Voltage Setpoint", ()->this.arm_percent.getAsDouble()*ARM_WINCH_VOLTAGE_SCALE, null);
+			b.addDoubleProperty("Grabber Voltage Setpoint", ()->this.grab_percent.getAsDouble()*GRAB_CLAW_VOLTAGE_SCALE, null);
+			b.addDoubleProperty("Wrist Position Setpoint", ()->this.wrist_set.getAsDouble(), null);
+		}
+
+	}
 
 
 

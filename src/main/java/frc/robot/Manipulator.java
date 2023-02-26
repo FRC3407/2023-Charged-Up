@@ -46,6 +46,7 @@ public final class Manipulator implements Sendable {
             this.winch.configSelectedFeedbackSensor(WINCH_FEEDBACK_TYPE, CONTROL_LOOP_IDX, 0);
             //this.winch.setSelectedSensorPosition(0.0, CONTROL_LOOP_IDX, 0);      // if the potentiometer is absolute, then we probably want the absolute value right?
 			this.winch.setSensorPhase(INVERT_ARM_ANGLE_ENCODER);
+			this.winch.setNeutralMode(NeutralMode.Brake);
 			this.winch.configForwardLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
 			this.winch.configReverseLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
 			this.winch.configClearPositionOnLimitF(CLEAR_ANGLE_ON_TOP, 0);
@@ -126,7 +127,12 @@ public final class Manipulator implements Sendable {
 			WRIST_MIN_PULSE_uS = 0.5,
 			WRIST_MAX_PULSE_uS = 2.5,
 			WRIST_TOTAL_RANGE = 270.0,
-			WRIST_CENTER_OFFSET = 135;	// should make setting wrist angle simpler if angles are based off of center (parallel to arm) angle
+			WRIST_CENTER_OFFSET = 135,	// should make setting wrist angle simpler if angles are based off of center (parallel to arm) angle
+			WRIST_LOWER_LIMIT = -35,
+			WRIST_UPPER_LIMIT = 50,
+			WRIST_LOWER_LIMIT_PERCENT = (WRIST_LOWER_LIMIT + WRIST_CENTER_OFFSET) / WRIST_TOTAL_RANGE,
+			WRIST_UPPER_LIMIT_PERCENT = (WRIST_UPPER_LIMIT + WRIST_CENTER_OFFSET) / WRIST_TOTAL_RANGE,
+			GRAB_MAX_ANGLE = 110;
 		public static final int
 			FB_UNITS_PER_ROTATION = (int)(Constants.NEVEREST_UNITS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT),
 			CONTROL_LOOP_IDX = 0;
@@ -145,10 +151,10 @@ public final class Manipulator implements Sendable {
 			this.main.configSelectedFeedbackSensor(FeedbackDevice.QuadEncoder, CONTROL_LOOP_IDX, 0);
 			this.main.setSelectedSensorPosition(0.0, CONTROL_LOOP_IDX, 0);
 			this.main.setSensorPhase(INVERT_GRAB_ENCODER);
-			this.main.configForwardSoftLimitThreshold(0.25 * FB_UNITS_PER_ROTATION);
-			this.main.configReverseSoftLimitThreshold(0.0);
-			this.main.configForwardSoftLimitEnable(true);
-			this.main.configReverseSoftLimitEnable(true);
+			this.main.configForwardSoftLimitThreshold(GRAB_MAX_ANGLE / 360.0 * FB_UNITS_PER_ROTATION);		// 110 degrees max
+			this.main.configReverseSoftLimitThreshold(0.0);								// dont let it go backwards
+			this.main.configForwardSoftLimitEnable(false);
+			this.main.configReverseSoftLimitEnable(false);
 			this.main.config_kF(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KF);
 			this.main.config_kP(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KP);
 			this.main.config_kI(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KI);
@@ -197,13 +203,14 @@ public final class Manipulator implements Sendable {
 		}
 
 		public void setWristPercent(double p) {
+			p = p > WRIST_UPPER_LIMIT_PERCENT ? WRIST_UPPER_LIMIT_PERCENT : (p < WRIST_LOWER_LIMIT_PERCENT ? WRIST_LOWER_LIMIT_PERCENT : p);
 			this.wrist.setPosition(p);
 		}
 		public void setWristAngle(double deg) {
 			deg += WRIST_CENTER_OFFSET;
 			if(deg < 0) { deg = 0; }
 			if(deg > WRIST_TOTAL_RANGE) { deg = WRIST_TOTAL_RANGE; }
-			this.wrist.setPosition(deg / WRIST_TOTAL_RANGE);
+			this.setWristPercent(deg / WRIST_TOTAL_RANGE);
 		}
 
 		public double getWristPercent() {
@@ -265,8 +272,8 @@ public final class Manipulator implements Sendable {
 	public static class TestManipulator extends CommandBase {
 
 		public static final double
-			ARM_WINCH_VOLTAGE_SCALE = 10.0,
-			GRAB_CLAW_VOLTAGE_SCALE = 10.0;
+			ARM_WINCH_VOLTAGE_SCALE = 5.0,
+			GRAB_CLAW_VOLTAGE_SCALE = 7.0;
 
 		private final Manipulator
 			manipulator;

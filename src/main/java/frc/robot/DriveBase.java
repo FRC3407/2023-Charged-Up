@@ -245,7 +245,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      * @param r a -1 to 1 ranged input supplier for the right side
      * @return A command for driving the drivebase using tankdrive
      */
-    public Command tankDrivePercent(DoubleSupplier l, DoubleSupplier r) {
+    public CommandBase tankDrivePercent(DoubleSupplier l, DoubleSupplier r) {
         return new TankDrivePercent(this, l, r);
     }
     /** Get a tankdrive command, controlled by inputs that return voltages for each side
@@ -253,7 +253,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      * @param rvt a ~-12 to ~12 ranged input supplier for the right side motor voltages
      * @return A command for driving the drivebase using tankdrive
      */
-    public Command tankDriveVoltage(DoubleSupplier lvt, DoubleSupplier rvt) {
+    public CommandBase tankDriveVoltage(DoubleSupplier lvt, DoubleSupplier rvt) {
         return new TankDriveVoltage(this, lvt, rvt);
     }
     /** Get a tankdrive command, controlled by inputs that provide target velocities for each side
@@ -261,7 +261,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      * @param rv a velocity supplier in METERS PER SECOND for the right side
      * @return A command for driving the drivebase using tankdrive
      */
-    public Command tankDriveVelocity(DoubleSupplier lv, DoubleSupplier rv) {
+    public CommandBase tankDriveVelocity(DoubleSupplier lv, DoubleSupplier rv) {
         return new TankDriveVelocity(this, lv, rv);
     }
     /** Get a tankdrive command, controlled by inputs that provide target velocities for each side -- transitions are limited by a trapazoid profile generator
@@ -269,11 +269,11 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      * @param rv a velocity supplier in METERS PER SECOND for the right side
      * @return A command for driving the drivebase using tankdrive
      */
-    public Command tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv) {
+    public CommandBase tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv) {
         return new TankDriveVelocity_P(this, lv, rv);
     }
 
-    public Command followPath(String ppfile) {
+    public CommandBase followPath(String ppfile) {
         return this.getAutoBuilder(Constants.AUTO_EVENTS).followPath(
             PathPlanner.loadPath(ppfile, this.parameters.getPathConstraints()));
     }
@@ -478,6 +478,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
         @Override
         public void initialize() {
+            System.out.println("Init Velocity Drive!");
 			this.left_fb.reset();
 			this.right_fb.reset();
 		}
@@ -497,6 +498,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
         }
 		@Override
 		public void end(boolean interrupted) {
+            System.out.println("Velocity Drive Interrupted. :(");
 			this.drivebase.setDriveVoltage(0.0, 0.0);
 		}
 		@Override

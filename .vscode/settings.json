@@ -105,5 +105,6 @@
     "typeindex": "cpp",
     "typeinfo": "cpp"
   },
-  "C_Cpp.errorSquiggles": "disabled"
+  "C_Cpp.errorSquiggles": "disabled",
+  "wpilib.autoStartRioLog": true
 }

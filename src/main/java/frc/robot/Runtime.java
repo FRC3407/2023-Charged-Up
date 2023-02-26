@@ -1,5 +1,6 @@
 package frc.robot;
 
+import edu.wpi.first.net.PortForwarder;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.DataLogManager;
@@ -9,17 +10,19 @@ import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.CommandBase;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
+import edu.wpi.first.wpilibj2.command.ParallelCommandGroup;
+import edu.wpi.first.wpilibj2.command.PrintCommand;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 
-import com.pathplanner.lib.PathPlanner;
 import com.pathplanner.lib.server.PathPlannerServer;
 
 import frc.robot.Constants.ButtonBox;
 import frc.robot.team3407.controls.Input.*;
 import frc.robot.team3407.controls.ControlSchemeManager;
-import frc.robot.team3407.controls.ControlSchemeManager.CompatibilityTester;
+import frc.robot.team3407.controls.ControlSchemeManager.AutomatedTester;
 import frc.robot.team3407.commandbased.EventTriggers.*;
 import frc.robot.team3407.ADIS16470_3X;
 
@@ -65,41 +68,38 @@ public final class Runtime extends TimedRobot {
 
 	@Override
 	public void robotInit() {
+		PortForwarder.add(1180, "10.34.7.12", 80);
+		PortForwarder.add(1181, "10.34.7.12", 1181);
 		Vision.init();
 		DataLogManager.start();
 		DriverStation.startDataLog(DataLogManager.getLog());
 		PathPlannerServer.startServer(5811);
 		this.robot.startLogging();
 
-		// new Thread(()->{	// try and debug the buttonbox
-		// 	try{
-		// 		Thread.sleep(2000);
-		// 		InputDevice.logConnections();
-		// 	} catch(InterruptedException e) {
-		// 		System.out.println(e.getMessage());
-		// 	}
-		// }).start();
-
-		this.controls.addScheme("Xbox Controls 2",
-			new CompatibilityTester(Xbox.Map, Xbox.Map), this::setupXbox);
-		// this.controls.addScheme("Arcade Controls",
-		// 	new CompatibilityTester(Attack3.Map, Attack3.Map), this::setupArcade);
-		// this.controls.addScheme("Control Board Controls",
-		// 	new CompatibilityTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoard);
-		this.controls.addScheme("Competition Controls",	// the buttonbox is acting weird and was not being detected so i had to remove it
-			new CompatibilityTester(Attack3.Map, Attack3.Map, Xbox.Map), this::setupComp);
+		this.controls.addScheme("Single Xbox Controls", new AutomatedTester(Xbox.Map), this::setupXbox);
+		this.controls.addScheme("Dual Xbox Controls", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox);
+		this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoard);
+		this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoard);
+		this.controls.addScheme("Competition Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoard);
 		this.controls.publishSelector();
-		this.controls.runInitial();
+		this.controls.runContinuous();
+
+		// this.setupComp2();
 
 		Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
 
-		this.auto.addOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
+		this.auto.setDefaultOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
 		this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
-		this.auto.addOption("Test Trajectory", this.robot.drivebase.followPath(Constants.TEST_TRAJECTORY));
-		this.auto.setDefaultOption("Climb Charging Pad",
+		this.auto.addOption("Climb Charging Pad",
 			send(Auto.climbPad(this.robot.drivebase, pitch,
 				Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
-		AutonomousTrigger.OnTrue(new InstantCommand(()->this.auto.getSelected().schedule()));
+		for(String t : Constants.TRAJECTORIES) {
+			this.auto.addOption(
+				t + " [Trajectory]",
+				this.robot.drivebase.followPath(t)
+			);
+		}
+		SmartDashboard.putData("Autonomous", this.auto);
 	}
 	@Override
 	public void robotPeriodic() {
@@ -114,7 +114,14 @@ public final class Runtime extends TimedRobot {
 	public void disabledExit() {}
 
 	@Override
-	public void autonomousInit() {}
+	public void autonomousInit() {
+		Command a = this.auto.getSelected();
+		if(a != null) {
+			AutonomousTrigger.WhileTrue(a);		// start now, end when auto ends
+		} else {
+			System.out.println("No auto command selected!");
+		}
+	}
 	@Override
 	public void autonomousPeriodic() {}
 	@Override
@@ -139,124 +146,75 @@ public final class Runtime extends TimedRobot {
 
 
 	private void setupXbox(InputDevice... inputs) {
-		System.out.println("Initializing Xbox Control Scheme.");
-		InputDevice controller = inputs[0];
-		InputDevice controller2 = inputs[1];
-		TeleopTrigger.OnTrue(
+		System.out.println("Initializing Xbox Controls!");
+		InputDevice
+			controller = inputs[0],
+			controller2 = inputs.length > 1 ? inputs[1] : null;
+		;
+		TeleopTrigger.OnTrue(send(
 			this.robot.drivebase.tankDriveVelocity(
 				Xbox.Analog.LY.getDriveInputSupplier(controller,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 				Xbox.Analog.RY.getDriveInputSupplier(controller,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER)
-			)
+			), "Commands/Velocity Drive")
 		);
-		TeleopTrigger.OnTrue(send(
-			new Manipulator.TestManipulator(this.robot.manipulator,
-				()->Xbox.Analog.RY.getValueOf(controller2) * -1.0,
-				()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
-				()->Xbox.Analog.LY.getValueOf(controller2) * -0.5 + 0.5
-			), "Commands/Manipulator Test")
-		);
-		EnabledTrigger.OnTrue(new Vision.CameraControl(
+		if(controller2 != null) {	// this function can be used whether 1 or 2 are connected
+			TeleopTrigger.OnTrue(send(
+				new Manipulator.TestManipulator(this.robot.manipulator,
+					()->Xbox.Analog.RY.getValueOf(controller2) * -1.0,
+					()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
+					()->Xbox.Analog.LY.getValueOf(controller2) * 0.5 + 0.5
+				), "Commands/Manipulator Test")
+			);
+		}
+		new Vision.CameraControl(
 			Xbox.Digital.A.getPressedSupplier(controller),
 			Xbox.Digital.B.getPressedSupplier(controller)
-		));
+		).schedule();
 	}
 
 
 
 
 
-	// private void setupArcade(InputDevice... inputs) {
-	// 	System.out.println("Initializing Arcade Board Control Scheme.");
-	// 	InputDevice		// aliases for less confus
-	// 		lstick = inputs[0],
-	// 		rstick = inputs[1]
-	// 	;
-	// 	TeleopTrigger.OnTrue(
-	// 		// this.robot.drivebase.tankDriveVelocity(
-	// 		// 	Attack3.Analog.Y.getDriveInputSupplier(lstick,
-	// 		// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-	// 		// 	Attack3.Analog.Y.getDriveInputSupplier(rstick,
-	// 		// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER)
-	// 		// )
-	// 		this.robot.drivebase.tankDrivePercent(
-	// 			Attack3.Analog.Y.getDriveInputSupplier(lstick,
-	// 				Constants.DRIVE_INPUT_DEADZONE, -1.0, Constants.DRIVE_INPUT_EXP_POWER),
-	// 			Attack3.Analog.Y.getDriveInputSupplier(rstick,
-	// 				Constants.DRIVE_INPUT_DEADZONE, -1.0, Constants.DRIVE_INPUT_EXP_POWER)
-	// 		)
-	// 	);
-	// 	(new Vision.CameraControl(
-	// 		Attack3.Digital.TRI.getCallbackFrom(rstick)
-	// 	)).schedule();
-	// }
-
-
-
-
-
-	// private void setupControlBoard(InputDevice... inputs) {
-	// 	System.out.println("Initializing Control Board Control Scheme.");
-	// 	InputDevice		// aliases for less confus
-	// 		lstick = inputs[0],
-	// 		rstick = inputs[1],
-	// 		bbox = inputs[2]
-	// 	;
-	// 	TeleopTrigger.OnTrue(
-	// 		this.robot.drivebase.tankDriveVelocity(
-	// 			Attack3.Analog.Y.getDriveInputSupplier(lstick,
-	// 				Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-	// 			Attack3.Analog.Y.getDriveInputSupplier(rstick,
-	// 				Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER)
-	// 		)
-	// 		// this.robot.drivebase.tankDrivePercent(
-	// 		// 	Attack3.Analog.Y.getDriveInputSupplier(lstick,
-	// 		// 		Constants.DRIVE_INPUT_DEADZONE, -1.0, Constants.DRIVE_INPUT_EXP_POWER),
-	// 		// 	Attack3.Analog.Y.getDriveInputSupplier(rstick,
-	// 		// 		Constants.DRIVE_INPUT_DEADZONE, -1.0, Constants.DRIVE_INPUT_EXP_POWER)
-	// 		// )
-	// 	);
-	// 	// (new Vision.CameraControl(
-	// 	// 	ButtonBox.Digital.B1.getCallbackFrom(bbox)
-
-	// 	// )).schedule();
-	// 	EnabledTrigger.OnTrue(new Vision.CameraControl(
-	// 		bbox.button(ButtonBox.Digital.B2.value, CommandScheduler.getInstance().getDefaultButtonLoop()).rising(),
-	// 		bbox.button(ButtonBox.Digital.B1.value, CommandScheduler.getInstance().getDefaultButtonLoop()).rising()
-	// 	));
-	// }
-
-
-
-
-
-	private void setupComp(InputDevice... inputs) {
-		System.out.println("Initializing Competition Controls!");
-		InputDevice		// aliases for less confus
+	private void setupControlBoard(InputDevice... inputs) {
+		System.out.println("Initializing Control Board Controls!");
+		InputDevice
 			lstick = inputs[0],
 			rstick = inputs[1],
-			controller = inputs[2]
+			bbox = inputs.length > 2 ? inputs[2] : null,
+			controller = inputs.length > 3 ? inputs[3] : null
 		;
-		TeleopTrigger.OnTrue(
+		TeleopTrigger.OnTrue(send(
 			this.robot.drivebase.tankDriveVelocity(
 				Attack3.Analog.Y.getDriveInputSupplier(lstick,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 				Attack3.Analog.Y.getDriveInputSupplier(rstick,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER)
-			)
+			), "Commands/Velocity Drive")
 		);
-		TeleopTrigger.OnTrue(send(
-			new Manipulator.TestManipulator(this.robot.manipulator,
-				()->Xbox.Analog.RY.getValueOf(controller) * -1.0,		// right stick y-axis for the arm %-output
-				()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
-				()->Xbox.Analog.LY.getValueOf(controller) * -0.5 + 0.5		// left stick y-axis for the grabber %-output
-			), "Commands/Manipulator Test")
-		);
-		EnabledTrigger.OnTrue(new Vision.CameraControl(
-			Xbox.Digital.A.getPressedSupplier(controller),		// A button for changing camera
-			Xbox.Digital.B.getPressedSupplier(controller)		// B button for toggling overlay
-		));
+		if(controller != null) {
+			TeleopTrigger.OnTrue(send(
+				new Manipulator.TestManipulator(this.robot.manipulator,
+					()->Xbox.Analog.RY.getValueOf(controller) * -1.0,		// right stick y-axis for the arm %-output
+					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
+					()->Xbox.Analog.LY.getValueOf(controller) * 0.5 + 0.5		// left stick y-axis for the grabber %-output
+				), "Commands/Manipulator Test")
+			);
+			if(bbox == null) {
+				new Vision.CameraControl(
+					Xbox.Digital.A.getPressedSupplier(controller),
+					Xbox.Digital.B.getPressedSupplier(controller)
+				).schedule();
+			}
+		}
+		if(bbox != null) {
+			new Vision.CameraControl(
+				ButtonBox.Digital.B1.getPressedSupplier(bbox),
+				ButtonBox.Digital.B2.getPressedSupplier(bbox)
+			).schedule();
+		}
 	}
 
 

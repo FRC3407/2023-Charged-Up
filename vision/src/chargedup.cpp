@@ -22,6 +22,7 @@
 #include <wpi/sendable/Sendable.h>
 #include <wpi/sendable/SendableBuilder.h>
 #include <frc/smartdashboard/SmartDashboard.h>
+#include <cameraserver/CameraServer.h>
 
 #include <core/calib.h>
 
@@ -109,6 +110,10 @@ public:
 };
 
 
+class VideoSinkImpl : public cs::VideoSink {
+public:
+	inline VideoSinkImpl(CS_Sink h) : VideoSink(h) {}	// this constructor is protected so we have to subclass to use it publicly
+};
 struct CThread {
 	CThread() = default;
 	CThread(CThread&& t) :
@@ -321,6 +326,7 @@ bool init(const char* fname) {
 
 	_global.discon_frame_h = cs::CreateCvSource("Disconnected Frame Source", DEFAULT_VMODE, &status);
 	_global.stream_h = cs::CreateMjpegServer("Viewport Stream", "", _global.next_stream_port++, &status);
+	frc::CameraServer::AddServer(VideoSinkImpl(_global.stream_h));
 
 	std::vector<cs::UsbCameraInfo> connections = cs::EnumerateUsbCameras(&status);
 

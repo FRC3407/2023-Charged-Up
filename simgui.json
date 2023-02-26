@@ -6,6 +6,16 @@
           "open": true
         }
       },
+      "Talon SRX[10]": {
+        "header": {
+          "open": true
+        }
+      },
+      "Talon SRX[11]": {
+        "header": {
+          "open": true
+        }
+      },
       "Talon SRX[1]": {
         "header": {
           "open": true
@@ -43,16 +53,33 @@
       "/FMSInfo": "FMSInfo",
       "/LiveWindow/Ungrouped/PIDController[1]": "PIDController",
       "/LiveWindow/Ungrouped/PIDController[2]": "PIDController",
+      "/LiveWindow/Ungrouped/PIDController[3]": "PIDController",
+      "/LiveWindow/Ungrouped/PIDController[4]": "PIDController",
+      "/LiveWindow/Ungrouped/PIDController[5]": "PIDController",
+      "/LiveWindow/Ungrouped/PIDController[6]": "PIDController",
+      "/LiveWindow/Ungrouped/PIDController[7]": "PIDController",
+      "/LiveWindow/Ungrouped/PIDController[8]": "PIDController",
       "/LiveWindow/Ungrouped/Scheduler": "Scheduler",
       "/LiveWindow/Ungrouped/Talon SRX [0]": "Motor Controller",
+      "/LiveWindow/Ungrouped/Talon SRX [10]": "Motor Controller",
+      "/LiveWindow/Ungrouped/Talon SRX [11]": "Motor Controller",
       "/LiveWindow/Ungrouped/Talon SRX [1]": "Motor Controller",
       "/LiveWindow/Ungrouped/Talon SRX [2]": "Motor Controller",
       "/LiveWindow/Ungrouped/Talon SRX [3]": "Motor Controller",
+      "/LiveWindow/Ungrouped/Talon SRX [4]": "Motor Controller",
+      "/LiveWindow/Ungrouped/Talon SRX [5]": "Motor Controller",
+      "/SmartDashboard/Autonomous": "String Chooser",
       "/SmartDashboard/Commands/Climb Pad": "Command",
+      "/SmartDashboard/Commands/Velocity Drive": "Command",
       "/SmartDashboard/Control Scheme": "String Chooser",
       "/SmartDashboard/Robot Location": "Field2d"
     },
     "windows": {
+      "/SmartDashboard/Autonomous": {
+        "window": {
+          "visible": true
+        }
+      },
       "/SmartDashboard/Control Scheme": {
         "window": {
           "visible": true
@@ -64,7 +91,15 @@
     "Persistent Values": {
       "open": false
     },
+    "Retained Values": {
+      "open": false
+    },
     "retained": {
+      "SmartDashboard": {
+        "Autonomous": {
+          "open": true
+        }
+      },
       "Vision Server": {
         "open": true
       }
@@ -72,16 +107,15 @@
     "transitory": {
       "SmartDashboard": {
         "Commands": {
-          "Climb Pad": {
-            "open": true
-          },
           "Manipulator Test": {
             "open": true
-          },
-          "open": true
+          }
         },
         "Robot": {
           "Drivebase": {
+            "open": true
+          },
+          "IMU": {
             "open": true
           },
           "Manipulator": {

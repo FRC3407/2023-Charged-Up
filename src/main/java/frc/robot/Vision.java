@@ -132,6 +132,8 @@ public class Vision {
 		@Override
 		public boolean isFinished() { return false; }
 		@Override
+		public boolean runsWhenDisabled() { return true; }
+		@Override
 		public void end(boolean i) {}
 
 	}

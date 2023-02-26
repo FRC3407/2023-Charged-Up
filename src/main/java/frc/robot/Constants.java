@@ -2,6 +2,7 @@ package frc.robot;
 
 import java.util.HashMap;
 
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.GenericHID;
 import edu.wpi.first.wpilibj2.command.Command;
 
@@ -38,7 +39,7 @@ public final class Constants {
 			2.0,
 			0.7,
 			10.0,
-			3.0,
+			2.5,
 			2.5,
 			Inversions.BOTH
 		);
@@ -56,10 +57,10 @@ public final class Constants {
 
 	public static final double
 		DRIVE_INPUT_DEADZONE = 0.05,
-		DRIVE_INPUT_VEL_SCALE = -3.0,
+		DRIVE_INPUT_VEL_SCALE = -2.5,
 		DRIVE_INPUT_EXP_POWER = 1.0,
 
-		IMU_RATE_FILTER = 0.35,
+		IMU_RATE_FILTER = 0.40,
 
 		ACTIVE_PARK_VOLTS_PER_METER = 100.0,
 		BALANCE_PARK_VOLTS_PER_DEGREE = 0.2,
@@ -96,7 +97,12 @@ public final class Constants {
 	;
 
 	public static final String
-		TEST_TRAJECTORY = "Test Auto";
+		TEST_AUTO = "Test Auto",
+		TEST_FOLLOW = "Test Follow";
+	public static final String[]		// make a list so we can automate adding all the trajectories as selectable auto options
+		TRAJECTORIES = new String[]{
+			TEST_AUTO, TEST_FOLLOW
+		};
 	public static final HashMap<String, Command> AUTO_EVENTS = new HashMap<>();
 
 
@@ -104,7 +110,8 @@ public final class Constants {
 	public static class ButtonBox extends InputMap {
 		public static enum Digital implements DigitalMap {
 			B1(1), B2(2), B3(3), B4(4), B5(5), B6(6),
-			S1(7), S2(8), TOTAL(8);
+			S1(7), S2(8),
+			TOTAL(16);	// whatever interface board the bbox is using apparently has 12 buttons and 1 POV
 
 			public final int value;
 			private Digital(int v) { this.value = v; }
@@ -115,11 +122,12 @@ public final class Constants {
 
 		private ButtonBox() {}
 		public static final ButtonBox Map = new ButtonBox();
+		public static final int AXIS_COUNT = 5;		// see the last comment --> the bbox apparently has 5 axis
 
 		public boolean compatible(GenericHID i)
-			{ return Digital.TOTAL.compatible(i); }
+			{ return Digital.TOTAL.compatible(i) && i.getAxisCount() == AXIS_COUNT; }
 		public boolean compatible(int p)
-			{ return Digital.TOTAL.compatible(p); }
+			{ return Digital.TOTAL.compatible(p) && DriverStation.getStickAxisCount(p) == AXIS_COUNT; }
 	}
 
 

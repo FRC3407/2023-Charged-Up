@@ -122,6 +122,9 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
                 this.ramsete_B, this.ramsete_Z
             );
         }
+        public PathConstraints getPathConstraints() {
+            return new PathConstraints(this.max_velocity, this.max_acceleration);
+        }
     }
     
     private final Gyro 
@@ -156,6 +159,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
         this.right.configFactoryDefault();
         this.left2.configFactoryDefault();
         this.right2.configFactoryDefault();
+		this.setNeutralMode(Constants.DRIVEBASE_NEUTRAL_MODE);
         this.left2.follow(this.left);
         this.right2.follow(this.right);
         this.left2.setInverted(InvertType.FollowMaster);
@@ -166,7 +170,6 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		this.right.setSelectedSensorPosition(0.0);
         this.left.setSensorPhase(parameters.encoder_inversions.left);
 		this.right.setSensorPhase(parameters.encoder_inversions.right);
-        this.setBrakeMode();
     }
 
     @Override
@@ -242,7 +245,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      * @param r a -1 to 1 ranged input supplier for the right side
      * @return A command for driving the drivebase using tankdrive
      */
-    public Command tankDrivePercent(DoubleSupplier l, DoubleSupplier r) {
+    public CommandBase tankDrivePercent(DoubleSupplier l, DoubleSupplier r) {
         return new TankDrivePercent(this, l, r);
     }
     /** Get a tankdrive command, controlled by inputs that return voltages for each side
@@ -250,7 +253,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      * @param rvt a ~-12 to ~12 ranged input supplier for the right side motor voltages
      * @return A command for driving the drivebase using tankdrive
      */
-    public Command tankDriveVoltage(DoubleSupplier lvt, DoubleSupplier rvt) {
+    public CommandBase tankDriveVoltage(DoubleSupplier lvt, DoubleSupplier rvt) {
         return new TankDriveVoltage(this, lvt, rvt);
     }
     /** Get a tankdrive command, controlled by inputs that provide target velocities for each side
@@ -258,7 +261,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      * @param rv a velocity supplier in METERS PER SECOND for the right side
      * @return A command for driving the drivebase using tankdrive
      */
-    public Command tankDriveVelocity(DoubleSupplier lv, DoubleSupplier rv) {
+    public CommandBase tankDriveVelocity(DoubleSupplier lv, DoubleSupplier rv) {
         return new TankDriveVelocity(this, lv, rv);
     }
     /** Get a tankdrive command, controlled by inputs that provide target velocities for each side -- transitions are limited by a trapazoid profile generator
@@ -266,8 +269,13 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
      * @param rv a velocity supplier in METERS PER SECOND for the right side
      * @return A command for driving the drivebase using tankdrive
      */
-    public Command tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv) {
+    public CommandBase tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv) {
         return new TankDriveVelocity_P(this, lv, rv);
+    }
+
+    public CommandBase followPath(String ppfile) {
+        return this.getAutoBuilder(Constants.AUTO_EVENTS).followPath(
+            PathPlanner.loadPath(ppfile, this.parameters.getPathConstraints()));
     }
 
 
@@ -290,18 +298,14 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
             this.getRotation(), 0.0, 0.0, p);
 	}
 
-    public void setCoastMode() {
-        this.left.setNeutralMode(NeutralMode.Coast);
-        this.left2.setNeutralMode(NeutralMode.Coast);
-        this.right.setNeutralMode(NeutralMode.Coast);
-        this.right2.setNeutralMode(NeutralMode.Coast);
+    public void setNeutralMode(NeutralMode m) {
+        this.left.setNeutralMode(m);
+        this.left2.setNeutralMode(m);
+        this.right.setNeutralMode(m);
+        this.right2.setNeutralMode(m);
     }
-    public void setBrakeMode() {
-        this.left.setNeutralMode(NeutralMode.Brake);
-        this.left2.setNeutralMode(NeutralMode.Brake);
-        this.right.setNeutralMode(NeutralMode.Brake);
-        this.right2.setNeutralMode(NeutralMode.Brake);
-    }
+	public void setCoastMode() { this.setNeutralMode(NeutralMode.Coast); }
+    public void setBrakeMode() { this.setNeutralMode(NeutralMode.Brake); }
 
 
     public double getRawLeftPosition() {
@@ -474,6 +478,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
         @Override
         public void initialize() {
+            System.out.println("Init Velocity Drive!");
 			this.left_fb.reset();
 			this.right_fb.reset();
 		}
@@ -493,6 +498,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
         }
 		@Override
 		public void end(boolean interrupted) {
+            System.out.println("Velocity Drive Interrupted. :(");
 			this.drivebase.setDriveVoltage(0.0, 0.0);
 		}
 		@Override

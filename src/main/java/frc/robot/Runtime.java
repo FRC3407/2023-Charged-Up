@@ -105,6 +105,14 @@ public final class Runtime extends TimedRobot {
 		this.auto.setDefaultOption("Climb Charging Pad",
 			send(Auto.climbPad(this.robot.drivebase, pitch, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
 		AutonomousTrigger.OnTrue(new InstantCommand(()->this.auto.getSelected().schedule()));
+
+		DriveBase.FollowTrajectory dbTrajectory = new DriveBase.FollowTrajectory(this.robot.drivebase, "Test Auto");
+		this.auto.addOption("Trajectory Following", dbTrajectory.rCommand(DriveBase.FollowTrajectory.createPath("Test Auto")));
+		// how to add traj command on list
+		// add option, give it a name, it takes in a new option, function to 
+		// make trajectory. Add method to create a trajectory 
+		// pathplanner, make new traj
+		// chooser
 	}
 	@Override
 	public void robotPeriodic() {

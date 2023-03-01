@@ -23,8 +23,17 @@ public class Auto {
 	 * @param vel The velocity to climb the pad at
 	 * @return A runnable command
 	 */
-	public static ClimbPad climbPad(DriveBase db, Gyro pitch, double vel) {
-		return new ClimbPad(db, pitch, vel);
+	public static ClimbPad climbPad(DriveBase db, Gyro pitch, double evel, double ivel) {
+		return new ClimbPad(db, pitch, evel, ivel);
+	}
+	/**	Get a command for parking on the charging pad based on the gyro angle
+	 * @param db The drivebase subsystem
+	 * @param pitch A gyro implementation for the robot's pitch axis
+	 * @param kp The p-gain value - VOLTS PER DEGREE [of error]
+	 * @return The command
+	 */
+	public static BalancePark balancePark(DriveBase db, Gyro pitch, double kp) {
+		return new BalancePark(db, pitch, kp);
 	}
 
 
@@ -65,14 +74,54 @@ public class Auto {
         }
 
     }
-    public static class ClimbPad extends CommandBase {
+    public static class BalancePark extends CommandBase {
+
+		private final DriveBase drivebase;
+		private final Gyro pitch_axis;
+		private final double volts_per_degree;
+		private double
+			left_target, right_target,
+			pitch_target;
+
+		public BalancePark(DriveBase db, Gyro pitch, double kp_v) {
+			this.drivebase = db;
+			this.pitch_axis = pitch;
+			this.volts_per_degree = kp_v;
+		}
+
+		@Override
+		public void initialize() {
+			this.left_target = this.drivebase.getLeftPosition();
+			this.right_target = this.drivebase.getRightPosition();
+			this.pitch_target = this.pitch_axis.getAngle();
+		}
+		@Override
+		public void execute() {
+			double ae = this.pitch_target - this.pitch_axis.getAngle();
+			this.drivebase.setDriveVoltage(
+				ae * this.volts_per_degree,
+				ae * this.volts_per_degree
+			);
+		}
+		@Override
+		public void end(boolean i) {
+			this.drivebase.setDriveVoltage(0, 0);
+		}
+		@Override
+		public boolean isFinished() {
+			return false;
+		}
+
+	}
+	public static class ClimbPad extends CommandBase {
 
         public static final double
-			DEFAULT_INCLINE_VELOCITY = 0.2,
+			DEFAULT_ENGAGE_VELOCITY = 0.8,
+			DEFAULT_INCLINE_VELOCITY = 0.1,	// this should be the target, but the db doesn't actually go this speed bc of the angle
 			DELTA_ANGLE_THRESH = 14.0,	// the charging pad main incline is 15 degrees, so give some room for error
 			DELTA_ANGLE_RATE_THRESH = 20,
 			STABLE_ANGLE_THRESH = 0.5,
-			STABLE_VELOCITY_THRESH = 0.05;
+			STABLE_VELOCITY_THRESH = 0.03;
 
 		private static enum State {
 			ENGAGING	("Engaging"),
@@ -88,17 +137,18 @@ public class Auto {
         private final DriveBase drivebase;
 		private final Gyro pitch;
         private final PIDController left_fb, right_fb;
-		private final double incline_velocity;
+		private final double engage_velocity, incline_velocity;
 		private double pitch_init = 0.0;
 		private State state = State.STABLE;
 
 		public ClimbPad(DriveBase db, Gyro pa)
-			{ this(db, pa, DEFAULT_INCLINE_VELOCITY); }
-		public ClimbPad(DriveBase db, Gyro pa, double iv) {
+			{ this(db, pa, DEFAULT_INCLINE_VELOCITY, DEFAULT_ENGAGE_VELOCITY); }
+		public ClimbPad(DriveBase db, Gyro pa, double ev, double iv) {
             this.drivebase = db;
 			this.pitch = pa;
             this.left_fb = drivebase.parameters.getFeedbackController();
             this.right_fb = drivebase.parameters.getFeedbackController();
+			this.engage_velocity = ev;
 			this.incline_velocity = iv;
 			super.addRequirements(db);
 		}
@@ -127,8 +177,8 @@ public class Auto {
 			switch(this.state) {
 				case ENGAGING: {
 					this.driveVelocity(
-						this.incline_velocity,
-						this.incline_velocity
+						this.engage_velocity,
+						this.engage_velocity
 					);
 					if(pitch_init - this.pitch.getAngle() > DELTA_ANGLE_THRESH) {
 						this.state = State.CLIMBING;
@@ -140,7 +190,7 @@ public class Auto {
 						this.incline_velocity,
 						this.incline_velocity
 					);
-					if(this.pitch.getRate() < -DELTA_ANGLE_RATE_THRESH) {
+					if(-this.pitch.getRate() < -DELTA_ANGLE_RATE_THRESH) {	// the actual rate is the inverse bc of CW <--> CCW weridness w/ Gyro interface so invert
 						this.state = State.STABILIZING;
 						// maybe store the position here, use position locking in the stabilization block?
 					}
@@ -148,14 +198,15 @@ public class Auto {
 				}
 				case STABILIZING: {
 					this.driveVelocity(0.0, 0.0);	// or use position lock
-					if(Math.abs(this.pitch_init - this.pitch.getAngle()) < STABLE_ANGLE_THRESH &&
+					double da = this.pitch_init - this.pitch.getAngle();
+					if(Math.abs(da) < STABLE_ANGLE_THRESH &&
 						Math.abs(this.drivebase.getLeftVelocity()) < STABLE_VELOCITY_THRESH &&
 						Math.abs(this.drivebase.getRightVelocity()) < STABLE_VELOCITY_THRESH)
 					{
 						this.state = State.STABLE;
-					} else if(this.pitch_init - this.pitch.getAngle() < -DELTA_ANGLE_THRESH) {
+					} else if(da < -DELTA_ANGLE_THRESH) {
 						this.state = State.OVERSHOT;
-					} else if(this.pitch_init - this.pitch.getAngle() > DELTA_ANGLE_THRESH) {
+					} else if(da > DELTA_ANGLE_THRESH) {
 						this.state = State.CLIMBING;
 					}
 					break;
@@ -165,7 +216,7 @@ public class Auto {
 						-this.incline_velocity,
 						-this.incline_velocity
 					);
-					if(this.pitch.getRate() > DELTA_ANGLE_RATE_THRESH) {
+					if(-this.pitch.getRate() > DELTA_ANGLE_RATE_THRESH) {	// see above for inverting rate
 						this.state = State.STABILIZING;
 					}
 					break;

@@ -5,6 +5,7 @@ import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.DataLogManager;
 import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.PowerDistribution;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
@@ -33,6 +34,10 @@ public final class Runtime extends TimedRobot {
 	public static Runtime Get() { return Runtime.runtime; }
 
 	private final class Robot implements Sendable {
+		private final PowerDistribution power = new PowerDistribution(
+			Constants.PDH_CAN_ID,
+			Constants.PDH_MODULE_TYPE
+		);
 		private final ADIS16470_3X imu_3x = new ADIS16470_3X();
 		private final DriveBase drivebase = new DriveBase(
 			Constants.DRIVEBASE_LAYOUT,
@@ -48,9 +53,14 @@ public final class Runtime extends TimedRobot {
 		);
 
 		@Override
-		public void initSendable(SendableBuilder b) {}
+		public void initSendable(SendableBuilder b) {
+			b.addDoubleProperty("Power/Temperature", this.power::getTemperature, null);
+			b.addDoubleProperty("Power/Total Power (W)", this.power::getTotalPower, null);
+			b.addDoubleProperty("Power/Total Energy Used (J)", this.power::getTotalEnergy, null);	// divide by 3600 for watt-hours
+		}
 		public void startLogging() {
 			SmartDashboard.putData("Robot", this);
+			SmartDashboard.putData("Robot/Power", this.power);
 			SmartDashboard.putData("Robot/IMU", this.imu_3x);
 			SmartDashboard.putData("Robot/Drivebase", this.drivebase);
 			SmartDashboard.putData("Robot/Manipulator/Arm", this.manipulator.arm);
@@ -71,7 +81,8 @@ public final class Runtime extends TimedRobot {
 		PortForwarder.add(1180, "10.34.7.12", 80);
 		PortForwarder.add(1181, "10.34.7.12", 1181);
 		Vision.init();
-		DataLogManager.start();
+		if(isReal()) { DataLogManager.start(); }
+		else { DataLogManager.start("logs/sim"); }
 		DriverStation.startDataLog(DataLogManager.getLog());
 		PathPlannerServer.startServer(5811);
 		this.robot.startLogging();
@@ -80,12 +91,10 @@ public final class Runtime extends TimedRobot {
 		this.controls.addScheme("Dual Xbox Controls", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox);
 		this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoard);
 		this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoard);
-		this.controls.addScheme("Competition Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoard);
+		this.controls.setDefault("Competition Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoard);
 		this.controls.setAmbiguousSolution(ControlSchemeManager.AmbiguousSolution.PREFER_COMPLEX);
 		this.controls.publishSelector();
 		this.controls.runContinuous();
-
-		// this.setupComp2();
 
 		Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
 
@@ -166,7 +175,7 @@ public final class Runtime extends TimedRobot {
 					()->Xbox.Analog.RY.getValueOf(controller2) * -1.0,
 					()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
 					()->Xbox.Analog.LY.getValueOf(controller2) * 0.5 + 0.5
-				), "Commands/Manipulator Test")
+				), "Commands/Manipulator Control")
 			);
 		}
 		new Vision.CameraControl(
@@ -201,7 +210,7 @@ public final class Runtime extends TimedRobot {
 					()->Xbox.Analog.RY.getValueOf(controller) * -1.0,		// right stick y-axis for the arm %-output
 					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
 					()->Xbox.Analog.LY.getValueOf(controller) * 0.5 + 0.5		// left stick y-axis for the grabber %-output
-				), "Commands/Manipulator Test")
+				), "Commands/Manipulator Control")
 			);
 			if(bbox == null) {
 				new Vision.CameraControl(

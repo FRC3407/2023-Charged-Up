@@ -478,7 +478,6 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
         @Override
         public void initialize() {
-            System.out.println("Init Velocity Drive!");
 			this.left_fb.reset();
 			this.right_fb.reset();
 		}
@@ -498,7 +497,6 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
         }
 		@Override
 		public void end(boolean interrupted) {
-            System.out.println("Velocity Drive Interrupted. :(");
 			this.drivebase.setDriveVoltage(0.0, 0.0);
 		}
 		@Override
@@ -509,8 +507,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
         @Override
         public void initSendable(SendableBuilder b) {
             super.initSendable(b);
-            b.addDoubleProperty("Left Target M/S", this.left, null);
-            b.addDoubleProperty("Right Target M/S", this.right, null);
+            b.addDoubleProperty("Left Target MpS", this.left, null);
+            b.addDoubleProperty("Right Target MpS", this.right, null);
         }
 
 

@@ -24,6 +24,8 @@
 #include <frc/smartdashboard/SmartDashboard.h>
 #include <cameraserver/CameraServer.h>
 
+#include <libpixyusb2.h>
+
 #include <core/calib.h>
 
 #include <cpp-tools/src/sighandle.h>
@@ -169,6 +171,7 @@ struct {
 
 	int next_stream_port = 1181;
 	std::vector<CThread> cthreads;
+	// Pixy2 pixycam;
 	CS_Source discon_frame_h;
 	CS_Sink stream_h;
 
@@ -217,6 +220,8 @@ int main(int argc, char** argv) {
 	// 	cv::Point(DEFAULT_VMODE.width / 2, DEFAULT_VMODE.height / 2),
 	// 	cv::FONT_HERSHEY_DUPLEX, 2.0, cv::Scalar(255, 0, 0), 2, cv::LINE_AA
 	// );
+	// uint8_t* bframe;
+	// _global.pixycam.m_link.stop();
 	cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
 	for(;_global.state.program_enable;) {
 
@@ -235,10 +240,14 @@ int main(int argc, char** argv) {
 		// 	cs::PutSourceFrame(_global.discon_frame_h, dcon_frame, &status);
 		// }
 
+		// status = _global.pixycam.m_link.getRawFrame(&bframe);
+		// std::cout << "Pixy frame status: " << status << std::endl;
+
 		frc::SmartDashboard::UpdateValues();
 
 		std::this_thread::sleep_for(100ms);
 	}
+	// _global.pixycam.m_link.resume();
 
 	// shutdown
 	{
@@ -249,6 +258,7 @@ int main(int argc, char** argv) {
 		cs::ReleaseSink(_global.stream_h, &status);
 		cs::ReleaseSource(_global.discon_frame_h, &status);
 		cs::Shutdown();
+		// _global.pixycam.m_link.close();
 		std::cout << "Shutdown complete. Exitting..." << std::endl;
 	}
 
@@ -327,6 +337,41 @@ bool init(const char* fname) {
 	_global.discon_frame_h = cs::CreateCvSource("Disconnected Frame Source", DEFAULT_VMODE, &status);
 	_global.stream_h = cs::CreateMjpegServer("Viewport Stream", "", _global.next_stream_port++, &status);
 	frc::CameraServer::AddServer(VideoSinkImpl(_global.stream_h));
+
+	// status = _global.pixycam.init();
+	// switch(status) {
+	// 	default:
+	// 	case PIXY_RESULT_OK: {
+	// 		std::cout << "Pixy init successful." << std::endl;
+	// 		_global.pixycam.getVersion();
+	// 		//_global.pixycam.version->print();
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_ERROR: {
+	// 		std::cout << "Pixy init fail - general error." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_BUSY: {
+	// 		std::cout << "Pixy init fail - no new data (busy)." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_CHECKSUM_ERROR: {
+	// 		std::cout << "Pixy init fail - checksum error." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_TIMEOUT: {
+	// 		std::cout << "Pixy init fail - timeout." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_BUTTON_OVERRIDE: {
+	// 		std::cout << "Pixy init fail - user button override." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_PROG_CHANGING: {
+	// 		std::cout << "Pixy init fail - program is changing." << std::endl;
+	// 		break;
+	// 	}
+	// }
 
 	std::vector<cs::UsbCameraInfo> connections = cs::EnumerateUsbCameras(&status);
 

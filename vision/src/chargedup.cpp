@@ -49,17 +49,17 @@ enum CamID {
 	FWD_CAMERA,
 	ARM_CAMERA,
 	TOP_CAMERA,
-	PIXY2,
+	// PIXY2,
 	START_ADDITIONAL
 };
 static const nt::PubSubOptions
 	NT_OPTIONS = { .periodic = 1.0 / 30.0 };
-static const std::array<const char*, 4>
-	CAMERA_TAGS{ "forward", "arm", "top", "pixy2" };
+static const std::array<const char*, 3>
+	CAMERA_TAGS{ "forward", "arm", "top"/*, "pixy2"*/ };
 static const cs::VideoMode
 	DEFAULT_VMODE{ cs::VideoMode::kMJPEG, 640, 480, 30 };
 static const int
-	DEFAULT_EXPOSURE = 25,
+	DEFAULT_EXPOSURE = 40,
 	DEFAULT_WBALANCE = -1,
 	DEFAULT_BRIGHTNESS = 50;
 static const CalibList
@@ -171,6 +171,7 @@ struct {
 
 	int next_stream_port = 1181;
 	std::vector<CThread> cthreads;
+	cv::Mat disconnect_frame;
 	// Pixy2 pixycam;
 	CS_Source discon_frame_h;
 	CS_Sink stream_h;
@@ -222,7 +223,7 @@ int main(int argc, char** argv) {
 	// );
 	// uint8_t* bframe;
 	// _global.pixycam.m_link.stop();
-	cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
+	//cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
 	for(;_global.state.program_enable;) {
 
 		int vid = _global.nt.view_id.Get();
@@ -232,9 +233,17 @@ int main(int argc, char** argv) {
 		last_vid = vid;
 		last_vrb = vrb;
 
-		bool needs_frame = false;
+		// if(_global.state.view_updated) {
+		// 	std::cout << "View idx update detected." << std::endl;
+		// }
+		// if(_global.state.vrbo_updated) {
+		// 	std::cout << "Verbosity update detected." << std::endl;
+		// }
+
+		// bool needs_frame = false;
 		for(CThread& t : _global.cthreads) {
-			needs_frame = needs_frame || _update(t);
+			// needs_frame = needs_frame || _update(t);
+			_update(t);
 		}
 		// if(needs_frame) {
 		// 	cs::PutSourceFrame(_global.discon_frame_h, dcon_frame, &status);
@@ -334,6 +343,13 @@ bool init(const char* fname) {
 	frc::SmartDashboard::init();
 	frc::SmartDashboard::PutData("Vision/Stats", &_global.stats);
 
+	_global.disconnect_frame = cv::Mat::zeros({DEFAULT_VMODE.width, DEFAULT_VMODE.height}, CV_8UC3);
+	cv::putText(
+		_global.disconnect_frame, "Camera is Unavailable :(",
+		cv::Point(DEFAULT_VMODE.width / 8, DEFAULT_VMODE.height / 2),
+		cv::FONT_HERSHEY_SIMPLEX, 1.2, {0, 0, 255}, 4, cv::LINE_AA
+	);
+
 	_global.discon_frame_h = cs::CreateCvSource("Disconnected Frame Source", DEFAULT_VMODE, &status);
 	_global.stream_h = cs::CreateMjpegServer("Viewport Stream", "", _global.next_stream_port++, &status);
 	frc::CameraServer::AddServer(VideoSinkImpl(_global.stream_h));
@@ -375,12 +391,10 @@ bool init(const char* fname) {
 
 	std::vector<cs::UsbCameraInfo> connections = cs::EnumerateUsbCameras(&status);
 
-	_global.cthreads = std::move(std::vector<CThread>(j.count("cameras")));
 	int vid_additions = CamID::START_ADDITIONAL;
 	try {
-		size_t i = 0;
 		for(const wpi::json& camera : j.at("cameras")) {
-			CThread& cthr = _global.cthreads[i++];
+			CThread& cthr = _global.cthreads.emplace_back();
 			std::string name = camera.at("name").get<std::string>();
 			std::string path = camera.at("path").get<std::string>();
 
@@ -395,8 +409,10 @@ bool init(const char* fname) {
 			cthr.fin_h = cs::CreateCvSink(fmt::format("{}_cv_in", name), &status);
 			cthr.fout_h = cs::CreateCvSource(fmt::format("{}_cv_out", name), cthr.vmode, &status);
 			
+			// std::cout << fmt::format("Comparing camera '{}' to tags...", name) << std::endl;
 			for(size_t t = 0; t < CAMERA_TAGS.size(); t++) {
 				if(wpi::equals_lower(name, CAMERA_TAGS[t])) {
+					// std::cout << fmt::format("Set '{}' to id {}.", name, t) << std::endl;
 					cthr.vid = t;
 					break;
 				}
@@ -432,6 +448,8 @@ bool init(const char* fname) {
 				fmt::format("Camera{}_cv_out", cthr.vid), cthr.vmode, &status);
 		}
 	}
+
+	std::cout << fmt::format("Cameras Available: {}", _global.cthreads.size()) << std::endl;
 
 	_global.base_ntable = nt::NetworkTableInstance::GetDefault().GetTable("Vision");
 	_global.nt.views_avail = _global.base_ntable->GetIntegerTopic("Available Outputs").GetEntry(0, NT_OPTIONS);
@@ -471,6 +489,9 @@ bool _update(CThread& ctx) {
 	} else if(ctx.proc.joinable()) {
 		ctx.link_state = false;
 		ctx.proc.join();
+	}
+	if(outputting && !connected) {
+		cs::PutSourceFrame(_global.discon_frame_h, _global.disconnect_frame, &status);
 	}
 	return !enable;
 }

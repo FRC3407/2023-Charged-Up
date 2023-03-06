@@ -43,8 +43,8 @@ public class Vision {
 	public static enum CameraSelect {
 		FORWARD		(0, "Forward Facing Camera"),
 		ARM			(1, "Arm Camera"),
-		TOP			(2, "Top Camera"),
-		PIXY2		(3, "PixyCam");
+		TOP			(2, "Top Camera")/*,
+		PIXY2		(3, "PixyCam")*/;
 
 		public final int id;
 		public final String name;

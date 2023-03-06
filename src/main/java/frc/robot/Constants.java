@@ -64,6 +64,7 @@ public final class Constants {
 		DRIVE_INPUT_DEADZONE = 0.05,
 		DRIVE_INPUT_VEL_SCALE = -2.5,
 		DRIVE_INPUT_EXP_POWER = 1.0,
+		DRIVE_ROT_RATE_SCALE = 0.5,
 
 		IMU_RATE_FILTER = 0.40,
 

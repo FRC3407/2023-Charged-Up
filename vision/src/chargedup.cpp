@@ -5,6 +5,7 @@
 #include <chrono>
 #include <vector>
 #include <array>
+#include <string.h>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/aruco.hpp>

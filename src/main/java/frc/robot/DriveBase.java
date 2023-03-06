@@ -264,6 +264,15 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
     public CommandBase tankDriveVelocity(DoubleSupplier lv, DoubleSupplier rv) {
         return new TankDriveVelocity(this, lv, rv);
     }
+	/** Get a tankdrive command, controlled by l/r velocity setpoints and utilizing scaled rotation rate and acc feedforward
+	 * @param lv a velocity supplier in METERS PER SECOND for the left side
+	 * @param rv a velocity supplier in METERS PER SECOND for the right side
+	 * @param rs the rotation rate scalar - ex. a value of 0.5 simulates the drivebase being twice as wide
+	 * @return A command for advanced velocity tank driving
+	 */
+	public CommandBase tankDriveVelocity2(DoubleSupplier lv, DoubleSupplier rv, double rs) {
+		return new TankDriveVelocity2(this, lv, rv, rs);
+	}
     /** Get a tankdrive command, controlled by inputs that provide target velocities for each side -- transitions are limited by a trapazoid profile generator
      * @param lv a velocity supplier in METERS PER SECOND for the left side
      * @param rv a velocity supplier in METERS PER SECOND for the right side
@@ -481,20 +490,21 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			this.left_fb.reset();
 			this.right_fb.reset();
 		}
-        @Override
-        public void execute() {
+		@Override
+		public void execute() {
 			double
 				lt = this.left.getAsDouble(),	// the target velocity from the left input --> METERS PER SECOND
 				rt = this.right.getAsDouble(),	// ^^^ for the right side
 				lc = this.drivebase.getLeftVelocity(),  // the actual velocity
-				rc = this.drivebase.getRightVelocity();
-            this.drivebase.setDriveVoltage(
+				rc = this.drivebase.getRightVelocity()
+			;
+			this.drivebase.setDriveVoltage(
 				this.drivebase.feedforward.calculate(lt) +  // the calculated feedforward
 					this.left_fb.calculate(lc, lt),   		// add the feedback adjustment
 				this.drivebase.feedforward.calculate(rt) +
 					this.right_fb.calculate(rc, rt)
 			);
-        }
+		}
 		@Override
 		public void end(boolean interrupted) {
 			this.drivebase.setDriveVoltage(0.0, 0.0);
@@ -513,6 +523,95 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 
     }
+	/** TankDrive with velocity setpoint suppliers, but utilize the acceleration constant and scale rotation rate by the supplied value */
+	public static class TankDriveVelocity2 extends CommandBase {
+
+		private final DriveBase drivebase;
+		private final DoubleSupplier leftv, rightv, rscale;
+		private final PIDController leftfb, rightfb;
+		private double lastlv, lastrv;
+
+		public TankDriveVelocity2(
+			DriveBase db, DoubleSupplier lv, DoubleSupplier rv
+		) { this(db, lv, rv, ()->1); }
+		public TankDriveVelocity2(
+			DriveBase db, DoubleSupplier lv, DoubleSupplier rv, double rs
+		) { this(db, lv, rv, ()->rs); }
+		public TankDriveVelocity2(
+			DriveBase db, DoubleSupplier lv, DoubleSupplier rv, DoubleSupplier rs
+		) {
+			this.drivebase = db;
+			this.leftv = lv;
+			this.rightv = rv;
+			this.rscale = rs;
+			this.leftfb = db.parameters.getFeedbackController();
+			this.rightfb = db.parameters.getFeedbackController();
+			super.addRequirements(db);
+		}
+
+		public static double scaleLeftVel(double lv, double rv, double rs) {
+			return ((lv + rv) / 2.0) + ((lv - rv) / 2.0 * rs);
+		}
+		public static double scaleRightVel(double lv, double rv, double rs) {
+			return ((lv + rv) / 2.0) + ((lv + rv) / 2.0 * rs);
+		}
+		public static DifferentialDriveWheelSpeeds scaleRotation(double lv, double rv, double rs) {
+			double avg = ((lv + rv) / 2.0), off = ((lv - rv) / 2.0 * rs);
+			return new DifferentialDriveWheelSpeeds(avg + off, avg - off);
+		}
+		public static void scaleRotation(DifferentialDriveWheelSpeeds wv, double rs) {
+			double
+				avg = ((wv.leftMetersPerSecond + wv.rightMetersPerSecond) / 2.0),
+				off = ((wv.leftMetersPerSecond - wv.rightMetersPerSecond) / 2.0 * rs)
+			;
+			wv.leftMetersPerSecond = avg + off;
+			wv.rightMetersPerSecond = avg - off;
+		}
+
+		@Override
+		public void initialize() {
+			this.leftfb.reset();
+			this.rightfb.reset();
+			this.lastlv = this.leftv.getAsDouble();
+			this.lastrv = this.rightv.getAsDouble();
+		}
+		@Override
+		public void execute() {
+			double
+				l = this.leftv.getAsDouble(),
+				r = this.rightv.getAsDouble(),
+				avg = (l + r) / 2.0,
+				off = (l - r) / 2.0 * this.rscale.getAsDouble(),
+				lt = avg + off,
+				rt = avg - off
+			;
+			this.drivebase.setDriveVoltage(
+				this.drivebase.feedforward.calculate(this.lastlv, lt, 0.02) +
+					this.leftfb.calculate(this.drivebase.getLeftVelocity(), lt),
+				this.drivebase.feedforward.calculate(this.lastrv, rt, 0.02) +
+					this.rightfb.calculate(this.drivebase.getRightVelocity(), rt)
+			);
+			this.lastlv = lt;
+			this.lastrv = rt;
+		}
+		@Override
+		public void end(boolean interrupted) {
+			this.drivebase.setDriveVoltage(0.0, 0.0);
+		}
+		@Override
+		public boolean isFinished() {
+			return false;
+		}
+
+		@Override
+		public void initSendable(SendableBuilder b) {
+			super.initSendable(b);
+			b.addDoubleProperty("Left Target MpS", ()->this.lastlv, null);
+			b.addDoubleProperty("Right Target MpS", ()->this.lastrv, null);
+		}
+
+
+	}
     public static class TankDriveVelocity_P extends CommandBase {
 
         private final DriveBase drivebase;

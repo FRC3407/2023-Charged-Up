@@ -20,6 +20,7 @@ import edu.wpi.first.wpilibj2.command.button.Trigger;
 import com.pathplanner.lib.server.PathPlannerServer;
 
 import frc.robot.Constants.ButtonBox;
+import frc.robot.DriveBase.FollowTrajectory;
 import frc.robot.team3407.controls.Input.*;
 import frc.robot.team3407.controls.ControlSchemeManager;
 import frc.robot.team3407.controls.ControlSchemeManager.AutomatedTester;
@@ -88,13 +89,18 @@ public final class Runtime extends TimedRobot {
 		// this.setupComp2();
 
 		Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
+		FollowTrajectory follow_traj = new FollowTrajectory(this.robot.drivebase, "PathplannerLib");
 
 		this.auto.setDefaultOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
 		this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
+		this.auto.addOption("Follow A Trajectory", follow_traj);
+
 		this.auto.addOption("Climb Charging Pad",
 			send(Auto.climbPad(this.robot.drivebase, pitch,
 				Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
-		for(String t : Constants.TRAJECTORIES) {
+		
+		
+				for(String t : Constants.TRAJECTORIES) {
 			this.auto.addOption(
 				t + " [Trajectory]",
 				this.robot.drivebase.followPath(t)

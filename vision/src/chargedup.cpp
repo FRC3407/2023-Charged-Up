@@ -23,6 +23,7 @@
 #include <wpi/sendable/Sendable.h>
 #include <wpi/sendable/SendableBuilder.h>
 #include <frc/smartdashboard/SmartDashboard.h>
+#include <frc/geometry/Pose3d.h>
 #include <cameraserver/CameraServer.h>
 
 #include <libpixyusb2.h>
@@ -32,6 +33,8 @@
 #include <cpp-tools/src/sighandle.h>
 #include <cpp-tools/src/unix/stats2.h>
 #include <cpp-tools/src/unix/stats2.cpp>
+
+#include "field.h"
 
 
 #define DLOG(x) std::cout << (x) << std::endl;
@@ -63,7 +66,7 @@ static const int
 	DEFAULT_EXPOSURE = 40,
 	DEFAULT_WBALANCE = -1,
 	DEFAULT_BRIGHTNESS = 50;
-static const CalibList
+static const CalibSList
 	STATIC_CALIBRATIONS{
 		{
 			{ "lifecam_hd3000", {
@@ -176,6 +179,11 @@ struct {
 	// Pixy2 pixycam;
 	CS_Source discon_frame_h;
 	CS_Sink stream_h;
+
+	struct {
+		const cv::Ptr<cv::aruco::DetectorParameters> params{cv::aruco::DetectorParameters::create()};
+		const cv::Ptr<cv::aruco::Board> field{::FIELD_2023};
+	} aprilpose;
 
 } _global;
 
@@ -410,19 +418,22 @@ bool init(const char* fname) {
 			cthr.fin_h = cs::CreateCvSink(fmt::format("{}_cv_in", name), &status);
 			cthr.fout_h = cs::CreateCvSource(fmt::format("{}_cv_out", name), cthr.vmode, &status);
 			
-			// std::cout << fmt::format("Comparing camera '{}' to tags...", name) << std::endl;
 			for(size_t t = 0; t < CAMERA_TAGS.size(); t++) {
 				if(wpi::equals_lower(name, CAMERA_TAGS[t])) {
-					// std::cout << fmt::format("Set '{}' to id {}.", name, t) << std::endl;
 					cthr.vid = t;
 					break;
 				}
 			}
 			if(cthr.vid < 0) { cthr.vid = vid_additions++; }
 
+			Calibration* cset = findCalib(name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS);
+			// test
+
 			for(cs::UsbCameraInfo& info : connections) {
 				if(wpi::equals_lower(info.path, path)) {
 					info.dev = -1;
+
+					break;
 				}
 			}
 

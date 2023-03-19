@@ -310,6 +310,7 @@ bool loadJson(wpi::json& j, const char* file) {
 }
 bool init(const char* fname) {
 
+	high_resolution_clock::time_point start = high_resolution_clock::now();
 	int status = 0;
 
 	wpi::json j;
@@ -426,13 +427,29 @@ bool init(const char* fname) {
 			}
 			if(cthr.vid < 0) { cthr.vid = vid_additions++; }
 
-			Calibration* cset = findCalib(name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS);
-			// test
+			const decltype(STATIC_CALIBRATIONS)::Cal_T* cal = nullptr;
+			if(cal = findCalib(name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS)) {
+				std::cout << fmt::format("Found calibration for camera '{}' by name.", name) << std::endl;
+				cthr.camera_matrix = cal->at(0);
+				cthr.dist_matrix = cal->at(1);
+#if DEBUG > 0
+				std::cout << "CMatx: " << cthr.camera_matrix << std::endl;
+				std::cout << "DCoefs: " << cthr.dist_matrix << std::endl;
+#endif
+			}
 
 			for(cs::UsbCameraInfo& info : connections) {
 				if(wpi::equals_lower(info.path, path)) {
 					info.dev = -1;
-
+					if(!cal && (cal = findCalib(info.name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS))) {
+						std::cout << fmt::format("Found calibration for camera '{}' by type.", name) << std::endl;
+						cthr.camera_matrix = cal->at(0);
+						cthr.dist_matrix = cal->at(1);
+#if DEBUG > 0
+						std::cout << "CMatx: " << cthr.camera_matrix << std::endl;
+						std::cout << "DCoefs: " << cthr.dist_matrix << std::endl;
+#endif
+					}
 					break;
 				}
 			}
@@ -470,6 +487,9 @@ bool init(const char* fname) {
 	_global.nt.views_avail.Set(_global.cthreads.size());
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);
+
+	std::cout << fmt::format("Initialization completed in {}s.",
+		duration<double>(high_resolution_clock::now() - start).count()) << std::endl;
 	
 	return true;
 }

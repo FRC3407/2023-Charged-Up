@@ -26,7 +26,7 @@ public final class Constants {
 			DriveLayout.DIFFERENTIAL
 		);
 	public static final NeutralMode
-		DRIVEBASE_NEUTRAL_MODE = NeutralMode.Coast;
+		DRIVEBASE_NEUTRAL_MODE = NeutralMode.Brake;
 	public static final DriveBase.ClosedLoopParams
 		DRIVEBASE_PARAMS = new DriveBase.ClosedLoopParams(  // MAKE SURE THESE ARE ALL CORRECT BEFORE TEST DRIVING IT!!!
 			0.58204,		// use the 'empirical' value from characterization here rather than the actual width

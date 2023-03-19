@@ -586,9 +586,9 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 				rt = avg - off
 			;
 			this.drivebase.setDriveVoltage(
-				this.drivebase.feedforward.calculate(this.lastlv, lt, 0.02) +
+				this.drivebase.feedforward.calculate(lt, (lt - this.lastlv) / 0.02) +
 					this.leftfb.calculate(this.drivebase.getLeftVelocity(), lt),
-				this.drivebase.feedforward.calculate(this.lastrv, rt, 0.02) +
+				this.drivebase.feedforward.calculate(rt, (rt - this.lastrv) / 0.02) +
 					this.rightfb.calculate(this.drivebase.getRightVelocity(), rt)
 			);
 			this.lastlv = lt;

@@ -41,7 +41,8 @@ public final class Constants {
 			0.7,
 			10.0,
 			2.5,
-			2.5,
+			5.0,
+			15.0,
 			Inversions.BOTH
 		);
 	public static final int
@@ -62,7 +63,7 @@ public final class Constants {
 
 	public static final double
 		DRIVE_INPUT_DEADZONE = 0.05,
-		DRIVE_INPUT_VEL_SCALE = -2.5,
+		DRIVE_INPUT_VEL_SCALE = -DRIVEBASE_PARAMS.max_velocity,
 		DRIVE_INPUT_EXP_POWER = 1.0,
 		DRIVE_ROT_RATE_SCALE = 0.5,
 

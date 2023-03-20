@@ -162,7 +162,7 @@ public final class Runtime extends TimedRobot {
 			controller2 = inputs.length > 1 ? inputs[1] : null;
 		;
 		TeleopTrigger.OnTrue(send(
-			this.robot.drivebase.tankDriveVelocity2(
+			this.robot.drivebase.tankDriveVelocityProfiled(
 				Xbox.Analog.LY.getDriveInputSupplier(controller,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 				Xbox.Analog.RY.getDriveInputSupplier(controller,
@@ -198,7 +198,7 @@ public final class Runtime extends TimedRobot {
 			controller = inputs.length > 3 ? inputs[3] : null
 		;
 		TeleopTrigger.OnTrue(send(
-			this.robot.drivebase.tankDriveVelocity2(
+			this.robot.drivebase.tankDriveVelocityProfiled(
 				Attack3.Analog.Y.getDriveInputSupplier(lstick,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 				Attack3.Analog.Y.getDriveInputSupplier(rstick,

@@ -24,6 +24,7 @@
 #include <wpi/sendable/SendableBuilder.h>
 #include <frc/smartdashboard/SmartDashboard.h>
 #include <frc/geometry/Pose3d.h>
+#include <frc/apriltag/AprilTagDetector.h>
 #include <cameraserver/CameraServer.h>
 
 #include <libpixyusb2.h>
@@ -58,7 +59,7 @@ enum CamID {
 };
 static const nt::PubSubOptions
 	NT_OPTIONS = { .periodic = 1.0 / 30.0 };
-static const std::array<const char*, 3>
+static const std::array<const char*, (size_t)CamID::START_ADDITIONAL>
 	CAMERA_TAGS{ "forward", "arm", "top"/*, "pixy2"*/ };
 static const cs::VideoMode
 	DEFAULT_VMODE{ cs::VideoMode::kMJPEG, 640, 480, 30 };
@@ -183,6 +184,7 @@ struct {
 	struct {
 		const cv::Ptr<cv::aruco::DetectorParameters> params{cv::aruco::DetectorParameters::create()};
 		const cv::Ptr<cv::aruco::Board> field{::FIELD_2023};
+		const frc::AprilTagDetector wpi_detector{};
 	} aprilpose;
 
 } _global;
@@ -441,7 +443,7 @@ bool init(const char* fname) {
 			for(cs::UsbCameraInfo& info : connections) {
 				if(wpi::equals_lower(info.path, path)) {
 					info.dev = -1;
-					if(!cal && (cal = findCalib(info.name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS))) {
+					if(!cal && (cal = findCalib(info.name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS))) {	// maybe search by path too?
 						std::cout << fmt::format("Found calibration for camera '{}' by type.", name) << std::endl;
 						cthr.camera_matrix = cal->at(0);
 						cthr.dist_matrix = cal->at(1);
@@ -487,6 +489,8 @@ bool init(const char* fname) {
 	_global.nt.views_avail.Set(_global.cthreads.size());
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);
+
+	_global.aprilpose.wpi_detector.AddFamily(FRC_DICT_NAME);
 
 	std::cout << fmt::format("Initialization completed in {}s.",
 		duration<double>(high_resolution_clock::now() - start).count()) << std::endl;
@@ -562,6 +566,24 @@ void _shutdown(CThread& ctx) {
 	cs::ReleaseSink(ctx.fin_h, &status);
 }
 
+
+
+void _ap_detect_aruco(
+	const cv::Mat& frame,
+	std::vector<std::vector<cv::Point2f>>& corners,
+	std::vector<int32_t>& ids
+) {
+	cv::aruco::detectMarkers(
+		frame, _global.aprilpose.field->dictionary,
+		corners, ids, _global.aprilpose.params
+	);
+}
+void _ap_detect_wpi(
+	const cv::Mat& frame,
+	frc::AprilTagDetector::Results& results
+) {
+	results = _global.aprilpose.wpi_detector.Detect(frame.cols, frame.rows, frame.data);
+}
 
 
 // void _apriltag() {

@@ -23,6 +23,8 @@
 #include <wpi/sendable/Sendable.h>
 #include <wpi/sendable/SendableBuilder.h>
 #include <frc/smartdashboard/SmartDashboard.h>
+#include <frc/geometry/Pose3d.h>
+#include <frc/apriltag/AprilTagDetector.h>
 #include <cameraserver/CameraServer.h>
 
 #include <libpixyusb2.h>
@@ -32,6 +34,8 @@
 #include <cpp-tools/src/sighandle.h>
 #include <cpp-tools/src/unix/stats2.h>
 #include <cpp-tools/src/unix/stats2.cpp>
+
+#include "field.h"
 
 
 #define DLOG(x) std::cout << (x) << std::endl;
@@ -55,7 +59,7 @@ enum CamID {
 };
 static const nt::PubSubOptions
 	NT_OPTIONS = { .periodic = 1.0 / 30.0 };
-static const std::array<const char*, 3>
+static const std::array<const char*, (size_t)CamID::START_ADDITIONAL>
 	CAMERA_TAGS{ "forward", "arm", "top"/*, "pixy2"*/ };
 static const cs::VideoMode
 	DEFAULT_VMODE{ cs::VideoMode::kMJPEG, 640, 480, 30 };
@@ -63,7 +67,7 @@ static const int
 	DEFAULT_EXPOSURE = 40,
 	DEFAULT_WBALANCE = -1,
 	DEFAULT_BRIGHTNESS = 50;
-static const CalibList
+static const CalibSList
 	STATIC_CALIBRATIONS{
 		{
 			{ "lifecam_hd3000", {
@@ -176,6 +180,12 @@ struct {
 	// Pixy2 pixycam;
 	CS_Source discon_frame_h;
 	CS_Sink stream_h;
+
+	struct {
+		const cv::Ptr<cv::aruco::DetectorParameters> params{cv::aruco::DetectorParameters::create()};
+		const cv::Ptr<cv::aruco::Board> field{::FIELD_2023};
+		const frc::AprilTagDetector wpi_detector{};
+	} aprilpose;
 
 } _global;
 
@@ -302,6 +312,7 @@ bool loadJson(wpi::json& j, const char* file) {
 }
 bool init(const char* fname) {
 
+	high_resolution_clock::time_point start = high_resolution_clock::now();
 	int status = 0;
 
 	wpi::json j;
@@ -410,19 +421,38 @@ bool init(const char* fname) {
 			cthr.fin_h = cs::CreateCvSink(fmt::format("{}_cv_in", name), &status);
 			cthr.fout_h = cs::CreateCvSource(fmt::format("{}_cv_out", name), cthr.vmode, &status);
 			
-			// std::cout << fmt::format("Comparing camera '{}' to tags...", name) << std::endl;
 			for(size_t t = 0; t < CAMERA_TAGS.size(); t++) {
 				if(wpi::equals_lower(name, CAMERA_TAGS[t])) {
-					// std::cout << fmt::format("Set '{}' to id {}.", name, t) << std::endl;
 					cthr.vid = t;
 					break;
 				}
 			}
 			if(cthr.vid < 0) { cthr.vid = vid_additions++; }
 
+			const decltype(STATIC_CALIBRATIONS)::Cal_T* cal = nullptr;
+			if(cal = findCalib(name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS)) {
+				std::cout << fmt::format("Found calibration for camera '{}' by name.", name) << std::endl;
+				cthr.camera_matrix = cal->at(0);
+				cthr.dist_matrix = cal->at(1);
+#if DEBUG > 0
+				std::cout << "CMatx: " << cthr.camera_matrix << std::endl;
+				std::cout << "DCoefs: " << cthr.dist_matrix << std::endl;
+#endif
+			}
+
 			for(cs::UsbCameraInfo& info : connections) {
 				if(wpi::equals_lower(info.path, path)) {
 					info.dev = -1;
+					if(!cal && (cal = findCalib(info.name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS))) {	// maybe search by path too?
+						std::cout << fmt::format("Found calibration for camera '{}' by type.", name) << std::endl;
+						cthr.camera_matrix = cal->at(0);
+						cthr.dist_matrix = cal->at(1);
+#if DEBUG > 0
+						std::cout << "CMatx: " << cthr.camera_matrix << std::endl;
+						std::cout << "DCoefs: " << cthr.dist_matrix << std::endl;
+#endif
+					}
+					break;
 				}
 			}
 
@@ -459,6 +489,11 @@ bool init(const char* fname) {
 	_global.nt.views_avail.Set(_global.cthreads.size());
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);
+
+	_global.aprilpose.wpi_detector.AddFamily(FRC_DICT_NAME);
+
+	std::cout << fmt::format("Initialization completed in {}s.",
+		duration<double>(high_resolution_clock::now() - start).count()) << std::endl;
 	
 	return true;
 }
@@ -531,6 +566,24 @@ void _shutdown(CThread& ctx) {
 	cs::ReleaseSink(ctx.fin_h, &status);
 }
 
+
+
+void _ap_detect_aruco(
+	const cv::Mat& frame,
+	std::vector<std::vector<cv::Point2f>>& corners,
+	std::vector<int32_t>& ids
+) {
+	cv::aruco::detectMarkers(
+		frame, _global.aprilpose.field->dictionary,
+		corners, ids, _global.aprilpose.params
+	);
+}
+void _ap_detect_wpi(
+	const cv::Mat& frame,
+	frc::AprilTagDetector::Results& results
+) {
+	results = _global.aprilpose.wpi_detector.Detect(frame.cols, frame.rows, frame.data);
+}
 
 
 // void _apriltag() {

@@ -54,6 +54,7 @@ public final class Runtime extends TimedRobot {
 
 		@Override
 		public void initSendable(SendableBuilder b) {
+			this.power.resetTotalEnergy();
 			b.addDoubleProperty("Power/Temperature", this.power::getTemperature, null);
 			b.addDoubleProperty("Power/Total Power (W)", this.power::getTotalPower, null);
 			b.addDoubleProperty("Power/Total Energy Used (J)", this.power::getTotalEnergy, null);	// divide by 3600 for watt-hours
@@ -106,7 +107,7 @@ public final class Runtime extends TimedRobot {
 		for(String t : Constants.TRAJECTORIES) {
 			this.auto.addOption(
 				t + " [Trajectory]",
-				this.robot.drivebase.followPath(t)
+				this.robot.drivebase.followAutoBuilderPathRelative(t)
 			);
 		}
 		SmartDashboard.putData("Autonomous", this.auto);

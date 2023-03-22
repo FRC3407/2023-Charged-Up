@@ -12,14 +12,6 @@ public class Vision {
 
 	public static PubSubOption NT_ENTRY_DEFAULT = PubSubOption.periodic(0.02);
 
-	//public static class PhotonVision
-	//{
-		PhotonCamera camera = new PhotonCamera("HP_Wide_Vision_HD_Camera");
-	//}
-
-	//public final static class SamVision
-	//{
-
 		public static class NT {
 			private NT() {
 				this.vbase = NetworkTableInstance.getDefault().getTable("Vision");
@@ -64,6 +56,11 @@ public class Vision {
 			}
 
 			public void set() { selectCamera(this); }
+			
+			// did this to resolve
+			private void selectCamera(CameraSelect cameraSelect) {
+			}
+
 			public CameraSelect increment() {
 				CameraSelect[] vals = CameraSelect.values();
 				int idx = this.id + 1 >= vals.length ? 0 : this.id + 1;
@@ -84,6 +81,10 @@ public class Vision {
 			private Verbosity(int v) { this.val = v; }
 
 			public void set() { setVerbosity(this); }
+			
+			// did this to resolve
+			private void setVerbosity(Verbosity verbosity) {
+			}
 		}
 
 
@@ -112,6 +113,11 @@ public class Vision {
 				int id = getSelectedCamera();
 				selected = vals[id >= vals.length ? vals.length - 1 : id];
 			}
+			
+			// did this to resolve
+			private int getSelectedCamera() {
+				return 0;
+			}
 			@Override
 			public void execute() {
 				if(this.increment.getAsBoolean()) {
@@ -131,7 +137,18 @@ public class Vision {
 			public void end(boolean i) {}
 
 		}
-	//}
-	
+
+
+		public static void selectCamera(CameraSelect cameraSelect) {
+		}
+
+
+		public static void setVerbosity(Object object) {
+		}
+
+
+		public static int getVerbosity() {
+			return 0;
+		}
 
 }

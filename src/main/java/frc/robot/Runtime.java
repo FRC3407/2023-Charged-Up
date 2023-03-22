@@ -89,7 +89,7 @@ public final class Runtime extends TimedRobot {
 		// this.setupComp2();
 
 		Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
-		FollowTrajectory follow_traj = new FollowTrajectory(this.robot.drivebase, "PathplannerLib");
+		FollowTrajectory follow_traj = new FollowTrajectory(this.robot.drivebase, "PathplannerLib", true);
 
 		this.auto.setDefaultOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
 		this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));

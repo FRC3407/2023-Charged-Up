@@ -141,7 +141,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
     private RamseteAutoBuilder autobuilder = null;
 
-    private Pose2d elapsed_cache;
+    private Pose2d elapsed_cache = new Pose2d();
 
     public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params) {
         this.parameters = params;
@@ -579,26 +579,27 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
         private final PathPlannerTrajectory ptrajectory;
         private final String path;
 
+
         @Override public void initialize()
         {
-            drivebase.resetOdometry(this.trajectory.getInitialPose());
-			this.controller.initialize();
+            drivebase.resetOdometry(this.ptrajectory.getInitialPose());
+			this.pcontroller.initialize();
 			System.out.println("FollowTrajectory: Running...");
         }
         @Override public void execute()
         {
-            this.controller.execute();
+            this.pcontroller.execute();
         }
         @Override public void end(boolean interrupted)
         {
-            this.controller.end(interrupted);
+            this.pcontroller.end(interrupted);
 			if(this.stop) {
 				drivebase.setDriveVoltage(0, 0);
 			}
         }
         @Override public boolean isFinished()
         {
-            return this.controller.isFinished();
+            return this.pcontroller.isFinished();
         }
 
 
@@ -709,10 +710,35 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
         }
 
-        public PPRamseteCommand rCommand(PathPlannerTrajectory path)
+        // public PPRamseteCommand rCommand(PathPlannerTrajectory path)
+        // {
+        //     PPRamseteCommand command = new PPRamseteCommand(
+        //         path, 
+        //         this.drivebase::getDeltaPose,
+        //         new RamseteController(),
+        //         this.drivebase.feedforward,
+        //         this.drivebase.kinematics, // DifferentialDriveKinematics
+        //         this.drivebase::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
+        //         new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
+        //         new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
+        //         // vvv this is supposed to be type BiConsumer<Double, Double>
+        //         this.drivebase::setDriveVoltage, // Voltage biconsumer
+        //         true, // Sh(ould the path be automatically mirrored depending on alliance color. Optional, defaults to true
+        //         this.drivebase // Requires this drive subsystem
+        //     );
+
+        //     return command;
+        // }
+
+        FollowTrajectory(DriveBase db, String apath, boolean s)
         {
-            PPRamseteCommand command = new PPRamseteCommand(
-                path, 
+            super();
+            this.path = apath;
+            this.stop = s;
+            this.drivebase = db;
+            this.ptrajectory = PathPlanner.loadPath(this.path, new PathConstraints(4, 3));
+            this.pcontroller = new PPRamseteCommand(
+                ptrajectory, 
                 this.drivebase::getDeltaPose,
                 new RamseteController(),
                 this.drivebase.feedforward,
@@ -725,33 +751,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
                 true, // Sh(ould the path be automatically mirrored depending on alliance color. Optional, defaults to true
                 this.drivebase // Requires this drive subsystem
             );
-
-            return command;
-        }
-
-        FollowTrajectory(DriveBase db, String apath, boolean s)
-        {
-            super();
-            this.path = apath;
-            this.stop = s;
-            this.drivebase = db;
-            this.pcontroller = null;
             this.controller = null;
             this.trajectory = null;
-            this.ptrajectory = null;
-
-            // This will load the file "Example Path.path" and generate it with a max velocity of 4 m/s and a max acceleration of 3 m/s^2
-            PathPlannerTrajectory examplePath = PathPlanner.loadPath(this.path, new PathConstraints(4, 3));
-
-            // This trajectory can then be passed to a path follower such as a PPSwerveControllerCommand
-            // Or the path can be sampled at a given point in time for custom path following
-
-            // Sample the state of the path at 1.2 seconds
-            PathPlannerState exampleState = (PathPlannerState) examplePath.sample(1.2);
-
-            // Print the velocity at the sampled time
-            System.out.println(exampleState.velocityMetersPerSecond);
-            
         }
 
         public static PathPlannerTrajectory createPath(String name)

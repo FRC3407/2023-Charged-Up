@@ -211,9 +211,16 @@ struct {
 
 		std::vector<frc::Pose3d> robot_est_queue, raw_est_queue;
 		std::mutex robot_queue_rw, raw_queue_rw;
+		std::thread queue;
+		std::atomic<bool> link_state;
 	} aprilpose;
 
 } _global;
+void _ap_update();
+void _ap_worker();
+void _ap_detect_aruco(const cv::Mat&, std::vector<std::vector<cv::Point2f>>&, std::vector<int32_t>&);
+void _ap_detect_wpi(const cv::Mat&, frc::AprilTagDetector::Results&);
+int _ap_estimate_aruco(cv::InputArrayOfArrays&, cv::InputArray&, cv::InputArray, cv::InputArray, std::vector<CThread::ProcBuff::PVec>&, std::vector<CThread::ProcBuff::PVec>&);
 
 int main(int argc, char** argv) {
 
@@ -252,15 +259,6 @@ int main(int argc, char** argv) {
 	// mainloop
 	int last_vid = -1;
 	int last_vrb = 0;
-	// cv::Mat dcon_frame{DEFAULT_VMODE.width, DEFAULT_VMODE.height, CV_8UC3};
-	// cv::putText(
-	// 	dcon_frame, "Camera is Unavailable :(",
-	// 	cv::Point(DEFAULT_VMODE.width / 2, DEFAULT_VMODE.height / 2),
-	// 	cv::FONT_HERSHEY_DUPLEX, 2.0, cv::Scalar(255, 0, 0), 2, cv::LINE_AA
-	// );
-	// uint8_t* bframe;
-	// _global.pixycam.m_link.stop();
-	//cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
 	for(;_global.state.program_enable;) {
 
 		int vid = _global.nt.view_id.Get();
@@ -270,30 +268,15 @@ int main(int argc, char** argv) {
 		last_vid = vid;
 		last_vrb = vrb;
 
-		// if(_global.state.view_updated) {
-		// 	std::cout << "View idx update detected." << std::endl;
-		// }
-		// if(_global.state.vrbo_updated) {
-		// 	std::cout << "Verbosity update detected." << std::endl;
-		// }
-
-		// bool needs_frame = false;
 		for(CThread& t : _global.cthreads) {
-			// needs_frame = needs_frame || _update(t);
 			_update(t);
 		}
-		// if(needs_frame) {
-		// 	cs::PutSourceFrame(_global.discon_frame_h, dcon_frame, &status);
-		// }
-
-		// status = _global.pixycam.m_link.getRawFrame(&bframe);
-		// std::cout << "Pixy frame status: " << status << std::endl;
+		_ap_update();
 
 		frc::SmartDashboard::UpdateValues();
 
 		std::this_thread::sleep_for(100ms);
 	}
-	// _global.pixycam.m_link.resume();
 
 	// shutdown
 	{
@@ -646,6 +629,9 @@ void _shutdown(CThread& ctx) {
 		ctx.link_state = false;
 		ctx.proc.join();
 	}
+	if(ctx.vproc_buffer != nullptr) {
+		delete ctx.vproc_buffer;
+	}
 	cs::ReleaseSource(ctx.camera_h, &status);
 	cs::ReleaseSource(ctx.fout_h, &status);
 	cs::ReleaseSink(ctx.fin_h, &status);
@@ -739,6 +725,35 @@ int _ap_estimate_aruco(
 		);
 	}
 	return tvecs.size();
+
+}
+
+
+void _ap_update() {
+	if(_global.nt.april_mode.Get() != 0) {	// if should be active
+		if(!_global.aprilpose.queue.joinable()) {
+			_global.aprilpose.link_state = true;
+			_global.aprilpose.queue = std::thread(_ap_worker);
+		}
+	} else if(_global.aprilpose.queue.joinable()) {
+		_global.aprilpose.link_state = false;
+		_global.aprilpose.queue.join();
+	}
+}
+void _ap_worker() {
+
+	for(;_global.aprilpose.link_state && _global.state.program_enable) {
+		_global.aprilpose.robot_queue_rw.lock();
+		// handle poses
+		_global.aprilpose.robot_est_queue.clear();
+		_global.aprilpose.robot_queue_rw.unlock();
+#if SEND_EXTRA_POSE_ESTIMATIONS > 0
+		_global.aprilpose.raw_queue_rw.lock();
+		// handle
+		_global.aprilpose.raw_est_queue.clear();
+		_global.aprilpose.raw_queue_rw.unlock();
+#endif
+	}
 
 }
 

@@ -146,12 +146,13 @@ struct CThread {
 	cv::Mat_<float>
 		camera_matrix{ DEFAULT_CAM_MATX },
 		dist_matrix{ DEFAULT_CAM_MATX };
-	frc::Pose3d
+	const frc::Pose3d
 		*robot_camera_pose{ nullptr };
 	cs::VideoMode vmode;
 
 	struct ProcBuff {
-		using PVec = std::array<float, 3>;
+		// using PVec = std::array<float, 3>;
+		using PVec = cv::Mat_<float>;
 
 		std::vector<std::vector<cv::Point2f> > corners;
 		std::vector<int32_t> ids;
@@ -209,8 +210,12 @@ struct {
 		const cv::Ptr<cv::aruco::Board> field{::FIELD_2023};
 		const frc::AprilTagDetector wpi_detector{};
 
-		std::vector<frc::Pose3d> robot_est_queue, raw_est_queue;
-		std::mutex robot_queue_rw, raw_queue_rw;
+		std::vector<frc::Pose3d> robot_est_queue;
+		std::mutex robot_queue_rw;
+#if SEND_EXTRA_POSE_ESTIMATIONS > 0
+		std::vector<frc::Pose3d> raw_est_queue;
+		std::mutex robot_queue_rw;
+#endif
 		std::thread queue;
 		std::atomic<bool> link_state;
 	} aprilpose;
@@ -218,9 +223,12 @@ struct {
 } _global;
 void _ap_update();
 void _ap_worker();
+void _ap_shutdown();
 void _ap_detect_aruco(const cv::Mat&, std::vector<std::vector<cv::Point2f>>&, std::vector<int32_t>&);
 void _ap_detect_wpi(const cv::Mat&, frc::AprilTagDetector::Results&);
 int _ap_estimate_aruco(cv::InputArrayOfArrays&, cv::InputArray&, cv::InputArray, cv::InputArray, std::vector<CThread::ProcBuff::PVec>&, std::vector<CThread::ProcBuff::PVec>&);
+frc::Pose3d toPose3d(const CThread::ProcBuff::PVec&, const CThread::ProcBuff::PVec&);
+std::span<frc::Pose3d> toPose3d(std::vector<frc::Pose3d>&, const std::vector<CThread::ProcBuff::PVec>&, const std::vector<CThread::ProcBuff::PVec>&);
 
 int main(int argc, char** argv) {
 
@@ -284,6 +292,7 @@ int main(int argc, char** argv) {
 		for(CThread& t : _global.cthreads) {
 			_shutdown(t);
 		}
+		_ap_shutdown();
 		cs::ReleaseSink(_global.stream_h, &status);
 		cs::ReleaseSource(_global.discon_frame_h, &status);
 		cs::Shutdown();
@@ -516,7 +525,7 @@ bool _update(CThread& ctx) {
 	bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
 	bool overlay = _global.nt.ovl_verbosity.Get() > 0;
 	int apmode = _global.nt.april_mode.Get();
-	ctx.procm = 1 * (apmode == -2 || (apmode == -1) && outputting || apmode == ctx.vid);
+	ctx.procm = 1 * (apmode == -2 || ((apmode == -1) && outputting) || apmode == ctx.vid);
 	bool enable = connected && ((overlay && outputting) || ctx.procm);
 
 	if(outputting && (_global.state.view_updated || _global.state.vrbo_updated)) {
@@ -583,11 +592,16 @@ void _worker(CThread& ctx) {
 				// resize
 				_ap_detect_aruco(
 					ctx.frame, ctx.vproc_buffer->corners, ctx.vproc_buffer->ids);
-				if(verbosity > 2) {
+				if(verbosity > 0) {
 
-				} else if(verbosity > 1) {
-
-				} else if(verbosity > 0) {
+				}
+				if(verbosity > 1) {
+					if(ctx.vproc_buffer->ids.size() > 0) {
+						cv::aruco::drawDetectedMarkers(
+							ctx.frame, ctx.vproc_buffer->corners, ctx.vproc_buffer->ids);
+					}
+				}
+				if(verbosity > 0) {
 					cv::putText(
 						ctx.frame, std::to_string(fps),
 						cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX,
@@ -600,23 +614,25 @@ void _worker(CThread& ctx) {
 
 				skip_resend_frame:
 				// clear tvecs, rvecs?
-				_ap_estimate_aruco(
-					ctx.vproc_buffer->corners, ctx.vproc_buffer->ids,
-					ctx.camera_matrix, ctx.dist_matrix,
-					ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
-				if(ctx.robot_camera_pose != nullptr) {
-					// add the poses? :(
-					_global.aprilpose.robot_queue_rw.lock();
-					toPose3d(_global.aprilpose.robot_est_queue, ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
-					_global.aprilpose.robot_queue_rw.unlock();
-				}
+				if(ctx.vproc_buffer->ids.size() > 0) {
+					_ap_estimate_aruco(
+						ctx.vproc_buffer->corners, ctx.vproc_buffer->ids,
+						ctx.camera_matrix, ctx.dist_matrix,
+						ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
+					if(ctx.robot_camera_pose != nullptr) {
+						// add the poses? :(
+						_global.aprilpose.robot_queue_rw.lock();
+						toPose3d(_global.aprilpose.robot_est_queue, ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
+						_global.aprilpose.robot_queue_rw.unlock();
+					}
 #if SEND_EXTRA_POSE_ESTIMATIONS > 0
-				else {
-					_global.aprilpose.raw_queue_rw.lock();
-					toPose3d(_global.aprilpose.raw_est_queue, ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
-					_global.aprilpose.raw_queue_rw.lock();
-				}
+					else {
+						_global.aprilpose.raw_queue_rw.lock();
+						toPose3d(_global.aprilpose.raw_est_queue, ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
+						_global.aprilpose.raw_queue_rw.lock();
+					}
 #endif
+				}
 			}
 		}
 
@@ -640,14 +656,14 @@ void _shutdown(CThread& ctx) {
 
 
 frc::Pose3d toPose3d(const CThread::ProcBuff::PVec& tvec, const CThread::ProcBuff::PVec& rvec) {
-	cv::Mat_<float> R, t{3, 1, tvec.data()};
+	cv::Mat_<float> R, t{tvec.clone()};
 	cv::Rodrigues(rvec, R);
 	R = R.t();
 	t = -R * t;
 
-	frc::Vectord<3> rv{ rvec[2], -rvec[0], rvec[1] };
+	frc::Vectord<3> rv{ rvec.at<float>(2, 0), -rvec.at<float>(0, 0), rvec.at<float>(1, 0) };
 
-	return Pose3d(
+	return frc::Pose3d(
 		units::inch_t{ +t.at<float>(2, 0) },
 		units::inch_t{ -t.at<float>(0, 0) },
 		units::inch_t{ -t.at<float>(1, 0) },
@@ -689,29 +705,30 @@ int _ap_estimate_aruco(
 	std::vector<CThread::ProcBuff::PVec>& tvecs, std::vector<CThread::ProcBuff::PVec>& rvecs
 ) {
 	CV_Assert(corners.total() == ids.total());	
-	CV_Assert(_global.aprilpose.field->getIds().size() == _global.aprilpose.field->getObjPoints().size());
+	CV_Assert(_global.aprilpose.field->ids.size() == _global.aprilpose.field->objPoints.size());
 
 	size_t ndetected = ids.total();
-	std::vector<Point3f> _obj_points, _img_points;
+	std::vector<cv::Point3f> _obj_points;
+	std::vector<cv::Point2f> _img_points;
 	_obj_points.reserve(ndetected);
 	_img_points.reserve(ndetected);
 
 	for(size_t i = 0; i < ndetected; i++) {
 		int id = ids.getMat().ptr<int>(0)[i];
-		for(size_t j = 0; j < _global.aprilpose.field->getIds().size(); j++) {
-			if(id == _global.aprilpose.field->getIds()[j]) {
+		for(size_t j = 0; j < _global.aprilpose.field->ids.size(); j++) {
+			if(id == _global.aprilpose.field->ids[j]) {
 				for(int p = 0; p < 4; p++) {
-					_obj_points.push_back(_global.aprilpose.field->getObjPoints()[j][p]);
-					_img_points.push_back(corners.getMat(i).ptr<Point2f>(0)[p]);
+					_obj_points.push_back(_global.aprilpose.field->objPoints[j][p]);
+					_img_points.push_back(corners.getMat(i).ptr<cv::Point2f>(0)[p]);
 				}
 			}
 		}
 	}
 
-	if(obj_points.total() == 0) { return 0; }
-	CV_Assert(img_points.total() == obj_points.total());
-	
-	if(img_points.total() == 4) {
+	if(_obj_points.size() == 0) { return 0; }
+	CV_Assert(_img_points.size() == _obj_points.size());
+
+	if(_img_points.size() == 4) {
 		cv::solvePnPGeneric(
 			_obj_points, _img_points,
 			cmatx, cdist, rvecs, tvecs,
@@ -742,9 +759,10 @@ void _ap_update() {
 }
 void _ap_worker() {
 
-	for(;_global.aprilpose.link_state && _global.state.program_enable) {
+	for(;_global.aprilpose.link_state && _global.state.program_enable;) {
 		_global.aprilpose.robot_queue_rw.lock();
 		// handle poses
+		std::cout << "Poses detected: " << _global.aprilpose.robot_est_queue.size() << std::endl;
 		_global.aprilpose.robot_est_queue.clear();
 		_global.aprilpose.robot_queue_rw.unlock();
 #if SEND_EXTRA_POSE_ESTIMATIONS > 0
@@ -755,6 +773,12 @@ void _ap_worker() {
 #endif
 	}
 
+}
+void _ap_shutdown() {
+	if(_global.aprilpose.queue.joinable()) {
+		_global.aprilpose.link_state = false;
+		_global.aprilpose.queue.join();
+	}
 }
 
 

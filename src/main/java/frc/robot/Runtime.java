@@ -206,7 +206,7 @@ public final class Runtime extends TimedRobot {
 				new Manipulator.TestManipulator(this.robot.manipulator,
 					()->Xbox.Analog.RY.getValueOf(controller) * -1.0,		// right stick y-axis for the arm %-output
 					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
-					()->Xbox.Analog.LY.getValueOf(controller) * 0.5 + 0.5		// left stick y-axis for the grabber %-output
+					()->Xbox.Analog.LY.getValueOf(controller)		// left stick y-axis for the grabber %-output
 				), "Commands/Manipulator Test")
 			);
 			if(bbox == null) {

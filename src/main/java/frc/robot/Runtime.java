@@ -89,11 +89,12 @@ public final class Runtime extends TimedRobot {
 		PathPlannerServer.startServer(5811);
 		this.robot.startLogging();
 
-		this.controls.addScheme("Single Xbox Controls", new AutomatedTester(Xbox.Map), this::setupXbox);
-		this.controls.addScheme("Dual Xbox Controls", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox);
-		this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoard);
-		this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoard);
-		this.controls.setDefault("Competition Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoard);
+		//this.controls.addScheme("Single Xbox Controls", new AutomatedTester(Xbox.Map), this::setupXbox);
+		this.controls.setDefault("Test Xbox Controls", new AutomatedTester(Xbox.Map), this::testXBox);
+		// this.controls.addScheme("Dual Xbox Controls", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox);
+		// this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoard);
+		// this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoard);
+		// this.controls.setDefault("Competition Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoard);
 		this.controls.setAmbiguousSolution(ControlSchemeManager.AmbiguousSolution.PREFER_COMPLEX);
 		this.controls.publishSelector();
 		this.controls.runContinuous();
@@ -182,7 +183,7 @@ public final class Runtime extends TimedRobot {
 				new Manipulator.TestManipulator(this.robot.manipulator,
 					()->Xbox.Analog.RY.getValueOf(controller2) * -1.0,
 					()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
-					()->Xbox.Analog.LY.getValueOf(controller2) * 0.5 + 0.5
+					()->Xbox.Analog.LY.getValueOf(controller2) * (-1)
 				), "Commands/Manipulator Control")
 			);
 		}
@@ -218,7 +219,7 @@ public final class Runtime extends TimedRobot {
 				new Manipulator.TestManipulator(this.robot.manipulator,
 					()->Xbox.Analog.RY.getValueOf(controller) * -1.0,		// right stick y-axis for the arm %-output
 					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
-					()->Xbox.Analog.LY.getValueOf(controller)		// left stick y-axis for the grabber %-output
+					()->Xbox.Analog.LY.getValueOf(controller) * (-1)		// left stick y-axis for the grabber %-output
 				), "Commands/Manipulator Test")
 			);
 			if(bbox == null) {
@@ -235,6 +236,33 @@ public final class Runtime extends TimedRobot {
 			).schedule();
 		}
 	}
+
+
+
+
+
+	public void testXBox(InputDevice...inputs)
+	{
+		InputDevice controller = inputs[0];
+
+		TeleopTrigger.OnTrue(send(
+			new Manipulator.TestManipulator(this.robot.manipulator,
+				()->Xbox.Analog.RY.getValueOf(controller) * -1.0,
+				()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),
+				()->Xbox.Analog.LY.getValueOf(controller) * (-1)
+			), "Commands/Manipulator Control")
+		);
+
+	}
+
+
+
+
+
+
+
+
+
 
 
 

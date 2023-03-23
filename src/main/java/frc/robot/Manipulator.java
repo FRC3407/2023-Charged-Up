@@ -3,6 +3,8 @@ package frc.robot;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
+import javax.lang.model.util.ElementScanner14;
+
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.Servo;
@@ -281,12 +283,29 @@ public final class Manipulator implements Sendable {
 			arm_percent,
 			grab_percent,
 			wrist_set;
+		private double wristPosition = 0.5; 
 
 		public TestManipulator(Manipulator m, DoubleSupplier a, DoubleSupplier g, DoubleSupplier w) {
 			this.manipulator = m;
 			this.arm_percent = a;
 			this.grab_percent = g;
 			this.wrist_set = w;
+		}
+
+		private double calcWristPos()
+		{
+			if(this.wrist_set.getAsDouble() > 0 && wristPosition < 1.0)
+			{
+				return wristPosition += 0.1;
+			}
+			else if(this.wrist_set.getAsDouble() < 0 && wristPosition > 0.0)
+			{
+				return wristPosition -= 0.1;
+			}
+			else 
+			{
+				return wristPosition;
+			}
 		}
 
 		@Override
@@ -297,7 +316,7 @@ public final class Manipulator implements Sendable {
 		public void execute() {
 			this.manipulator.arm.setWinchVoltage(this.arm_percent.getAsDouble() * ARM_WINCH_VOLTAGE_SCALE);
 			this.manipulator.grabber.setGrabberVoltage(this.grab_percent.getAsDouble() * GRAB_CLAW_VOLTAGE_SCALE);
-			this.manipulator.grabber.setWristPercent(this.wrist_set.getAsDouble());
+			this.manipulator.grabber.setWristPercent(this.calcWristPos());
 		}
 		@Override
 		public boolean isFinished() {

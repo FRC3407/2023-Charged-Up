@@ -128,8 +128,8 @@ public final class Manipulator implements Sendable {
 			WRIST_MAX_PULSE_uS = 2.5,
 			WRIST_TOTAL_RANGE = 270.0,
 			WRIST_CENTER_OFFSET = 135,	// should make setting wrist angle simpler if angles are based off of center (parallel to arm) angle
-			WRIST_LOWER_LIMIT = -35,
-			WRIST_UPPER_LIMIT = 50,
+			WRIST_LOWER_LIMIT = -135,
+			WRIST_UPPER_LIMIT = 135,
 			WRIST_LOWER_LIMIT_PERCENT = (WRIST_LOWER_LIMIT + WRIST_CENTER_OFFSET) / WRIST_TOTAL_RANGE,
 			WRIST_UPPER_LIMIT_PERCENT = (WRIST_UPPER_LIMIT + WRIST_CENTER_OFFSET) / WRIST_TOTAL_RANGE,
 			GRAB_MAX_ANGLE = 110;

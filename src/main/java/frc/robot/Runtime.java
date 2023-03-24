@@ -1,5 +1,8 @@
 package frc.robot;
 
+import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
+
 import edu.wpi.first.net.PortForwarder;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
@@ -245,6 +248,75 @@ public final class Runtime extends TimedRobot {
 	public static <T extends Sendable> T send(T t, String key) {
 		SmartDashboard.putData(key, t);
 		return t;
+	}
+
+
+
+
+
+
+
+
+
+	private static class TankDriveSupreme extends CommandBase {
+
+		private final DriveBase.TankDriveVelocityProfiled driver;
+		private final DriveBase drivebase;
+		private final DoubleSupplier
+			leftv, rightv;
+		private final BooleanSupplier
+			boost, finecontrol;
+		private final double
+			bpercent, rscale, frscale;
+
+		public TankDriveSupreme(
+			DriveBase db,
+			DoubleSupplier lv, DoubleSupplier rv,
+			BooleanSupplier b, BooleanSupplier f,
+			double bpcnt, double rs, double frs
+		) {
+			this.drivebase = db;
+			this.driver = new DriveBase.TankDriveVelocityProfiled(db,
+				this::lVelSupplier, this::rVelSupplier, this::rscaleSupplier);
+			this.leftv = lv;
+			this.rightv = rv;
+			this.boost = b;
+			this.finecontrol = f;
+			this.bpercent = bpcnt;
+			this.rscale = rs;
+			this.frscale = frs;
+			super.addRequirements(db);
+		}
+
+		private double lVelSupplier() {
+			double l = this.leftv.getAsDouble();
+			return this.boost.getAsBoolean() ? l * bpercent : l;
+		}
+		private double rVelSupplier() {
+			double r = this.rightv.getAsDouble();
+			return this.boost.getAsBoolean() ? r * bpercent : r;
+		}
+		private double rscaleSupplier() {
+			return this.finecontrol.getAsBoolean() ? this.frscale : this.rscale;
+		}
+
+		@Override
+		public void initialize() {
+			this.driver.initialize();
+		}
+		@Override
+		public void execute() {
+			this.driver.execute();
+		}
+		@Override
+		public boolean isFinished() {
+			return this.driver.isFinished();
+		}
+		@Override
+		public void end(boolean i) {
+			this.driver.end(i);
+		}
+
 	}
 
 

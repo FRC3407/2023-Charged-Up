@@ -118,7 +118,8 @@
             },
             "Grabber": {
               "open": true
-            }
+            },
+            "open": true
           },
           "Power": {
             "open": true

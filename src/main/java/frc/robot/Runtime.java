@@ -176,7 +176,9 @@ public final class Runtime extends TimedRobot {
 				new Manipulator.TestManipulator(this.robot.manipulator,
 					()->Xbox.Analog.RY.getValueOf(controller2) * -1.0,
 					()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
-					()->Xbox.Analog.LY.getValueOf(controller2) * 0.5 + 0.5
+					Xbox.Analog.LY.getDriveInputSupplier(controller2,
+						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),
+					Xbox.Digital.LB.getPressedSupplier(controller2)
 				), "Commands/Manipulator Control")
 			);
 		}
@@ -212,7 +214,9 @@ public final class Runtime extends TimedRobot {
 				new Manipulator.TestManipulator(this.robot.manipulator,
 					()->Xbox.Analog.RY.getValueOf(controller) * -1.0,		// right stick y-axis for the arm %-output
 					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
-					()->Xbox.Analog.LY.getValueOf(controller) * 0.5 + 0.5		// left stick y-axis for the grabber %-output
+					Xbox.Analog.LY.getDriveInputSupplier(controller,
+						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),	// left stick y-axis for the grabber %-rate (integrated for position)
+					Xbox.Digital.LB.getPressedSupplier(controller)			// RB on the xbox to reset wrist position
 				), "Commands/Manipulator Control")
 			);
 			if(bbox == null) {

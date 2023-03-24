@@ -137,7 +137,8 @@ public final class Manipulator implements Sendable {
 			FB_UNITS_PER_ROTATION = (int)(Constants.NEVEREST_UNITS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT),
 			CONTROL_LOOP_IDX = 0;
 		public static final boolean
-			INVERT_GRAB_ENCODER = false;
+			INVERT_GRAB_ENCODER = false,
+			CLEAR_GRAB_ANGLE_ON_LIMIT = true;
 
         private final WPI_TalonSRX main;
         private final Servo wrist;
@@ -155,6 +156,7 @@ public final class Manipulator implements Sendable {
 			this.main.configReverseSoftLimitThreshold(0.0);								// dont let it go backwards
 			this.main.configForwardSoftLimitEnable(false);
 			this.main.configReverseSoftLimitEnable(false);
+			this.main.configClearPositionOnLimitR(CLEAR_GRAB_ANGLE_ON_LIMIT, 0);
 			this.main.config_kF(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KF);
 			this.main.config_kP(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KP);
 			this.main.config_kI(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KI);
@@ -273,31 +275,51 @@ public final class Manipulator implements Sendable {
 
 		public static final double
 			ARM_WINCH_VOLTAGE_SCALE = 5.0,
-			GRAB_CLAW_VOLTAGE_SCALE = 7.0;
+			GRAB_CLAW_VOLTAGE_SCALE = 7.0,
+			WRIST_INTEGRATION_RATE_SCALE = 0.02;	// at full throttle, add 0.02 x 50 loops per second = 1.0 per second change [maximum]
 
 		private final Manipulator
 			manipulator;
 		private final DoubleSupplier
 			arm_percent,
 			grab_percent,
-			wrist_set;
+			wrist_rate;
+		private final BooleanSupplier
+			wrist_reset;
+		private double
+			wrist_position = 0.5;
 
 		public TestManipulator(Manipulator m, DoubleSupplier a, DoubleSupplier g, DoubleSupplier w) {
 			this.manipulator = m;
 			this.arm_percent = a;
 			this.grab_percent = g;
-			this.wrist_set = w;
+			this.wrist_rate = w;
+			this.wrist_reset = ()->false;
+		}
+		public TestManipulator(Manipulator m, DoubleSupplier a, DoubleSupplier g, DoubleSupplier w, BooleanSupplier wr) {
+			this.manipulator = m;
+			this.arm_percent = a;
+			this.grab_percent = g;
+			this.wrist_rate = w;
+			this.wrist_reset = wr;
 		}
 
 		@Override
 		public void initialize() {
+			this.wrist_position = 0.5;
 			// System.out.println("Starting manipulator test!");
 		}
 		@Override
 		public void execute() {
+			this.wrist_position += this.wrist_rate.getAsDouble() * WRIST_INTEGRATION_RATE_SCALE;
+			if(this.wrist_reset.getAsBoolean()) {
+				this.wrist_position = 0.5;
+			} else {
+				this.wrist_position = Math.max(0.0, Math.min(1.0, this.wrist_position));
+			}
 			this.manipulator.arm.setWinchVoltage(this.arm_percent.getAsDouble() * ARM_WINCH_VOLTAGE_SCALE);
 			this.manipulator.grabber.setGrabberVoltage(this.grab_percent.getAsDouble() * GRAB_CLAW_VOLTAGE_SCALE);
-			this.manipulator.grabber.setWristPercent(this.wrist_set.getAsDouble());
+			this.manipulator.grabber.setWristPercent(this.wrist_position);
 		}
 		@Override
 		public boolean isFinished() {
@@ -314,7 +336,7 @@ public final class Manipulator implements Sendable {
 		public void initSendable(SendableBuilder b) {
 			b.addDoubleProperty("Winch Voltage Setpoint", ()->this.arm_percent.getAsDouble()*ARM_WINCH_VOLTAGE_SCALE, null);
 			b.addDoubleProperty("Grabber Voltage Setpoint", ()->this.grab_percent.getAsDouble()*GRAB_CLAW_VOLTAGE_SCALE, null);
-			b.addDoubleProperty("Wrist Position Setpoint", ()->this.wrist_set.getAsDouble(), null);
+			b.addDoubleProperty("Wrist Position Setpoint", ()->this.wrist_position, null);
 		}
 
 	}

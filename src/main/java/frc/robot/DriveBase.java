@@ -686,7 +686,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		public void initialize() {
 			this.leftfb.reset(0);
 			this.rightfb.reset(0);
-			this.lastls = this.lastrs = 0;
+			this.lastls = this.drivebase.getLeftVelocity();
+			this.lastrs = this.drivebase.getRightVelocity();
 		}
 		@Override
 		public void execute() {

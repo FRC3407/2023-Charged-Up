@@ -1,5 +1,8 @@
 package frc.robot;
 
+import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
+
 import edu.wpi.first.net.PortForwarder;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
@@ -176,7 +179,9 @@ public final class Runtime extends TimedRobot {
 				new Manipulator.TestManipulator(this.robot.manipulator,
 					()->Xbox.Analog.RY.getValueOf(controller2) * -1.0,
 					()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
-					()->Xbox.Analog.LY.getValueOf(controller2) * 0.5 + 0.5
+					Xbox.Analog.LY.getDriveInputSupplier(controller2,
+						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),
+					Xbox.Digital.LB.getPressedSupplier(controller2)
 				), "Commands/Manipulator Control")
 			);
 		}
@@ -212,7 +217,9 @@ public final class Runtime extends TimedRobot {
 				new Manipulator.TestManipulator(this.robot.manipulator,
 					()->Xbox.Analog.RY.getValueOf(controller) * -1.0,		// right stick y-axis for the arm %-output
 					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
-					()->Xbox.Analog.LY.getValueOf(controller) * 0.5 + 0.5		// left stick y-axis for the grabber %-output
+					Xbox.Analog.LY.getDriveInputSupplier(controller,
+						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),	// left stick y-axis for the grabber %-rate (integrated for position)
+					Xbox.Digital.LB.getPressedSupplier(controller)			// RB on the xbox to reset wrist position
 				), "Commands/Manipulator Control")
 			);
 			if(bbox == null) {
@@ -241,6 +248,75 @@ public final class Runtime extends TimedRobot {
 	public static <T extends Sendable> T send(T t, String key) {
 		SmartDashboard.putData(key, t);
 		return t;
+	}
+
+
+
+
+
+
+
+
+
+	private static class TankDriveSupreme extends CommandBase {
+
+		private final DriveBase.TankDriveVelocityProfiled driver;
+		private final DriveBase drivebase;
+		private final DoubleSupplier
+			leftv, rightv;
+		private final BooleanSupplier
+			boost, finecontrol;
+		private final double
+			bpercent, rscale, frscale;
+
+		public TankDriveSupreme(
+			DriveBase db,
+			DoubleSupplier lv, DoubleSupplier rv,
+			BooleanSupplier b, BooleanSupplier f,
+			double bpcnt, double rs, double frs
+		) {
+			this.drivebase = db;
+			this.driver = new DriveBase.TankDriveVelocityProfiled(db,
+				this::lVelSupplier, this::rVelSupplier, this::rscaleSupplier);
+			this.leftv = lv;
+			this.rightv = rv;
+			this.boost = b;
+			this.finecontrol = f;
+			this.bpercent = bpcnt;
+			this.rscale = rs;
+			this.frscale = frs;
+			super.addRequirements(db);
+		}
+
+		private double lVelSupplier() {
+			double l = this.leftv.getAsDouble();
+			return this.boost.getAsBoolean() ? l * bpercent : l;
+		}
+		private double rVelSupplier() {
+			double r = this.rightv.getAsDouble();
+			return this.boost.getAsBoolean() ? r * bpercent : r;
+		}
+		private double rscaleSupplier() {
+			return this.finecontrol.getAsBoolean() ? this.frscale : this.rscale;
+		}
+
+		@Override
+		public void initialize() {
+			this.driver.initialize();
+		}
+		@Override
+		public void execute() {
+			this.driver.execute();
+		}
+		@Override
+		public boolean isFinished() {
+			return this.driver.isFinished();
+		}
+		@Override
+		public void end(boolean i) {
+			this.driver.end(i);
+		}
+
 	}
 
 

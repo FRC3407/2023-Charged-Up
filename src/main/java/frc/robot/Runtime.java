@@ -13,13 +13,7 @@ import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.CommandBase;
-import edu.wpi.first.wpilibj2.command.CommandScheduler;
-import edu.wpi.first.wpilibj2.command.InstantCommand;
-import edu.wpi.first.wpilibj2.command.ParallelCommandGroup;
-import edu.wpi.first.wpilibj2.command.PrintCommand;
-import edu.wpi.first.wpilibj2.command.button.Trigger;
+import edu.wpi.first.wpilibj2.command.*;
 
 import com.pathplanner.lib.server.PathPlannerServer;
 
@@ -166,12 +160,23 @@ public final class Runtime extends TimedRobot {
 			controller2 = inputs.length > 1 ? inputs[1] : null;
 		;
 		TeleopTrigger.OnTrue(send(
-			this.robot.drivebase.tankDriveVelocityProfiled(
+			// this.robot.drivebase.tankDriveVelocityProfiled(
+			// 	Xbox.Analog.LY.getDriveInputSupplier(controller,
+			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+			// 	Xbox.Analog.RY.getDriveInputSupplier(controller,
+			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+			// 	Constants.DRIVE_ROT_RATE_SCALE
+			// ), "Commands/Velocity Drive")
+			new TankDriveSupreme(this.robot.drivebase,
 				Xbox.Analog.LY.getDriveInputSupplier(controller,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 				Xbox.Analog.RY.getDriveInputSupplier(controller,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-				Constants.DRIVE_ROT_RATE_SCALE
+				()->{ return (Xbox.Digital.RB.getValueOf(controller) && Xbox.Digital.LB.getValueOf(controller)); },
+				()->{ return false; },
+				Constants.DRIVE_BOOST_PERCENT,
+				Constants.DRIVE_ROT_RATE_SCALE,
+				Constants.DRIVE_FINE_CONTROL_RRS
 			), "Commands/Velocity Drive")
 		);
 		if(controller2 != null) {	// this function can be used whether 1 or 2 are connected
@@ -204,12 +209,23 @@ public final class Runtime extends TimedRobot {
 			controller = inputs.length > 3 ? inputs[3] : null
 		;
 		TeleopTrigger.OnTrue(send(
-			this.robot.drivebase.tankDriveVelocityProfiled(
+			// this.robot.drivebase.tankDriveVelocityProfiled(
+			// 	Attack3.Analog.Y.getDriveInputSupplier(lstick,
+			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+			// 	Attack3.Analog.Y.getDriveInputSupplier(rstick,
+			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+			// 		Constants.DRIVE_ROT_RATE_SCALE
+			// ), "Commands/Velocity Drive")
+			new TankDriveSupreme(this.robot.drivebase,
 				Attack3.Analog.Y.getDriveInputSupplier(lstick,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 				Attack3.Analog.Y.getDriveInputSupplier(rstick,
 					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-					Constants.DRIVE_ROT_RATE_SCALE
+				()->{ return (Attack3.Digital.TRI.getValueOf(lstick) && Attack3.Digital.TRI.getValueOf(rstick)); },
+				()->{ return (Attack3.Digital.TB.getValueOf(lstick) && Attack3.Digital.TB.getValueOf(rstick)); },
+				Constants.DRIVE_BOOST_PERCENT,
+				Constants.DRIVE_ROT_RATE_SCALE,
+				Constants.DRIVE_FINE_CONTROL_RRS
 			), "Commands/Velocity Drive")
 		);
 		if(controller != null) {
@@ -290,11 +306,11 @@ public final class Runtime extends TimedRobot {
 
 		private double lVelSupplier() {
 			double l = this.leftv.getAsDouble();
-			return this.boost.getAsBoolean() ? l * bpercent : l;
+			return this.boost.getAsBoolean() ? l * bpercent / 100.0 : l;
 		}
 		private double rVelSupplier() {
 			double r = this.rightv.getAsDouble();
-			return this.boost.getAsBoolean() ? r * bpercent : r;
+			return this.boost.getAsBoolean() ? r * bpercent / 100.0 : r;
 		}
 		private double rscaleSupplier() {
 			return this.finecontrol.getAsBoolean() ? this.frscale : this.rscale;
@@ -315,6 +331,11 @@ public final class Runtime extends TimedRobot {
 		@Override
 		public void end(boolean i) {
 			this.driver.end(i);
+		}
+
+		@Override
+		public void initSendable(SendableBuilder b) {
+			this.driver.initSendable(b);
 		}
 
 	}

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <vector>
 #include <array>
+#include <string.h>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/aruco.hpp>
@@ -22,13 +23,19 @@
 #include <wpi/sendable/Sendable.h>
 #include <wpi/sendable/SendableBuilder.h>
 #include <frc/smartdashboard/SmartDashboard.h>
+#include <frc/geometry/Pose3d.h>
+#include <frc/apriltag/AprilTagDetector.h>
 #include <cameraserver/CameraServer.h>
+
+#include <libpixyusb2.h>
 
 #include <core/calib.h>
 
 #include <cpp-tools/src/sighandle.h>
 #include <cpp-tools/src/unix/stats2.h>
 #include <cpp-tools/src/unix/stats2.cpp>
+
+#include "field.h"
 
 
 #define DLOG(x) std::cout << (x) << std::endl;
@@ -47,20 +54,20 @@ enum CamID {
 	FWD_CAMERA,
 	ARM_CAMERA,
 	TOP_CAMERA,
-	PIXY2,
+	// PIXY2,
 	START_ADDITIONAL
 };
 static const nt::PubSubOptions
 	NT_OPTIONS = { .periodic = 1.0 / 30.0 };
-static const std::array<const char*, 4>
-	CAMERA_TAGS{ "forward", "arm", "top", "pixy2" };
+static const std::array<const char*, (size_t)CamID::START_ADDITIONAL>
+	CAMERA_TAGS{ "forward", "arm", "top"/*, "pixy2"*/ };
 static const cs::VideoMode
 	DEFAULT_VMODE{ cs::VideoMode::kMJPEG, 640, 480, 30 };
 static const int
-	DEFAULT_EXPOSURE = 25,
+	DEFAULT_EXPOSURE = 40,
 	DEFAULT_WBALANCE = -1,
 	DEFAULT_BRIGHTNESS = 50;
-static const CalibList
+static const CalibSList
 	STATIC_CALIBRATIONS{
 		{
 			{ "lifecam_hd3000", {
@@ -169,8 +176,16 @@ struct {
 
 	int next_stream_port = 1181;
 	std::vector<CThread> cthreads;
+	cv::Mat disconnect_frame;
+	// Pixy2 pixycam;
 	CS_Source discon_frame_h;
 	CS_Sink stream_h;
+
+	struct {
+		const cv::Ptr<cv::aruco::DetectorParameters> params{cv::aruco::DetectorParameters::create()};
+		const cv::Ptr<cv::aruco::Board> field{::FIELD_2023};
+		const frc::AprilTagDetector wpi_detector{};
+	} aprilpose;
 
 } _global;
 
@@ -217,7 +232,9 @@ int main(int argc, char** argv) {
 	// 	cv::Point(DEFAULT_VMODE.width / 2, DEFAULT_VMODE.height / 2),
 	// 	cv::FONT_HERSHEY_DUPLEX, 2.0, cv::Scalar(255, 0, 0), 2, cv::LINE_AA
 	// );
-	cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
+	// uint8_t* bframe;
+	// _global.pixycam.m_link.stop();
+	//cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
 	for(;_global.state.program_enable;) {
 
 		int vid = _global.nt.view_id.Get();
@@ -227,18 +244,30 @@ int main(int argc, char** argv) {
 		last_vid = vid;
 		last_vrb = vrb;
 
-		bool needs_frame = false;
+		// if(_global.state.view_updated) {
+		// 	std::cout << "View idx update detected." << std::endl;
+		// }
+		// if(_global.state.vrbo_updated) {
+		// 	std::cout << "Verbosity update detected." << std::endl;
+		// }
+
+		// bool needs_frame = false;
 		for(CThread& t : _global.cthreads) {
-			needs_frame = needs_frame || _update(t);
+			// needs_frame = needs_frame || _update(t);
+			_update(t);
 		}
 		// if(needs_frame) {
 		// 	cs::PutSourceFrame(_global.discon_frame_h, dcon_frame, &status);
 		// }
 
+		// status = _global.pixycam.m_link.getRawFrame(&bframe);
+		// std::cout << "Pixy frame status: " << status << std::endl;
+
 		frc::SmartDashboard::UpdateValues();
 
 		std::this_thread::sleep_for(100ms);
 	}
+	// _global.pixycam.m_link.resume();
 
 	// shutdown
 	{
@@ -249,6 +278,7 @@ int main(int argc, char** argv) {
 		cs::ReleaseSink(_global.stream_h, &status);
 		cs::ReleaseSource(_global.discon_frame_h, &status);
 		cs::Shutdown();
+		// _global.pixycam.m_link.close();
 		std::cout << "Shutdown complete. Exitting..." << std::endl;
 	}
 
@@ -282,6 +312,7 @@ bool loadJson(wpi::json& j, const char* file) {
 }
 bool init(const char* fname) {
 
+	high_resolution_clock::time_point start = high_resolution_clock::now();
 	int status = 0;
 
 	wpi::json j;
@@ -324,18 +355,58 @@ bool init(const char* fname) {
 	frc::SmartDashboard::init();
 	frc::SmartDashboard::PutData("Vision/Stats", &_global.stats);
 
+	_global.disconnect_frame = cv::Mat::zeros({DEFAULT_VMODE.width, DEFAULT_VMODE.height}, CV_8UC3);
+	cv::putText(
+		_global.disconnect_frame, "Camera is Unavailable :(",
+		cv::Point(DEFAULT_VMODE.width / 8, DEFAULT_VMODE.height / 2),
+		cv::FONT_HERSHEY_SIMPLEX, 1.2, {0, 0, 255}, 4, cv::LINE_AA
+	);
+
 	_global.discon_frame_h = cs::CreateCvSource("Disconnected Frame Source", DEFAULT_VMODE, &status);
 	_global.stream_h = cs::CreateMjpegServer("Viewport Stream", "", _global.next_stream_port++, &status);
 	frc::CameraServer::AddServer(VideoSinkImpl(_global.stream_h));
 
+	// status = _global.pixycam.init();
+	// switch(status) {
+	// 	default:
+	// 	case PIXY_RESULT_OK: {
+	// 		std::cout << "Pixy init successful." << std::endl;
+	// 		_global.pixycam.getVersion();
+	// 		//_global.pixycam.version->print();
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_ERROR: {
+	// 		std::cout << "Pixy init fail - general error." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_BUSY: {
+	// 		std::cout << "Pixy init fail - no new data (busy)." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_CHECKSUM_ERROR: {
+	// 		std::cout << "Pixy init fail - checksum error." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_TIMEOUT: {
+	// 		std::cout << "Pixy init fail - timeout." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_BUTTON_OVERRIDE: {
+	// 		std::cout << "Pixy init fail - user button override." << std::endl;
+	// 		break;
+	// 	}
+	// 	case PIXY_RESULT_PROG_CHANGING: {
+	// 		std::cout << "Pixy init fail - program is changing." << std::endl;
+	// 		break;
+	// 	}
+	// }
+
 	std::vector<cs::UsbCameraInfo> connections = cs::EnumerateUsbCameras(&status);
 
-	_global.cthreads = std::move(std::vector<CThread>(j.count("cameras")));
 	int vid_additions = CamID::START_ADDITIONAL;
 	try {
-		size_t i = 0;
 		for(const wpi::json& camera : j.at("cameras")) {
-			CThread& cthr = _global.cthreads[i++];
+			CThread& cthr = _global.cthreads.emplace_back();
 			std::string name = camera.at("name").get<std::string>();
 			std::string path = camera.at("path").get<std::string>();
 
@@ -358,9 +429,30 @@ bool init(const char* fname) {
 			}
 			if(cthr.vid < 0) { cthr.vid = vid_additions++; }
 
+			const decltype(STATIC_CALIBRATIONS)::Cal_T* cal = nullptr;
+			if(cal = findCalib(name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS)) {
+				std::cout << fmt::format("Found calibration for camera '{}' by name.", name) << std::endl;
+				cthr.camera_matrix = cal->at(0);
+				cthr.dist_matrix = cal->at(1);
+#if DEBUG > 0
+				std::cout << "CMatx: " << cthr.camera_matrix << std::endl;
+				std::cout << "DCoefs: " << cthr.dist_matrix << std::endl;
+#endif
+			}
+
 			for(cs::UsbCameraInfo& info : connections) {
 				if(wpi::equals_lower(info.path, path)) {
 					info.dev = -1;
+					if(!cal && (cal = findCalib(info.name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS))) {	// maybe search by path too?
+						std::cout << fmt::format("Found calibration for camera '{}' by type.", name) << std::endl;
+						cthr.camera_matrix = cal->at(0);
+						cthr.dist_matrix = cal->at(1);
+#if DEBUG > 0
+						std::cout << "CMatx: " << cthr.camera_matrix << std::endl;
+						std::cout << "DCoefs: " << cthr.dist_matrix << std::endl;
+#endif
+					}
+					break;
 				}
 			}
 
@@ -388,6 +480,8 @@ bool init(const char* fname) {
 		}
 	}
 
+	std::cout << fmt::format("Cameras Available: {}", _global.cthreads.size()) << std::endl;
+
 	_global.base_ntable = nt::NetworkTableInstance::GetDefault().GetTable("Vision");
 	_global.nt.views_avail = _global.base_ntable->GetIntegerTopic("Available Outputs").GetEntry(0, NT_OPTIONS);
 	_global.nt.view_id = _global.base_ntable->GetIntegerTopic("Active Camera Thread").GetEntry(0, NT_OPTIONS);
@@ -395,6 +489,11 @@ bool init(const char* fname) {
 	_global.nt.views_avail.Set(_global.cthreads.size());
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);
+
+	_global.aprilpose.wpi_detector.AddFamily(FRC_DICT_NAME);
+
+	std::cout << fmt::format("Initialization completed in {}s.",
+		duration<double>(high_resolution_clock::now() - start).count()) << std::endl;
 	
 	return true;
 }
@@ -426,6 +525,9 @@ bool _update(CThread& ctx) {
 	} else if(ctx.proc.joinable()) {
 		ctx.link_state = false;
 		ctx.proc.join();
+	}
+	if(outputting && !connected) {
+		cs::PutSourceFrame(_global.discon_frame_h, _global.disconnect_frame, &status);
 	}
 	return !enable;
 }
@@ -464,6 +566,24 @@ void _shutdown(CThread& ctx) {
 	cs::ReleaseSink(ctx.fin_h, &status);
 }
 
+
+
+void _ap_detect_aruco(
+	const cv::Mat& frame,
+	std::vector<std::vector<cv::Point2f>>& corners,
+	std::vector<int32_t>& ids
+) {
+	cv::aruco::detectMarkers(
+		frame, _global.aprilpose.field->dictionary,
+		corners, ids, _global.aprilpose.params
+	);
+}
+void _ap_detect_wpi(
+	const cv::Mat& frame,
+	frc::AprilTagDetector::Results& results
+) {
+	results = _global.aprilpose.wpi_detector.Detect(frame.cols, frame.rows, frame.data);
+}
 
 
 // void _apriltag() {

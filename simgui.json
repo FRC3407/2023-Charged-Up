@@ -112,19 +112,15 @@
           }
         },
         "Robot": {
-          "Drivebase": {
-            "open": true
-          },
-          "IMU": {
-            "open": true
-          },
           "Manipulator": {
             "Arm": {
               "open": true
             },
             "Grabber": {
               "open": true
-            },
+            }
+          },
+          "Power": {
             "open": true
           },
           "open": true
@@ -135,6 +131,9 @@
           },
           "open": true
         },
+        "open": true
+      },
+      "Vision": {
         "open": true
       }
     }

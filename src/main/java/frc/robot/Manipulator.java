@@ -3,6 +3,8 @@ package frc.robot;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
+import javax.lang.model.util.ElementScanner14;
+
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.Servo;
@@ -128,8 +130,8 @@ public final class Manipulator implements Sendable {
 			WRIST_MAX_PULSE_uS = 2.5,
 			WRIST_TOTAL_RANGE = 270.0,
 			WRIST_CENTER_OFFSET = 135,	// should make setting wrist angle simpler if angles are based off of center (parallel to arm) angle
-			WRIST_LOWER_LIMIT = -35,
-			WRIST_UPPER_LIMIT = 50,
+			WRIST_LOWER_LIMIT = -135,
+			WRIST_UPPER_LIMIT = 135,
 			WRIST_LOWER_LIMIT_PERCENT = (WRIST_LOWER_LIMIT + WRIST_CENTER_OFFSET) / WRIST_TOTAL_RANGE,
 			WRIST_UPPER_LIMIT_PERCENT = (WRIST_UPPER_LIMIT + WRIST_CENTER_OFFSET) / WRIST_TOTAL_RANGE,
 			GRAB_MAX_ANGLE = 110;
@@ -281,12 +283,29 @@ public final class Manipulator implements Sendable {
 			arm_percent,
 			grab_percent,
 			wrist_set;
+		private double wristPosition = 0.5; 
 
 		public TestManipulator(Manipulator m, DoubleSupplier a, DoubleSupplier g, DoubleSupplier w) {
 			this.manipulator = m;
 			this.arm_percent = a;
 			this.grab_percent = g;
 			this.wrist_set = w;
+		}
+
+		private double calcWristPos()
+		{
+			if(this.wrist_set.getAsDouble() > 0 && wristPosition < 1.0)
+			{
+				return wristPosition += 0.1;
+			}
+			else if(this.wrist_set.getAsDouble() < 0 && wristPosition > 0.0)
+			{
+				return wristPosition -= 0.1;
+			}
+			else 
+			{
+				return wristPosition;
+			}
 		}
 
 		@Override
@@ -297,7 +316,7 @@ public final class Manipulator implements Sendable {
 		public void execute() {
 			this.manipulator.arm.setWinchVoltage(this.arm_percent.getAsDouble() * ARM_WINCH_VOLTAGE_SCALE);
 			this.manipulator.grabber.setGrabberVoltage(this.grab_percent.getAsDouble() * GRAB_CLAW_VOLTAGE_SCALE);
-			this.manipulator.grabber.setWristPercent(this.wrist_set.getAsDouble());
+			this.manipulator.grabber.setWristPercent(this.calcWristPos());
 		}
 		@Override
 		public boolean isFinished() {

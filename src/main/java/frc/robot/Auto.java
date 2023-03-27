@@ -45,17 +45,6 @@ public class Auto {
 		return new BalancePark(db, pitch, kp);
 	}
 
-	/**
-	 * This runs an autonoumus command that drives a given distance at a given velocity.
-	 * @param db The dribase subsystem.
-	 * @param dist Distance in meters.
-	 * @param velo Velocity in m/s.
-	 * @return
-	 */
-	public static CommandBase driveForward(DriveBase db, double dist, double velo) {
-		return (new DriveBase.TankDriveVelocityProfiled(db, ()-> velo, ()-> velo)).withTimeout(dist/velo);
-	}
-
 	public static class ActivePark extends CommandBase {
 
 		private final DriveBase drivebase;

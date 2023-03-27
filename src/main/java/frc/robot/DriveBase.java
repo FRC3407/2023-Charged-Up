@@ -28,6 +28,7 @@ import com.pathplanner.lib.auto.RamseteAutoBuilder;
 import com.pathplanner.lib.commands.PPRamseteCommand;
 
 import frc.robot.team3407.drive.Types.*;
+import frc.robot.team3407.drive.DriveSupplier.*;
 
 
 public final class DriveBase extends MotorSafety implements Subsystem, Sendable {
@@ -243,46 +244,32 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	/* COMMAND GENERATORS */
 
 	/** Get a tankdrive command, controlled by inputs that return input percentages (ei. joystick axis outputs: -1 to 1 )
-	 * @param l a -1 to 1 ranged input supplier for the left side
-		* @param r a -1 to 1 ranged input supplier for the right side
-		* @return A command for driving the drivebase using tankdrive
-		*/
-	public CommandBase tankDrivePercent(DoubleSupplier l, DoubleSupplier r) {
-		return new TankDrivePercent(this, l, r);
+	 * @param ds a drive supplier that supplies percentages in the range [-1, 1]
+	 * @return A command for driving the drivebase using tankdrive
+	 */
+	public CommandBase tankDrivePercent(TDriveSupplier ds) {
+		return new TankDrivePercent(this, ds);
 	}
 	/** Get a tankdrive command, controlled by inputs that return voltages for each side
-	* @param lvt a ~-12 to ~12 ranged input supplier for the left side motor voltages
-	* @param rvt a ~-12 to ~12 ranged input supplier for the right side motor voltages
-	* @return A command for driving the drivebase using tankdrive
-	*/
-	public CommandBase tankDriveVoltage(DoubleSupplier lvt, DoubleSupplier rvt) {
-		return new TankDriveVoltage(this, lvt, rvt);
+	 * @param ds a drive supplier that supplies voltages in the range [-12, 12]
+	 * @return A command for driving the drivebase using tankdrive
+	 */
+	public CommandBase tankDriveVoltage(TDriveSupplier ds) {
+		return new TankDriveVoltage(this, ds);
 	}
 	/** Get a tankdrive command, controlled by inputs that provide target velocities for each side
-	 * @param lv a velocity supplier in METERS PER SECOND for the left side
-	 * @param rv a velocity supplier in METERS PER SECOND for the right side
+	 * @param ds a drive supplier that supplies velocities in METERS PER SECOND
 	 * @return A command for driving the drivebase using tankdrive
 	 */
-	public CommandBase tankDriveVelocity(DoubleSupplier lv, DoubleSupplier rv) {
-		return new TankDriveVelocity(this, lv, rv);
-	}
-	/** Get a tankdrive command, controlled by l/r velocity setpoints and utilizing scaled rotation rate and acc feedforward
-	 * @param lv a velocity supplier in METERS PER SECOND for the left side
-	 * @param rv a velocity supplier in METERS PER SECOND for the right side
-	 * @param rs the rotation rate scalar - ex. a value of 0.5 simulates the drivebase being twice as wide
-	 * @return A command for advanced velocity tank driving
-	 */
-	public CommandBase tankDriveVelocity2(DoubleSupplier lv, DoubleSupplier rv, double rs) {
-		return new TankDriveVelocity2(this, lv, rv, rs);
+	public CommandBase tankDriveVelocity(TDriveSupplier ds) {
+		return new TankDriveVelocity(this, ds);
 	}
 	/** Get a tankdrive command, controlled by inputs that provide target velocities for each side -- transitions are limited by a trapazoid profile generator
-	 * @param lv a velocity supplier in METERS PER SECOND for the left side
-	 * @param rv a velocity supplier in METERS PER SECOND for the right side
-	 * @param rs the rotation rate scalar - ex. a value of 0.5 simulates the drivebase being twice as wide
+	 * @param ds a drive supplier that supplies velocities in METERS PER SECOND
 	 * @return A command for driving the drivebase using tankdrive
 	 */
-	public CommandBase tankDriveVelocityProfiled(DoubleSupplier lv, DoubleSupplier rv, double rs) {
-		return new TankDriveVelocityProfiled(this, lv, rv, rs);
+	public CommandBase tankDriveVelocityProfiled(TDriveSupplier ds) {
+		return new TankDriveVelocityProfiled(this, ds);
 	}
 
 	public CommandBase followAutoBuilderPath(String ppfile) {
@@ -448,12 +435,13 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	public static class TankDriveVoltage extends CommandBase {
 		
 		private final DriveBase drivebase;
-		private final DoubleSupplier left, right;
+		private final TDriveSupplier driver;
 
-		public TankDriveVoltage(DriveBase db, DoubleSupplier lv, DoubleSupplier rv) {
+		public TankDriveVoltage(DriveBase db, DoubleSupplier l, DoubleSupplier r)
+			{ this(db, new TankSupplier(l, r)); }
+		public TankDriveVoltage(DriveBase db, TDriveSupplier ds) {
 			this.drivebase = db;
-			this.left = lv;
-			this.right = rv;
+			this.driver = ds;
 			super.addRequirements(db);
 		}
 
@@ -464,8 +452,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		@Override
 		public void execute() {
 			this.drivebase.setDriveVoltage(
-				this.left.getAsDouble(),
-				this.right.getAsDouble()
+				this.driver.leftOutput(),
+				this.driver.rightOutput()
 			);
 		}
 		@Override
@@ -484,15 +472,14 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	/** TankDrive that is controlled by 2 'percent-returning' analog suppliers -- ex. joystick axis */
 	public static class TankDrivePercent extends TankDriveVoltage {
 
-		public TankDrivePercent(DriveBase db, DoubleSupplier l, DoubleSupplier r) {
-			super(db, l, r);
-		}
+		public TankDrivePercent(DriveBase db, DoubleSupplier l, DoubleSupplier r) { super(db, l, r); }
+		public TankDrivePercent(DriveBase db, TDriveSupplier ds) { super(db, ds); }
 
 		@Override
 		public void execute() {
 			super.drivebase.setDriveVoltage(
-				super.left.getAsDouble() * super.drivebase.parameters.max_voltage_output,
-				super.right.getAsDouble() * super.drivebase.parameters.max_voltage_output
+				super.driver.leftOutput() * super.drivebase.parameters.max_voltage_output,
+				super.driver.rightOutput() * super.drivebase.parameters.max_voltage_output
 			);
 		}
 
@@ -506,132 +493,44 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	public static class TankDriveVelocity extends CommandBase {
 
 		private final DriveBase drivebase;
-		private final DoubleSupplier left, right;
-		private final PIDController left_fb, right_fb;	// feedback controllers for left and
+		private final TDriveSupplier driver;
+		private final PIDController leftfb, rightfb;
+
+		private TDriveSupplier.CombinedOutput
+			outputs = new TDriveSupplier.CombinedOutput();
+		private double la, ra;
 
 		public TankDriveVelocity(
-			DriveBase db, DoubleSupplier l, DoubleSupplier r
+			DriveBase db, TDriveSupplier ds
 		) {
 			this.drivebase = db;
-			this.left = l;
-			this.right = r;
-			this.left_fb = db.parameters.getFeedbackController();
-			this.right_fb = db.parameters.getFeedbackController();
-			super.addRequirements(db);
-		}
-
-		@Override
-		public void initialize() {
-			this.left_fb.reset();
-			this.right_fb.reset();
-		}
-		@Override
-		public void execute() {
-			double
-				lt = this.left.getAsDouble(),	// the target velocity from the left input --> METERS PER SECOND
-				rt = this.right.getAsDouble(),	// ^^^ for the right side
-				lc = this.drivebase.getLeftVelocity(),  // the actual velocity
-				rc = this.drivebase.getRightVelocity()
-			;
-			this.drivebase.setDriveVoltage(
-				this.drivebase.feedforward.calculate(lt) +  // the calculated feedforward
-					this.left_fb.calculate(lc, lt),   		// add the feedback adjustment
-				this.drivebase.feedforward.calculate(rt) +
-					this.right_fb.calculate(rc, rt)
-			);
-		}
-		@Override
-		public void end(boolean interrupted) {
-			this.drivebase.setDriveVoltage(0.0, 0.0);
-		}
-		@Override
-		public boolean isFinished() {
-			return false;
-		}
-
-		@Override
-		public void initSendable(SendableBuilder b) {
-			super.initSendable(b);
-			b.addDoubleProperty("Left Target MpS", this.left, null);
-			b.addDoubleProperty("Right Target MpS", this.right, null);
-		}
-
-	}
-
-
-
-	/** TankDrive with velocity setpoint suppliers, but utilize the acceleration constant and scale rotation rate by the supplied value */
-	public static class TankDriveVelocity2 extends CommandBase {
-
-		private final DriveBase drivebase;
-		private final DoubleSupplier leftv, rightv, rscale;
-		private final PIDController leftfb, rightfb;
-		private double lastlt, lastrt, la, ra;
-
-		public TankDriveVelocity2(
-			DriveBase db, DoubleSupplier lv, DoubleSupplier rv
-		) { this(db, lv, rv, ()->1); }
-		public TankDriveVelocity2(
-			DriveBase db, DoubleSupplier lv, DoubleSupplier rv, double rs
-		) { this(db, lv, rv, ()->rs); }
-		public TankDriveVelocity2(
-			DriveBase db, DoubleSupplier lv, DoubleSupplier rv, DoubleSupplier rs
-		) {
-			this.drivebase = db;
-			this.leftv = lv;
-			this.rightv = rv;
-			this.rscale = rs;
+			this.driver = ds;
 			this.leftfb = db.parameters.getFeedbackController();
 			this.rightfb = db.parameters.getFeedbackController();
 			super.addRequirements(db);
-		}
-
-		public static double scaleLeftVel(double lv, double rv, double rs) {
-			return ((lv + rv) / 2.0) + ((lv - rv) / 2.0 * rs);
-		}
-		public static double scaleRightVel(double lv, double rv, double rs) {
-			return ((lv + rv) / 2.0) + ((lv + rv) / 2.0 * rs);
-		}
-		public static DifferentialDriveWheelSpeeds scaleRotation(double lv, double rv, double rs) {
-			double avg = ((lv + rv) / 2.0), off = ((lv - rv) / 2.0 * rs);
-			return new DifferentialDriveWheelSpeeds(avg + off, avg - off);
-		}
-		public static void scaleRotation(DifferentialDriveWheelSpeeds wv, double rs) {
-			double
-				avg = ((wv.leftMetersPerSecond + wv.rightMetersPerSecond) / 2.0),
-				off = ((wv.leftMetersPerSecond - wv.rightMetersPerSecond) / 2.0 * rs)
-			;
-			wv.leftMetersPerSecond = avg + off;
-			wv.rightMetersPerSecond = avg - off;
 		}
 
 		@Override
 		public void initialize() {
 			this.leftfb.reset();
 			this.rightfb.reset();
-			this.lastlt = this.leftv.getAsDouble();
-			this.lastrt = this.rightv.getAsDouble();
+			this.outputs.left = this.drivebase.getLeftVelocity();
+			this.outputs.right = this.drivebase.getRightVelocity();
 		}
 		@Override
 		public void execute() {
 			double
-				l = this.leftv.getAsDouble(),
-				r = this.rightv.getAsDouble(),
-				avg = (l + r) / 2.0,
-				off = (l - r) / 2.0 * this.rscale.getAsDouble(),
-				lt = avg + off,
-				rt = avg - off
-			;
-			this.la = (lt - this.lastlt) / 0.02;
-			this.ra = (rt - this.lastrt) / 0.02;
+				lastlt = this.outputs.left,
+				lastrt = this.outputs.right;
+			this.driver.getOutputs(this.outputs);
+			this.la = (this.outputs.left - lastlt) / 0.02;
+			this.ra = (this.outputs.right - lastrt) / 0.02;
 			this.drivebase.setDriveVoltage(
-				this.drivebase.feedforward.calculate(lt, la) +
-					this.leftfb.calculate(this.drivebase.getLeftVelocity(), lt),
-				this.drivebase.feedforward.calculate(rt, ra) +
-					this.rightfb.calculate(this.drivebase.getRightVelocity(), rt)
+				this.drivebase.feedforward.calculate(this.outputs.left, la) +
+					this.leftfb.calculate(this.drivebase.getLeftVelocity(), this.outputs.left),
+				this.drivebase.feedforward.calculate(this.outputs.right, ra) +
+					this.rightfb.calculate(this.drivebase.getRightVelocity(), this.outputs.right)
 			);
-			this.lastlt = lt;
-			this.lastrt = rt;
 		}
 		@Override
 		public void end(boolean interrupted) {
@@ -645,8 +544,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		@Override
 		public void initSendable(SendableBuilder b) {
 			super.initSendable(b);
-			b.addDoubleProperty("Left Target MpS", ()->this.lastlt, null);
-			b.addDoubleProperty("Right Target MpS", ()->this.lastrt, null);
+			b.addDoubleProperty("Left Target MpS", ()->this.outputs.left, null);
+			b.addDoubleProperty("Right Target MpS", ()->this.outputs.right, null);
 			b.addDoubleProperty("Left Acceleration MpS^2", ()->this.la, null);
 			b.addDoubleProperty("Right Acceleration MpS^2", ()->this.ra, null);
 		}
@@ -656,27 +555,22 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 
 
-
+	/* TankDrive that is controlled by velocity setpoint suppliers and limited to the drivebase's max acceleration/jerk */
 	public static class TankDriveVelocityProfiled extends CommandBase {
 
 		private final DriveBase drivebase;
-		private final DoubleSupplier leftv, rightv, rscale;
+		private final TDriveSupplier driver;
 		private final ProfiledPIDController leftfb, rightfb;
-		private double lastls, lastrs, la, ra;
+
+		private TDriveSupplier.CombinedOutput
+			outputs = new TDriveSupplier.CombinedOutput();
+		private double la, ra;
 
 		public TankDriveVelocityProfiled(
-			DriveBase db, DoubleSupplier lv, DoubleSupplier rv
-		) { this(db, lv, rv, ()->1); }
-		public TankDriveVelocityProfiled(
-			DriveBase db, DoubleSupplier lv, DoubleSupplier rv, double rs
-		) { this(db, lv, rv, ()->rs); }
-		public TankDriveVelocityProfiled(
-			DriveBase db, DoubleSupplier l, DoubleSupplier r, DoubleSupplier rs
+			DriveBase db, TDriveSupplier ds
 		) {
 			this.drivebase = db;
-			this.leftv = l;
-			this.rightv = r;
-			this.rscale = rs;
+			this.driver = ds;
 			this.leftfb = db.parameters.getVelProfiledFeedbackController();
 			this.rightfb = db.parameters.getVelProfiledFeedbackController();
 			super.addRequirements(db);
@@ -686,31 +580,26 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		public void initialize() {
 			this.leftfb.reset(0);
 			this.rightfb.reset(0);
-			this.lastls = this.drivebase.getLeftVelocity();
-			this.lastrs = this.drivebase.getRightVelocity();
+			this.outputs.left = this.drivebase.getLeftVelocity();
+			this.outputs.right = this.drivebase.getRightVelocity();
 		}
 		@Override
 		public void execute() {
 			double
-				l = this.leftv.getAsDouble(),
-				r = this.rightv.getAsDouble(),
-				avg = (l + r) / 2.0,
-				off = (l - r) / 2.0 * this.rscale.getAsDouble(),
-				lt = avg + off,
-				rt = avg - off,
-				lfb = this.leftfb.calculate(this.drivebase.getLeftVelocity(), lt),
-				rfb = this.rightfb.calculate(this.drivebase.getRightVelocity(), rt),
-				ls = this.leftfb.getSetpoint().position,
-				rs = this.rightfb.getSetpoint().position
-			;
-			this.la = (ls - this.lastls) / 0.02;
-			this.ra = (rs - this.lastrs) / 0.02;
+				lastls = this.outputs.left,
+				lastrs = this.outputs.right;
+			this.driver.getOutputs(this.outputs);
+			double
+				lfb = this.leftfb.calculate(this.drivebase.getLeftVelocity(), this.outputs.left),
+				rfb = this.rightfb.calculate(this.drivebase.getRightVelocity(), this.outputs.right);
+			this.outputs.left = this.leftfb.getSetpoint().position;
+			this.outputs.right = this.rightfb.getSetpoint().position;
+			this.la = (this.outputs.left - lastls) / 0.02;
+			this.ra = (this.outputs.right - lastrs) / 0.02;
 			this.drivebase.setDriveVoltage(
-				this.drivebase.feedforward.calculate(ls, this.la) + lfb,	// feedfoward calculated from the setpoint, plus the feecback
-				this.drivebase.feedforward.calculate(rs, this.ra) + rfb	// ^
+				this.drivebase.feedforward.calculate(this.outputs.left, this.la) + lfb,	// feedfoward calculated from the setpoint, plus the feecback
+				this.drivebase.feedforward.calculate(this.outputs.right, this.ra) + rfb	// ^
 			);
-			this.lastls = ls;
-			this.lastrs = rs;
 		}
 		@Override
 		public void end(boolean interrupted) {
@@ -724,8 +613,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		@Override
 		public void initSendable(SendableBuilder b) {
 			super.initSendable(b);
-			b.addDoubleProperty("Left Target MpS", ()->this.lastls, null);
-			b.addDoubleProperty("Right Target MpS", ()->this.lastrs, null);
+			b.addDoubleProperty("Left Setpoint MpS", ()->this.outputs.left, null);
+			b.addDoubleProperty("Right Setpoint MpS", ()->this.outputs.right, null);
 			b.addDoubleProperty("Left Acceleration MpS^2", ()->this.la, null);
 			b.addDoubleProperty("Right Acceleration MpS^2", ()->this.ra, null);
 		}

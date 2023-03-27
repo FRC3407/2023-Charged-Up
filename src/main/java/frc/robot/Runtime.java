@@ -19,6 +19,7 @@ import com.pathplanner.lib.server.PathPlannerServer;
 
 import frc.robot.Constants.ButtonBox;
 import frc.robot.team3407.controls.Input.*;
+import frc.robot.team3407.drive.DriveSupplier.*;
 import frc.robot.team3407.controls.ControlSchemeManager;
 import frc.robot.team3407.controls.ControlSchemeManager.AutomatedTester;
 import frc.robot.team3407.commandbased.EventTriggers.*;
@@ -85,11 +86,12 @@ public final class Runtime extends TimedRobot {
 		PathPlannerServer.startServer(5811);
 		this.robot.startLogging();
 
-		this.controls.addScheme("Single Xbox Controls", new AutomatedTester(Xbox.Map), this::setupXbox);
-		this.controls.addScheme("Dual Xbox Controls", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox);
-		this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoard);
-		this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoard);
-		this.controls.setDefault("Competition Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoard);
+		this.controls.addScheme("Single Xbox Testing", new AutomatedTester(Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Dual Xbox Testing", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Competition Controls (AD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardAD, CommandScheduler.getInstance()::cancelAll);
+		this.controls.setDefault("Competition Controls (TD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
 		this.controls.setAmbiguousSolution(ControlSchemeManager.AmbiguousSolution.PREFER_COMPLEX);
 		this.controls.publishSelector();
 		this.controls.runContinuous();
@@ -160,33 +162,38 @@ public final class Runtime extends TimedRobot {
 			controller2 = inputs.length > 1 ? inputs[1] : null;
 		;
 		TeleopTrigger.OnTrue(send(
-			// this.robot.drivebase.tankDriveVelocityProfiled(
-			// 	Xbox.Analog.LY.getDriveInputSupplier(controller,
-			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-			// 	Xbox.Analog.RY.getDriveInputSupplier(controller,
-			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-			// 	Constants.DRIVE_ROT_RATE_SCALE
-			// ), "Commands/Velocity Drive")
-			new TankDriveSupreme(this.robot.drivebase,
-				Xbox.Analog.LY.getDriveInputSupplier(controller,
-					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-				Xbox.Analog.RY.getDriveInputSupplier(controller,
-					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-				()->{ return (Xbox.Digital.RB.getValueOf(controller) && Xbox.Digital.LB.getValueOf(controller)); },
-				()->{ return false; },
-				Constants.DRIVE_BOOST_PERCENT,
-				Constants.DRIVE_ROT_RATE_SCALE,
-				Constants.DRIVE_FINE_CONTROL_RRS
+			this.robot.drivebase.tankDriveVelocityProfiled(
+				// tankDriveSupreme(
+				// 	Xbox.Analog.LY.getDriveInputSupplier(controller,
+				// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+				// 	Xbox.Analog.RY.getDriveInputSupplier(controller,
+				// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+				// 	()->{ return (Xbox.Digital.RB.getValueOf(controller) && Xbox.Digital.LB.getValueOf(controller)); },
+				// 	()->{ return false; },
+				// 	Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+				// )
+				arcadeDriveSupreme(
+					Xbox.Analog.RY.getDriveInputSupplier(controller,
+						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+					Xbox.Analog.LX.getDriveInputSupplier(controller,
+						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+					Xbox.Digital.RB.getSupplier(controller),
+					Xbox.Digital.LB.getSupplier(controller),
+					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+				)
 			), "Commands/Velocity Drive")
 		);
 		if(controller2 != null) {	// this function can be used whether 1 or 2 are connected
 			TeleopTrigger.OnTrue(send(
-				new Manipulator.TestManipulator(this.robot.manipulator,
-					()->Xbox.Analog.RY.getValueOf(controller2) * -1.0,
+				this.robot.manipulator.controlManipulator(
+					Xbox.Analog.RY.getDriveInputSupplier(controller2,
+						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),
 					()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
 					Xbox.Analog.LY.getDriveInputSupplier(controller2,
 						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),
-					Xbox.Digital.LB.getPressedSupplier(controller2)
+					Xbox.Digital.LB.getPressedSupplier(controller2),
+					Xbox.Digital.A.getPressedSupplier(controller2),
+					Xbox.Digital.RB.getPressedSupplier(controller2)
 				), "Commands/Manipulator Control")
 			);
 		}
@@ -200,7 +207,9 @@ public final class Runtime extends TimedRobot {
 
 
 
-	private void setupControlBoard(InputDevice... inputs) {
+	private void setupControlBoardTD(InputDevice... inputs) { setupControlBoard(true, inputs); }
+	private void setupControlBoardAD(InputDevice... inputs) { setupControlBoard(false, inputs); }
+	private void setupControlBoard(boolean tdrive, InputDevice... inputs) {
 		System.out.println("Initializing Control Board Controls!");
 		InputDevice
 			lstick = inputs[0],
@@ -209,33 +218,38 @@ public final class Runtime extends TimedRobot {
 			controller = inputs.length > 3 ? inputs[3] : null
 		;
 		TeleopTrigger.OnTrue(send(
-			// this.robot.drivebase.tankDriveVelocityProfiled(
-			// 	Attack3.Analog.Y.getDriveInputSupplier(lstick,
-			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-			// 	Attack3.Analog.Y.getDriveInputSupplier(rstick,
-			// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-			// 		Constants.DRIVE_ROT_RATE_SCALE
-			// ), "Commands/Velocity Drive")
-			new TankDriveSupreme(this.robot.drivebase,
-				Attack3.Analog.Y.getDriveInputSupplier(lstick,
-					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-				Attack3.Analog.Y.getDriveInputSupplier(rstick,
-					Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-				()->{ return (Attack3.Digital.TRI.getValueOf(lstick) && Attack3.Digital.TRI.getValueOf(rstick)); },
-				()->{ return (Attack3.Digital.TB.getValueOf(lstick) && Attack3.Digital.TB.getValueOf(rstick)); },
-				Constants.DRIVE_BOOST_PERCENT,
-				Constants.DRIVE_ROT_RATE_SCALE,
-				Constants.DRIVE_FINE_CONTROL_RRS
+			this.robot.drivebase.tankDriveVelocityProfiled(
+				tdrive ? tankDriveSupreme(
+					Attack3.Analog.Y.getDriveInputSupplier(lstick,
+						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+					Attack3.Analog.Y.getDriveInputSupplier(rstick,
+						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+					()->{ return (Attack3.Digital.TRI.getValueOf(lstick) && Attack3.Digital.TRI.getValueOf(rstick)); },
+					()->{ return (Attack3.Digital.TB.getValueOf(lstick) && Attack3.Digital.TB.getValueOf(rstick)); },
+					Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+				) :
+				arcadeDriveSupreme(
+					Attack3.Analog.Y.getDriveInputSupplier(rstick,
+						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+					Attack3.Analog.X.getDriveInputSupplier(lstick,
+						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+					Attack3.Digital.TRI.getSupplier(rstick),
+					Attack3.Digital.TRI.getSupplier(lstick),
+					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+				)
 			), "Commands/Velocity Drive")
 		);
 		if(controller != null) {
 			TeleopTrigger.OnTrue(send(
-				new Manipulator.TestManipulator(this.robot.manipulator,
-					()->Xbox.Analog.RY.getValueOf(controller) * -1.0,		// right stick y-axis for the arm %-output
+				this.robot.manipulator.controlManipulator(
+					Xbox.Analog.RY.getDriveInputSupplier(controller,
+						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),		// right stick y-axis for the arm %-output
 					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
 					Xbox.Analog.LY.getDriveInputSupplier(controller,
 						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),	// left stick y-axis for the grabber %-rate (integrated for position)
-					Xbox.Digital.LB.getPressedSupplier(controller)			// RB on the xbox to reset wrist position
+					Xbox.Digital.LB.getPressedSupplier(controller),			// RB on the xbox to reset wrist position
+					Xbox.Digital.RS.getPressedSupplier(controller),
+					Xbox.Digital.RB.getPressedSupplier(controller)
 				), "Commands/Manipulator Control")
 			);
 			if(bbox == null) {
@@ -274,70 +288,39 @@ public final class Runtime extends TimedRobot {
 
 
 
-	private static class TankDriveSupreme extends CommandBase {
-
-		private final DriveBase.TankDriveVelocityProfiled driver;
-		private final DriveBase drivebase;
-		private final DoubleSupplier
-			leftv, rightv;
-		private final BooleanSupplier
-			boost, finecontrol;
-		private final double
-			bpercent, rscale, frscale;
-
-		public TankDriveSupreme(
-			DriveBase db,
-			DoubleSupplier lv, DoubleSupplier rv,
-			BooleanSupplier b, BooleanSupplier f,
-			double bpcnt, double rs, double frs
-		) {
-			this.drivebase = db;
-			this.driver = new DriveBase.TankDriveVelocityProfiled(db,
-				this::lVelSupplier, this::rVelSupplier, this::rscaleSupplier);
-			this.leftv = lv;
-			this.rightv = rv;
-			this.boost = b;
-			this.finecontrol = f;
-			this.bpercent = bpcnt;
-			this.rscale = rs;
-			this.frscale = frs;
-			super.addRequirements(db);
-		}
-
-		private double lVelSupplier() {
-			double l = this.leftv.getAsDouble();
-			return this.boost.getAsBoolean() ? l * bpercent / 100.0 : l;
-		}
-		private double rVelSupplier() {
-			double r = this.rightv.getAsDouble();
-			return this.boost.getAsBoolean() ? r * bpercent / 100.0 : r;
-		}
-		private double rscaleSupplier() {
-			return this.finecontrol.getAsBoolean() ? this.frscale : this.rscale;
-		}
-
-		@Override
-		public void initialize() {
-			this.driver.initialize();
-		}
-		@Override
-		public void execute() {
-			this.driver.execute();
-		}
-		@Override
-		public boolean isFinished() {
-			return this.driver.isFinished();
-		}
-		@Override
-		public void end(boolean i) {
-			this.driver.end(i);
-		}
-
-		@Override
-		public void initSendable(SendableBuilder b) {
-			this.driver.initSendable(b);
-		}
-
+	private static TankSupplierRS tankDriveSupreme(
+		DoubleSupplier l, DoubleSupplier r, BooleanSupplier b, BooleanSupplier f, double rs, double boost, double fine
+	) {
+		return new TankSupplierRS(
+			()->{
+				if(b.getAsBoolean() && !f.getAsBoolean()) {
+					return l.getAsDouble() * boost;
+				}
+				if(!b.getAsBoolean() && f.getAsBoolean()) {
+					return l.getAsDouble() * fine;
+				}
+				return l.getAsDouble();
+			},
+			()->{
+				if(b.getAsBoolean() && !f.getAsBoolean()) {
+					return r.getAsDouble() * boost;
+				}
+				if(!b.getAsBoolean() && f.getAsBoolean()) {
+					return r.getAsDouble() * fine;
+				}
+				return r.getAsDouble();
+			},
+			()->rs
+		);
+	}
+	private static ArcadeSupplierLM arcadeDriveSupreme(
+		DoubleSupplier f, DoubleSupplier t, BooleanSupplier b, BooleanSupplier fc, double max, double boost, double fine
+	) {
+		return new ArcadeSupplierLM(
+			()->((b.getAsBoolean() && !fc.getAsBoolean()) ? f.getAsDouble() * boost : f.getAsDouble()),
+			()->((fc.getAsBoolean() && !b.getAsBoolean()) ? t.getAsDouble() * fine : t.getAsDouble()),
+			()->((b.getAsBoolean() && !fc.getAsBoolean()) ? max * boost : max)
+		);
 	}
 
 

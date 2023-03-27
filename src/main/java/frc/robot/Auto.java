@@ -10,13 +10,13 @@ import edu.wpi.first.wpilibj2.command.CommandBase;
 
 public class Auto {
 
-    /** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
-     * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
-     * @return A command for active parking
-     */
-    public static ActivePark activePark(DriveBase db, double p_gain) {
-        return new ActivePark(db, p_gain);
-    }
+	/** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
+	 * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
+	 * @return A command for active parking
+	 */
+	public static ActivePark activePark(DriveBase db, double p_gain) {
+		return new ActivePark(db, p_gain);
+	}
 	/** Get a command for driving up the charging pad and balancing at the top.
 	 * @param db The drivebase subsystem
 	 * @param pitch	A gyro implementation for the robot's pitch axis
@@ -39,42 +39,42 @@ public class Auto {
 
 
 
-    public static class ActivePark extends CommandBase {
+	public static class ActivePark extends CommandBase {
 
-        private final DriveBase drivebase;
-        private final double volts_per_meter;
-        private double linit, rinit;
+		private final DriveBase drivebase;
+		private final double volts_per_meter;
+		private double linit, rinit;
 
-        public ActivePark(DriveBase db, double p) { // p is the proportional gain, in volts per meter [error]
-            this.drivebase = db;
-            this.volts_per_meter = p;
-        }
+		public ActivePark(DriveBase db, double p) { // p is the proportional gain, in volts per meter [error]
+			this.drivebase = db;
+			this.volts_per_meter = p;
+		}
 
-        @Override
-        public void initialize() {
-            this.linit = this.drivebase.getLeftPosition();
-            this.rinit = this.drivebase.getRightPosition();
-        }
-        @Override
-        public void execute() {
-            double le = this.drivebase.getLeftPosition() - this.linit;
-            double re = this.drivebase.getRightPosition() - this.rinit;
-            this.drivebase.setDriveVoltage(
-                -le * this.volts_per_meter,     // we are assuming that positive position for the encoders is the same direction as positive voltage
-                -re * this.volts_per_meter
-            );
-        }
-        @Override
-        public void end(boolean interrupted) {
-            this.drivebase.setDriveVoltage(0.0, 0.0);
-        }
-        @Override
-        public boolean isFinished() {
-            return false;
-        }
+		@Override
+		public void initialize() {
+			this.linit = this.drivebase.getLeftPosition();
+			this.rinit = this.drivebase.getRightPosition();
+		}
+		@Override
+		public void execute() {
+			double le = this.drivebase.getLeftPosition() - this.linit;
+			double re = this.drivebase.getRightPosition() - this.rinit;
+			this.drivebase.setDriveVoltage(
+				-le * this.volts_per_meter,     // we are assuming that positive position for the encoders is the same direction as positive voltage
+				-re * this.volts_per_meter
+			);
+		}
+		@Override
+		public void end(boolean interrupted) {
+			this.drivebase.setDriveVoltage(0.0, 0.0);
+		}
+		@Override
+		public boolean isFinished() {
+			return false;
+		}
 
-    }
-    public static class BalancePark extends CommandBase {
+	}
+	public static class BalancePark extends CommandBase {
 
 		private final DriveBase drivebase;
 		private final Gyro pitch_axis;
@@ -115,7 +115,7 @@ public class Auto {
 	}
 	public static class ClimbPad extends CommandBase {
 
-        public static final double
+		public static final double
 			DEFAULT_ENGAGE_VELOCITY = 0.8,
 			DEFAULT_INCLINE_VELOCITY = 0.1,	// this should be the target, but the db doesn't actually go this speed bc of the angle
 			DELTA_ANGLE_THRESH = 14.0,	// the charging pad main incline is 15 degrees, so give some room for error
@@ -134,9 +134,9 @@ public class Auto {
 			private State(String s) { this.desc = s; }
 		}
 
-        private final DriveBase drivebase;
+		private final DriveBase drivebase;
 		private final Gyro pitch;
-        private final PIDController left_fb, right_fb;
+		private final PIDController left_fb, right_fb;
 		private final double engage_velocity, incline_velocity;
 		private double pitch_init = 0.0;
 		private State state = State.STABLE;
@@ -144,31 +144,31 @@ public class Auto {
 		public ClimbPad(DriveBase db, Gyro pa)
 			{ this(db, pa, DEFAULT_INCLINE_VELOCITY, DEFAULT_ENGAGE_VELOCITY); }
 		public ClimbPad(DriveBase db, Gyro pa, double ev, double iv) {
-            this.drivebase = db;
+			this.drivebase = db;
 			this.pitch = pa;
-            this.left_fb = drivebase.parameters.getFeedbackController();
-            this.right_fb = drivebase.parameters.getFeedbackController();
+			this.left_fb = drivebase.parameters.getFeedbackController();
+			this.right_fb = drivebase.parameters.getFeedbackController();
 			this.engage_velocity = ev;
 			this.incline_velocity = iv;
 			super.addRequirements(db);
 		}
 
-        private void driveVelocity(double lv, double rv) {
+		private void driveVelocity(double lv, double rv) {
 			double
-                lc = this.drivebase.getLeftVelocity(),  // the actual velocity
-                rc = this.drivebase.getRightVelocity();
-            this.drivebase.setDriveVoltage(
-                this.drivebase.feedforward.calculate(lv) +  // the calculated feedforward
-                    this.left_fb.calculate(lc, lv),   		// add the feedback adjustment
-                this.drivebase.feedforward.calculate(rv) +
-                    this.right_fb.calculate(rc, rv)
-            );
-        }
+				lc = this.drivebase.getLeftVelocity(),  // the actual velocity
+				rc = this.drivebase.getRightVelocity();
+			this.drivebase.setDriveVoltage(
+				this.drivebase.feedforward.calculate(lv) +  // the calculated feedforward
+					this.left_fb.calculate(lc, lv),   		// add the feedback adjustment
+				this.drivebase.feedforward.calculate(rv) +
+					this.right_fb.calculate(rc, rv)
+			);
+		}
 
 		@Override
 		public void initialize() {
-            this.left_fb.reset();
-            this.right_fb.reset();
+			this.left_fb.reset();
+			this.right_fb.reset();
 			this.state = State.ENGAGING;
 			this.pitch_init = this.pitch.getAngle();
 		}
@@ -242,6 +242,6 @@ public class Auto {
 			b.addStringProperty("Control State", ()->this.state.desc, null);
 		}
 
-    }
-    
+	}
+
 }

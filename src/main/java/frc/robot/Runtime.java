@@ -18,6 +18,7 @@ import edu.wpi.first.wpilibj2.command.*;
 import com.pathplanner.lib.server.PathPlannerServer;
 
 import frc.robot.Constants.ButtonBox;
+import frc.robot.DriveBase.FollowTrajectory;
 import frc.robot.team3407.controls.Input.*;
 import frc.robot.team3407.drive.DriveSupplier.*;
 import frc.robot.team3407.controls.ControlSchemeManager;
@@ -97,6 +98,7 @@ public final class Runtime extends TimedRobot {
 		this.controls.runContinuous();
 
 		Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
+		FollowTrajectory follow_traj = new FollowTrajectory(this.robot.drivebase, "PathplannerLib", true);
 
 		this.auto.addOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
 		this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
@@ -267,6 +269,33 @@ public final class Runtime extends TimedRobot {
 			).schedule();
 		}
 	}
+
+
+
+
+
+	public void testXBox(InputDevice...inputs)
+	{
+		InputDevice controller = inputs[0];
+
+		TeleopTrigger.OnTrue(send(
+			new Manipulator.TestManipulator(this.robot.manipulator,
+				()->Xbox.Analog.RY.getValueOf(controller) * -1.0,
+				()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),
+				()->Xbox.Analog.LY.getValueOf(controller) * (-1)
+			), "Commands/Manipulator Control")
+		);
+
+	}
+
+
+
+
+
+
+
+
+
 
 
 

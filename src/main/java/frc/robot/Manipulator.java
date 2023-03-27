@@ -338,6 +338,22 @@ public final class Manipulator implements Sendable {
 		}
 
 
+		// private double calcWristPos()
+		// {
+		// 	if(this.wrist_set.getAsDouble() > 0 && wristPosition < 1.0)
+		// 	{
+		// 		return wrist_position += 0.1;
+		// 	}
+		// 	else if(this.wrist_set.getAsDouble() < 0 && wristPosition > 0.0)
+		// 	{
+		// 		return wrist_position -= 0.1;
+		// 	}
+		// 	else 
+		// 	{
+		// 		return wrist_position;
+		// 	}
+		// }
+
 		@Override
 		public void initialize() {
 			this.wrist_position = Grabber.WRIST_NEUTRAL_PERCENT;
@@ -362,6 +378,7 @@ public final class Manipulator implements Sendable {
 			this.manipulator.arm.setWinchVoltage(this.is_arm_locked ? ARM_WINCH_LOCK_VOLTAGE : (arate * ARM_WINCH_VOLTAGE_SCALE));
 			this.manipulator.grabber.setGrabberVoltage(this.is_grab_locked ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
 			this.manipulator.grabber.setWristPercent(this.wrist_position);
+			// this.manipulator.grabber.setWristPercent(this.calcWristPos());
 		}
 		@Override
 		public boolean isFinished() {

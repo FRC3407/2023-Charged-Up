@@ -1,15 +1,24 @@
 package frc.robot;
 
-import java.util.function.DoubleSupplier;
-
 import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.wpilibj2.command.CommandBase;
+import frc.robot.team3407.drive.DriveSupplier.StaticSupplier;
 
 
 public class Auto {
 
+	/**
+	 * This runs an autonoumus command that drives a given distance at a given velocity.
+	 * @param db The dribase subsystem.
+	 * @param d Distance in meters.
+	 * @param v Velocity in m/s.
+	 * @return A command for driving the given distance at the given velocity
+	 */
+	public static CommandBase driveStraight(DriveBase db, double d, double v) {
+		return new DriveBase.TankDriveVelocityProfiled(db, StaticSupplier.genSimple(v)).withTimeout(d / v);
+	}
 	/** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
 	 * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
 	 * @return A command for active parking

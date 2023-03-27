@@ -98,17 +98,18 @@ public final class Runtime extends TimedRobot {
 
 		Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
 
-		this.auto.setDefaultOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
+		this.auto.addOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
 		this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
-		this.auto.addOption("Climb Charging Pad",
-			send(Auto.climbPad(this.robot.drivebase, pitch,
-				Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
 		for(String t : Constants.TRAJECTORIES) {
 			this.auto.addOption(
 				t + " [Trajectory]",
 				this.robot.drivebase.followAutoBuilderPathRelative(t)
 			);
 		}
+		this.auto.addOption("Drive Forward", Auto.driveStraight(this.robot.drivebase, 3.0, 1.5));
+		this.auto.setDefaultOption("Climb Charging Pad",
+			send(Auto.climbPad(this.robot.drivebase, pitch,
+				Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
 		SmartDashboard.putData("Autonomous", this.auto);
 	}
 	@Override

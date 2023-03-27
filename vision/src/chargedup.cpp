@@ -1,10 +1,12 @@
 #include <iostream>
 #include <csignal>
 #include <thread>
+#include <mutex>
 #include <atomic>
 #include <chrono>
 #include <vector>
 #include <array>
+#include <span>
 #include <string.h>
 
 #include <opencv2/opencv.hpp>
@@ -46,6 +48,7 @@
 #define SIM_ADDR "192.168.0.8"
 #define DEBUG_VIEW 0
 #define NT_DEFAULT 0
+#define SEND_EXTRA_POSE_ESTIMATIONS 0
 
 using namespace std::chrono_literals;
 using namespace std::chrono;
@@ -61,6 +64,12 @@ static const nt::PubSubOptions
 	NT_OPTIONS = { .periodic = 1.0 / 30.0 };
 static const std::array<const char*, (size_t)CamID::START_ADDITIONAL>
 	CAMERA_TAGS{ "forward", "arm", "top"/*, "pixy2"*/ };
+static const std::array<frc::Pose3d, (size_t)CamID::START_ADDITIONAL>
+	CAMERA_POSES{		// camera poses relative to robot center position
+		frc::Pose3d{},
+		frc::Pose3d{},
+		frc::Pose3d{}
+	};
 static const cs::VideoMode
 	DEFAULT_VMODE{ cs::VideoMode::kMJPEG, 640, 480, 30 };
 static const int
@@ -135,15 +144,29 @@ struct CThread {
 		proc(std::move(t.proc)) {}
 
 	cv::Mat_<float>
-		camera_matrix{DEFAULT_CAM_MATX},
-		dist_matrix{DEFAULT_CAM_MATX};
+		camera_matrix{ DEFAULT_CAM_MATX },
+		dist_matrix{ DEFAULT_CAM_MATX };
+	const frc::Pose3d
+		*robot_camera_pose{ nullptr };
 	cs::VideoMode vmode;
+
+	struct ProcBuff {
+		// using PVec = std::array<float, 3>;
+		using PVec = cv::Mat_<float>;
+
+		std::vector<std::vector<cv::Point2f> > corners;
+		std::vector<int32_t> ids;
+		std::vector<PVec> tvecs, rvecs;
+		cv::Mat fbuff;
+	} *vproc_buffer{nullptr};
+	cv::Mat frame;
 
 	int vid{-1};
 	CS_Source camera_h, fout_h;
 	CS_Sink fin_h;
 
 	std::atomic<bool> link_state{true};
+	std::atomic<int> procm{0};
 	std::thread proc;
 
 };
@@ -169,8 +192,9 @@ struct {
 	struct {
 		nt::IntegerEntry
 			views_avail,
-			view_id,
-			ovl_verbosity
+			view_id,		// active camera id
+			ovl_verbosity,	// overlay verbosity - 0 for off, >0 for increasing verbosity outputs
+			april_mode		// apriltag detection mode - 0 for off, -1 for all threads, -2 for active thread, >0 for specific thread
 		;
 	} nt;
 
@@ -185,9 +209,26 @@ struct {
 		const cv::Ptr<cv::aruco::DetectorParameters> params{cv::aruco::DetectorParameters::create()};
 		const cv::Ptr<cv::aruco::Board> field{::FIELD_2023};
 		const frc::AprilTagDetector wpi_detector{};
+
+		std::vector<frc::Pose3d> robot_est_queue;
+		std::mutex robot_queue_rw;
+#if SEND_EXTRA_POSE_ESTIMATIONS > 0
+		std::vector<frc::Pose3d> raw_est_queue;
+		std::mutex robot_queue_rw;
+#endif
+		std::thread queue;
+		std::atomic<bool> link_state;
 	} aprilpose;
 
 } _global;
+void _ap_update();
+void _ap_worker();
+void _ap_shutdown();
+void _ap_detect_aruco(const cv::Mat&, std::vector<std::vector<cv::Point2f>>&, std::vector<int32_t>&);
+void _ap_detect_wpi(const cv::Mat&, frc::AprilTagDetector::Results&);
+int _ap_estimate_aruco(cv::InputArrayOfArrays&, cv::InputArray&, cv::InputArray, cv::InputArray, std::vector<CThread::ProcBuff::PVec>&, std::vector<CThread::ProcBuff::PVec>&);
+frc::Pose3d toPose3d(const CThread::ProcBuff::PVec&, const CThread::ProcBuff::PVec&);
+std::span<frc::Pose3d> toPose3d(std::vector<frc::Pose3d>&, const std::vector<CThread::ProcBuff::PVec>&, const std::vector<CThread::ProcBuff::PVec>&);
 
 int main(int argc, char** argv) {
 
@@ -226,15 +267,6 @@ int main(int argc, char** argv) {
 	// mainloop
 	int last_vid = -1;
 	int last_vrb = 0;
-	// cv::Mat dcon_frame{DEFAULT_VMODE.width, DEFAULT_VMODE.height, CV_8UC3};
-	// cv::putText(
-	// 	dcon_frame, "Camera is Unavailable :(",
-	// 	cv::Point(DEFAULT_VMODE.width / 2, DEFAULT_VMODE.height / 2),
-	// 	cv::FONT_HERSHEY_DUPLEX, 2.0, cv::Scalar(255, 0, 0), 2, cv::LINE_AA
-	// );
-	// uint8_t* bframe;
-	// _global.pixycam.m_link.stop();
-	//cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
 	for(;_global.state.program_enable;) {
 
 		int vid = _global.nt.view_id.Get();
@@ -244,30 +276,15 @@ int main(int argc, char** argv) {
 		last_vid = vid;
 		last_vrb = vrb;
 
-		// if(_global.state.view_updated) {
-		// 	std::cout << "View idx update detected." << std::endl;
-		// }
-		// if(_global.state.vrbo_updated) {
-		// 	std::cout << "Verbosity update detected." << std::endl;
-		// }
-
-		// bool needs_frame = false;
 		for(CThread& t : _global.cthreads) {
-			// needs_frame = needs_frame || _update(t);
 			_update(t);
 		}
-		// if(needs_frame) {
-		// 	cs::PutSourceFrame(_global.discon_frame_h, dcon_frame, &status);
-		// }
-
-		// status = _global.pixycam.m_link.getRawFrame(&bframe);
-		// std::cout << "Pixy frame status: " << status << std::endl;
+		_ap_update();
 
 		frc::SmartDashboard::UpdateValues();
 
 		std::this_thread::sleep_for(100ms);
 	}
-	// _global.pixycam.m_link.resume();
 
 	// shutdown
 	{
@@ -275,6 +292,7 @@ int main(int argc, char** argv) {
 		for(CThread& t : _global.cthreads) {
 			_shutdown(t);
 		}
+		_ap_shutdown();
 		cs::ReleaseSink(_global.stream_h, &status);
 		cs::ReleaseSource(_global.discon_frame_h, &status);
 		cs::Shutdown();
@@ -424,6 +442,7 @@ bool init(const char* fname) {
 			for(size_t t = 0; t < CAMERA_TAGS.size(); t++) {
 				if(wpi::equals_lower(name, CAMERA_TAGS[t])) {
 					cthr.vid = t;
+					cthr.robot_camera_pose = &CAMERA_POSES[t];
 					break;
 				}
 			}
@@ -486,9 +505,11 @@ bool init(const char* fname) {
 	_global.nt.views_avail = _global.base_ntable->GetIntegerTopic("Available Outputs").GetEntry(0, NT_OPTIONS);
 	_global.nt.view_id = _global.base_ntable->GetIntegerTopic("Active Camera Thread").GetEntry(0, NT_OPTIONS);
 	_global.nt.ovl_verbosity = _global.base_ntable->GetIntegerTopic("Overlay Verbosity").GetEntry(0, NT_OPTIONS);
+	_global.nt.april_mode = _global.base_ntable->GetIntegerTopic("AprilTag Mode").GetEntry(0, NT_OPTIONS);
 	_global.nt.views_avail.Set(_global.cthreads.size());
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);
+	_global.nt.april_mode.Set(0);
 
 	_global.aprilpose.wpi_detector.AddFamily(FRC_DICT_NAME);
 
@@ -503,8 +524,9 @@ bool _update(CThread& ctx) {
 	bool outputting = ctx.vid == _global.nt.view_id.Get();
 	bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
 	bool overlay = _global.nt.ovl_verbosity.Get() > 0;
-	//bool vproc = false;
-	bool enable = connected && ((overlay && outputting)/* || vproc*/);
+	int apmode = _global.nt.april_mode.Get();
+	ctx.procm = 1 * (apmode == -2 || ((apmode == -1) && outputting) || apmode == ctx.vid);
+	bool enable = connected && ((overlay && outputting) || ctx.procm);
 
 	if(outputting && (_global.state.view_updated || _global.state.vrbo_updated)) {
 		if(connected) {
@@ -536,21 +558,83 @@ void _worker(CThread& ctx) {
 	int status = 0;
 	cs::SetSinkSource(ctx.fin_h, ctx.camera_h, &status);
 
-	cv::Mat frame;	// move to ctx
 	high_resolution_clock::time_point tp = high_resolution_clock::now();
+	int verbosity;
 
 	for(;ctx.link_state && _global.state.program_enable;) {
 
-		cs::GrabSinkFrame(ctx.fin_h, frame, &status);
+		cs::GrabSinkFrame(ctx.fin_h, ctx.frame, &status);
 		high_resolution_clock::time_point t = high_resolution_clock::now();
 		float fps = 1.f / duration<float>(t - tp).count();
 		tp = t;
-		cv::putText(
-			frame, std::to_string(fps),
-			cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX,
-			0.65, cv::Scalar(0, 255, 0), 1, cv::LINE_AA
-		);
-		cs::PutSourceFrame(ctx.fout_h, frame, &status);
+		verbosity = _global.nt.ovl_verbosity.Get();
+		if(verbosity <= 0) {
+			cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);		// keep latency as short as possible
+		}
+		switch(ctx.procm) {
+			case 0:
+			default:{	// none
+				if(verbosity > 0) {
+					cv::putText(
+						ctx.frame, std::to_string(fps),
+						cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX,
+						0.65, cv::Scalar(0, 255, 0), 1, cv::LINE_AA
+					);
+				}
+				cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);
+			}
+			case 1: {	// apriltag
+				if(ctx.vproc_buffer == nullptr) {
+					ctx.vproc_buffer = new CThread::ProcBuff{};
+				}
+				ctx.vproc_buffer->corners.clear();
+				ctx.vproc_buffer->ids.clear();
+				// resize
+				_ap_detect_aruco(
+					ctx.frame, ctx.vproc_buffer->corners, ctx.vproc_buffer->ids);
+				if(verbosity > 0) {
+
+				}
+				if(verbosity > 1) {
+					if(ctx.vproc_buffer->ids.size() > 0) {
+						cv::aruco::drawDetectedMarkers(
+							ctx.frame, ctx.vproc_buffer->corners, ctx.vproc_buffer->ids);
+					}
+				}
+				if(verbosity > 0) {
+					cv::putText(
+						ctx.frame, std::to_string(fps),
+						cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX,
+						0.65, cv::Scalar(0, 255, 0), 1, cv::LINE_AA
+					);
+				} else {
+					goto skip_resend_frame;
+				}
+				cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);
+
+				skip_resend_frame:
+				// clear tvecs, rvecs?
+				if(ctx.vproc_buffer->ids.size() > 0) {
+					_ap_estimate_aruco(
+						ctx.vproc_buffer->corners, ctx.vproc_buffer->ids,
+						ctx.camera_matrix, ctx.dist_matrix,
+						ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
+					if(ctx.robot_camera_pose != nullptr) {
+						// add the poses? :(
+						_global.aprilpose.robot_queue_rw.lock();
+						toPose3d(_global.aprilpose.robot_est_queue, ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
+						_global.aprilpose.robot_queue_rw.unlock();
+					}
+#if SEND_EXTRA_POSE_ESTIMATIONS > 0
+					else {
+						_global.aprilpose.raw_queue_rw.lock();
+						toPose3d(_global.aprilpose.raw_est_queue, ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
+						_global.aprilpose.raw_queue_rw.lock();
+					}
+#endif
+				}
+			}
+		}
 
 	}
 
@@ -561,12 +645,42 @@ void _shutdown(CThread& ctx) {
 		ctx.link_state = false;
 		ctx.proc.join();
 	}
+	if(ctx.vproc_buffer != nullptr) {
+		delete ctx.vproc_buffer;
+	}
 	cs::ReleaseSource(ctx.camera_h, &status);
 	cs::ReleaseSource(ctx.fout_h, &status);
 	cs::ReleaseSink(ctx.fin_h, &status);
 }
 
 
+
+frc::Pose3d toPose3d(const CThread::ProcBuff::PVec& tvec, const CThread::ProcBuff::PVec& rvec) {
+	cv::Mat_<float> R, t{tvec.clone()};
+	cv::Rodrigues(rvec, R);
+	R = R.t();
+	t = -R * t;
+
+	frc::Vectord<3> rv{ rvec.at<float>(2, 0), -rvec.at<float>(0, 0), rvec.at<float>(1, 0) };
+
+	return frc::Pose3d(
+		units::inch_t{ +t.at<float>(2, 0) },
+		units::inch_t{ -t.at<float>(0, 0) },
+		units::inch_t{ -t.at<float>(1, 0) },
+		frc::Rotation3d{ rv, units::radian_t{ rv.norm() } }
+	);
+}
+std::span<frc::Pose3d> toPose3d(
+	std::vector<frc::Pose3d>& poses,
+	const std::vector<CThread::ProcBuff::PVec>& tvecs,
+	const std::vector<CThread::ProcBuff::PVec>& rvecs
+) {
+	size_t beg = poses.size();
+	for(size_t i = 0; i < tvecs.size(); i++) {
+		poses.emplace_back(toPose3d(tvecs[i], rvecs[i]));
+	}
+	return std::span<frc::Pose3d>{ poses.begin() + beg, poses.end() };
+}
 
 void _ap_detect_aruco(
 	const cv::Mat& frame,
@@ -583,6 +697,88 @@ void _ap_detect_wpi(
 	frc::AprilTagDetector::Results& results
 ) {
 	results = _global.aprilpose.wpi_detector.Detect(frame.cols, frame.rows, frame.data);
+}
+
+int _ap_estimate_aruco(
+	cv::InputArrayOfArrays& corners, cv::InputArray& ids,
+	cv::InputArray cmatx, cv::InputArray cdist,
+	std::vector<CThread::ProcBuff::PVec>& tvecs, std::vector<CThread::ProcBuff::PVec>& rvecs
+) {
+	CV_Assert(corners.total() == ids.total());	
+	CV_Assert(_global.aprilpose.field->ids.size() == _global.aprilpose.field->objPoints.size());
+
+	size_t ndetected = ids.total();
+	std::vector<cv::Point3f> _obj_points;
+	std::vector<cv::Point2f> _img_points;
+	_obj_points.reserve(ndetected);
+	_img_points.reserve(ndetected);
+
+	for(size_t i = 0; i < ndetected; i++) {
+		int id = ids.getMat().ptr<int>(0)[i];
+		for(size_t j = 0; j < _global.aprilpose.field->ids.size(); j++) {
+			if(id == _global.aprilpose.field->ids[j]) {
+				for(int p = 0; p < 4; p++) {
+					_obj_points.push_back(_global.aprilpose.field->objPoints[j][p]);
+					_img_points.push_back(corners.getMat(i).ptr<cv::Point2f>(0)[p]);
+				}
+			}
+		}
+	}
+
+	if(_obj_points.size() == 0) { return 0; }
+	CV_Assert(_img_points.size() == _obj_points.size());
+
+	if(_img_points.size() == 4) {
+		cv::solvePnPGeneric(
+			_obj_points, _img_points,
+			cmatx, cdist, rvecs, tvecs,
+			false, cv::SOLVEPNP_IPPE_SQUARE
+		);
+	} else {
+		cv::solvePnPGeneric(
+			_obj_points, _img_points,
+			cmatx, cdist, rvecs, tvecs,
+			false, cv::SOLVEPNP_ITERATIVE
+		);
+	}
+	return tvecs.size();
+
+}
+
+
+void _ap_update() {
+	if(_global.nt.april_mode.Get() != 0) {	// if should be active
+		if(!_global.aprilpose.queue.joinable()) {
+			_global.aprilpose.link_state = true;
+			_global.aprilpose.queue = std::thread(_ap_worker);
+		}
+	} else if(_global.aprilpose.queue.joinable()) {
+		_global.aprilpose.link_state = false;
+		_global.aprilpose.queue.join();
+	}
+}
+void _ap_worker() {
+
+	for(;_global.aprilpose.link_state && _global.state.program_enable;) {
+		_global.aprilpose.robot_queue_rw.lock();
+		// handle poses
+		std::cout << "Poses detected: " << _global.aprilpose.robot_est_queue.size() << std::endl;
+		_global.aprilpose.robot_est_queue.clear();
+		_global.aprilpose.robot_queue_rw.unlock();
+#if SEND_EXTRA_POSE_ESTIMATIONS > 0
+		_global.aprilpose.raw_queue_rw.lock();
+		// handle
+		_global.aprilpose.raw_est_queue.clear();
+		_global.aprilpose.raw_queue_rw.unlock();
+#endif
+	}
+
+}
+void _ap_shutdown() {
+	if(_global.aprilpose.queue.joinable()) {
+		_global.aprilpose.link_state = false;
+		_global.aprilpose.queue.join();
+	}
 }
 
 

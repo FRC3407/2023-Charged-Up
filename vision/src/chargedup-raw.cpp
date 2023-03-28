@@ -31,7 +31,7 @@
 
 
 #define DLOG(x) std::cout << (x) << std::endl;
-#define DEBUG 0
+#define DEBUG 2
 
 #define FRC_CONFIG "/boot/frc.json"
 #define NT_IDENTITY "Vision RPI"
@@ -68,9 +68,10 @@ public:
 	virtual void InitSendable(wpi::SendableBuilder& b) override {
 		b.AddFloatProperty("Core temp", [this](){ return this->temp(); }, nullptr);
 		b.AddFloatProperty("Utilization", [this](){ return this->fromLast(); }, nullptr);
+		b.AddFloatProperty("Avg FTime", [this](){ return (float)this->ftime_avg; }, nullptr);
 	}
 
-	std::vector<float> ftimes{};
+	std::atomic<float> ftime_avg{};
 
 };
 
@@ -185,12 +186,21 @@ int main(int argc, char** argv) {
 		_global.state.exposure_updated = (_global.nt.exposure.ReadQueue().size() > 0);
 		_global.state.dscale_updated = (_global.nt.downscale.ReadQueue().size() > 0);
 
+#if DEBUG > 1
+		if(_global.state.view_updated) { std::cout << "MAINLOOP: View idx updated." << std::endl; }
+		if(_global.state.vrbo_updated) { std::cout << "MAINLOOP: Verbosity lvl updated." << std::endl; }
+		if(_global.state.exposure_updated) { std::cout << "MAINLOOP: Exposure updated." << std::endl; }
+		if(_global.state.dscale_updated) { std::cout << "MAINLOOP: Downscale updated." << std::endl; }
+#endif
+
 		size_t i = 0;
+		float a = 0;
 		for(CThread& t : _global.cthreads) {
 			_update(t);
-			_global.stats.ftimes[i] = t.ftime;
+			a += t.ftime;
 			i++;
 		}
+		_global.stats.ftime_avg = a / i;
 
 		frc::SmartDashboard::UpdateValues();
 
@@ -291,6 +301,9 @@ bool init(const char* fname) {
 	_global.discon_frame_h = cs::CreateCvSource("Disconnected Frame Source", DEFAULT_VMODE, &status);
 	_global.stream_h = cs::CreateMjpegServer("Viewport Stream", "", _global.next_stream_port++, &status);
 	frc::CameraServer::AddServer(VideoSinkImpl(_global.stream_h));
+#if DEBUG > 0
+	std::cout << fmt::format("Created main stream with port {}.", _global.next_stream_port - 1) << std::endl;
+#endif
 
 	std::vector<cs::UsbCameraInfo> connections = cs::EnumerateUsbCameras(&status);
 
@@ -316,7 +329,11 @@ bool init(const char* fname) {
 			cthr.view_h = cs::CreateMjpegServer(
 				fmt::format("{}_view_stream", name), "", _global.next_stream_port++, &status);
 			frc::CameraServer::AddServer(VideoSinkImpl(cthr.view_h));
-			cs::SetSinkSource(cthr.view_h, cthr.camera_h, &status);
+#if DEBUG > 0
+			std::cout << fmt::format("Created {} camera view stream with port {}.", name, _global.next_stream_port - 1) << std::endl;
+#endif
+			// cs::SetSinkSource(cthr.view_h, cthr.camera_h, &status);
+			cs::SetSinkSource(cthr.view_h, cthr.fout_h, &status);		// there is some sort of bug where these streams don't switch, so start with the one more likely to be used
 			
 			for(size_t t = 0; t < CAMERA_TAGS.size(); t++) {
 				if(wpi::equals_lower(name, CAMERA_TAGS[t])) {
@@ -354,12 +371,15 @@ bool init(const char* fname) {
 			cthr.view_h = cs::CreateMjpegServer(
 				fmt::format("Camera{}_view_stream", cthr.vid), "", _global.next_stream_port++, &status);
 			frc::CameraServer::AddServer(VideoSinkImpl(cthr.view_h));
-			cs::SetSinkSource(cthr.view_h, cthr.camera_h, &status);
+#if DEBUG > 0
+			std::cout << fmt::format("Created Camera{} view stream with port {}.", cthr.vid, _global.next_stream_port - 1) << std::endl;
+#endif
+			// cs::SetSinkSource(cthr.view_h, cthr.camera_h, &status);
+			cs::SetSinkSource(cthr.view_h, cthr.fout_h, &status);
 		}
 	}
 
 	std::cout << fmt::format("Cameras Available: {}", _global.cthreads.size()) << std::endl;
-	_global.stats.ftimes.reserve(_global.cthreads.size());
 
 	_global.base_ntable = nt::NetworkTableInstance::GetDefault().GetTable("Vision");
 	_global.nt.views_avail = _global.base_ntable->GetIntegerTopic("Available Outputs").GetEntry(0, NT_OPTIONS);
@@ -385,20 +405,37 @@ bool init(const char* fname) {
 void _update(CThread& ctx) {
 	int status = 0;
 	bool downscale = _global.nt.downscale.Get() > 1;
+	bool overlay = _global.nt.ovl_verbosity.Get() > 0;
 	bool outputting = ctx.vid == _global.nt.view_id.Get();
 	bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
-	bool overlay = _global.nt.ovl_verbosity.Get() > 0;
 	bool enable = connected && ((overlay && outputting) || downscale);
 
-	if(outputting && (_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated)) {
+	// if(outputting && (_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated)) {
+	// 	if(connected) {
+	// 		if(overlay || downscale) {
+	// 			cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);
+	// 			cs::SetSinkSource(ctx.view_h, ctx.fout_h, &status);
+	// 		} else {
+	// 			cs::SetSinkSource(_global.stream_h, ctx.camera_h, &status);
+	// 			cs::SetSinkSource(ctx.view_h, ctx.camera_h, &status);
+	// 		}
+	// 	} else {
+	// 		cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
+	// 		cs::SetSinkSource(ctx.view_h, _global.discon_frame_h, &status);
+	// 	}
+	// }
+	if(_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated) {
 		if(connected) {
 			if(overlay || downscale) {
-				cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);
+				cs::SetSinkSource(ctx.view_h, ctx.fout_h, &status);
+				if(outputting) cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);
 			} else {
-				cs::SetSinkSource(_global.stream_h, ctx.camera_h, &status);
+				cs::SetSinkSource(ctx.view_h, ctx.camera_h, &status);
+				if(outputting) cs::SetSinkSource(_global.stream_h, ctx.camera_h, &status);
 			}
 		} else {
-			cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
+			cs::SetSinkSource(ctx.view_h, _global.discon_frame_h, &status);
+			if(outputting) cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
 		}
 	}
 	if(_global.state.exposure_updated) {
@@ -421,7 +458,6 @@ void _worker(CThread& ctx) {
 
 	int status = 0;
 	cs::SetSinkSource(ctx.fin_h, ctx.camera_h, &status);
-	cs::SetSinkSource(ctx.view_h, ctx.fout_h, &status);
 
 	high_resolution_clock::time_point tp = high_resolution_clock::now();
 	int verbosity, dscale;
@@ -454,7 +490,6 @@ void _worker(CThread& ctx) {
 		}
 
 	}
-	cs::SetSinkSource(ctx.view_h, ctx.camera_h, &status);
 
 }
 void _shutdown(CThread& ctx) {

@@ -6,8 +6,11 @@ import java.util.function.DoubleSupplier;
 import edu.wpi.first.net.PortForwarder;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
+import edu.wpi.first.wpilibj.AddressableLED;
+import edu.wpi.first.wpilibj.AddressableLEDBuffer;
 import edu.wpi.first.wpilibj.DataLogManager;
 import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.PWM;
 import edu.wpi.first.wpilibj.PowerDistribution;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
@@ -67,6 +70,7 @@ public final class Runtime extends TimedRobot {
 		}
 	}
 	private final Robot robot = new Robot();
+	// private final LEDTest leds = new LEDTest(2, 3, 4);
 	private final ControlSchemeManager controls = new ControlSchemeManager();
 	private final SendableChooser<Command> auto = new SendableChooser<>();
 
@@ -111,6 +115,9 @@ public final class Runtime extends TimedRobot {
 			send(Auto.climbPad(this.robot.drivebase, pitch,
 				Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
 		SmartDashboard.putData("Autonomous", this.auto);
+
+		// this.leds.setRGB(0.5, 0.5, 0.5);
+		// SmartDashboard.putData("Robot/LEDS", this.leds);
 	}
 	@Override
 	public void robotPeriodic() {
@@ -192,9 +199,9 @@ public final class Runtime extends TimedRobot {
 					()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
 					Xbox.Analog.LY.getDriveInputSupplier(controller2,
 						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),
-					Xbox.Digital.LB.getPressedSupplier(controller2),
-					Xbox.Digital.A.getPressedSupplier(controller2),
-					Xbox.Digital.RB.getPressedSupplier(controller2)
+					Xbox.Digital.LS.getPressedSupplier(controller2),
+					Xbox.Digital.RB.getPressedSupplier(controller2),
+					Xbox.Digital.LB.getPressedSupplier(controller2)
 				), "Commands/Manipulator Control")
 			);
 		}
@@ -248,9 +255,9 @@ public final class Runtime extends TimedRobot {
 					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
 					Xbox.Analog.LY.getDriveInputSupplier(controller,
 						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),	// left stick y-axis for the grabber %-rate (integrated for position)
-					Xbox.Digital.LB.getPressedSupplier(controller),			// RB on the xbox to reset wrist position
-					Xbox.Digital.RS.getPressedSupplier(controller),
-					Xbox.Digital.RB.getPressedSupplier(controller)
+					Xbox.Digital.LS.getPressedSupplier(controller),			// press down left stick to reset wrist
+					Xbox.Digital.RB.getPressedSupplier(controller),			// RB for arm lock
+					Xbox.Digital.LB.getPressedSupplier(controller)			// LB for grabber lock
 				), "Commands/Manipulator Control")
 			);
 			if(bbox == null) {
@@ -322,6 +329,104 @@ public final class Runtime extends TimedRobot {
 			()->((fc.getAsBoolean() && !b.getAsBoolean()) ? t.getAsDouble() * fine : t.getAsDouble()),
 			()->((b.getAsBoolean() && !fc.getAsBoolean()) ? max * boost : max)
 		);
+	}
+
+
+
+
+
+
+
+
+	// private AddressableLED ledTester(AddressableLED addrl, AddressableLEDBuffer buff, int pwmp, int len) {
+	// 	addrl = new AddressableLED(pwmp);
+	// 	buff = new AddressableLEDBuffer(len);
+	// 	addrl.setLength(len);
+
+	// 	for(int i = 0; i < len; i++) {
+	// 		buff.setRGB(i, 0, 255, 0);
+	// 	}
+	// 	addrl.setData(buff);
+	// 	addrl.start();
+	// 	return addrl;
+	// }
+
+
+	public static class LEDTest implements Sendable {
+
+		private final static double
+			MIN_OUTPUT_uS = 0.005,
+			MAX_OUTPUT_uS = 5.005
+		;
+		private final static boolean
+			INVERT_RANGE = false
+		;
+		private final PWM r, g, b;
+		private double rs, gs, bs;
+
+		public LEDTest(int rp, int gp, int bp) {
+			this.r = new PWM(rp);
+			this.g = new PWM(gp);
+			this.b = new PWM(bp);
+			this.r.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
+			this.g.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
+			this.b.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
+			this.r.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
+			this.g.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
+			this.b.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
+		}
+
+		public void setRGB(double r, double g, double b) {
+			if(INVERT_RANGE) {
+				this.r.setPosition(1.0 - r);
+				this.g.setPosition(1.0 - g);
+				this.b.setPosition(1.0 - b);
+			} else {
+				this.r.setPosition(r);
+				this.g.setPosition(g);
+				this.b.setPosition(b);
+			}
+			this.rs = r;
+			this.gs = g;
+			this.bs = b;
+		}
+		public void setR(double r) {
+			if(INVERT_RANGE) {
+				this.r.setPosition(1.0 - r);
+			} else {
+				this.r.setPosition(r);
+			}
+			this.rs = r;
+		}
+		public void setG(double g) {
+			if(INVERT_RANGE) {
+				this.g.setPosition(1.0 - g);
+			} else {
+				this.g.setPosition(g);
+			}
+			this.gs = g;
+		}
+		public void setB(double b) {
+			if(INVERT_RANGE) {
+				this.b.setPosition(1.0 - b);
+			} else {
+				this.b.setPosition(b);
+			}
+			this.bs = b;
+		}
+		public void stop() {
+			this.r.setDisabled();
+			this.g.setDisabled();
+			this.b.setDisabled();
+		}
+
+		@Override
+		public void initSendable(SendableBuilder b) {
+			b.addDoubleProperty("Red channel setpoint", ()->this.rs, this::setR);
+			b.addDoubleProperty("Green channel setpoint", ()->this.gs, this::setG);
+			b.addDoubleProperty("Blue channel setpoint", ()->this.bs, this::setB);
+		}
+
 	}
 
 

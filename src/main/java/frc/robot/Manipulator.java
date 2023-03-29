@@ -64,8 +64,8 @@ public final class Manipulator implements Sendable {
 			b.addDoubleProperty("Arm Encoder Value Raw", this::getWinchRawPosition, null);
 			b.addDoubleProperty("Arm Angle (degrees)", this::getWinchDegPosition, null);
 			b.addDoubleProperty("Arm Angle Rate", this::getWinchDegVelocity, null);
-			b.addIntegerProperty("Winch Lower Limit", this.winch::isRevLimitSwitchClosed, null);
-			b.addIntegerProperty("Winch Upper Limit", this.winch::isFwdLimitSwitchClosed, null);
+			b.addBooleanProperty("Winch Lower Limit", ()->this.winch.isRevLimitSwitchClosed() == 1, null);
+			b.addBooleanProperty("Winch Upper Limit", ()->this.winch.isFwdLimitSwitchClosed() == 1, null);
 			b.addDoubleProperty("Winch Voltage", this.winch::getMotorOutputVoltage, null);
 			b.addDoubleArrayProperty("Winch Current [In:Out]",
 				()->{ return new double[]{
@@ -171,6 +171,7 @@ public final class Manipulator implements Sendable {
 			b.addDoubleProperty("Grabber Encoder Raw", this::getGrabRawPosition, null);
 			b.addDoubleProperty("Grabber Rotation Rate", this::getGrabDegVelocity, null);
 			b.addDoubleProperty("Grabber Width (inches)", this::getGrabWidth, null);
+			b.addBooleanProperty("Grabber Reset Limit", ()->this.main.isRevLimitSwitchClosed() == 1, null);
 			b.addDoubleProperty("Grab Motor Voltage", this.main::getMotorOutputVoltage, null);
 			b.addDoubleArrayProperty("Grab Motor Current [In:Out]", ()->{
 				return new double[]{
@@ -206,7 +207,12 @@ public final class Manipulator implements Sendable {
 
 		public void setWristPercent(double p) {
 			p = Math.max(WRIST_LOWER_LIMIT_PERCENT, Math.min(WRIST_UPPER_LIMIT_PERCENT, p));
-			this.wrist.setPosition(p);
+			// System.out.println("Setting PWM to: " + p);
+			if(p == 0.0) {
+				this.wrist.setDisabled();
+			} else {
+				this.wrist.setPosition(p);
+			}
 		}
 		public void setWristAngle(double deg) {
 			deg += WRIST_CENTER_OFFSET;
@@ -288,9 +294,9 @@ public final class Manipulator implements Sendable {
 
 		public static final double
 			ARM_WINCH_VOLTAGE_SCALE = 5.0,
-			ARM_WINCH_LOCK_VOLTAGE = 2.5,
+			ARM_WINCH_LOCK_VOLTAGE = 3.5,
 			GRAB_CLAW_VOLTAGE_SCALE = 7.0,
-			GRAB_CLAW_LOCK_VOLTAGE = 2.5,
+			GRAB_CLAW_LOCK_VOLTAGE = 8.0,
 			WRIST_ACCUMULATION_RATE_SCALE = 0.01;	// at full throttle, add 0.01 x 50 loops per second = 0.5 per second change [maximum]
 
 		private final Manipulator
@@ -393,6 +399,7 @@ public final class Manipulator implements Sendable {
 
 		@Override
 		public void initSendable(SendableBuilder b) {
+			super.initSendable(b);
 			b.addDoubleProperty("Winch Voltage Setpoint",
 				()->this.is_arm_locked ? ARM_WINCH_LOCK_VOLTAGE : (this.arm_rate.getAsDouble() * ARM_WINCH_VOLTAGE_SCALE), null);
 			b.addDoubleProperty("Grabber Voltage Setpoint",

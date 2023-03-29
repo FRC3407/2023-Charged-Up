@@ -41,8 +41,8 @@ public final class Constants {
 			0.7,
 			10.0,
 			2.5,
-			250.0,
-			250.0,
+			50.0,
+			50.0,
 			Inversions.BOTH
 		);
 	public static final int

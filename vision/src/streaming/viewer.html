@@ -49,14 +49,14 @@
 				<canvas id="stream4">
 					Failed to load stream.
 				</canvas>
-				<details>
+				<!-- <details>
 					<summary>Raw Views</summary>
 					<span>1181-1184, compression=50:</span><br>
 					<img src="http://wpilibpi:1181/stream.mjpg:compression?50">
 					<img src="http://wpilibpi:1182/stream.mjpg:compression?50">
 					<img src="http://wpilibpi:1183/stream.mjpg:compression?50">
 					<img src="http://wpilibpi:1184/stream.mjpg:compression?50">
-				</details>
+				</details> -->
 			</div>
 		</div>
 	</body>
@@ -132,6 +132,7 @@
 				options.onStop = function() { console.log("stopped"); }
 
 				self.stream = new module.Stream(options);
+				self.fscale = 1;
 
 				canvas.addEventListener("click", function() {
 					if (self.stream.running) { self.stop(); }
@@ -157,6 +158,8 @@
 						width: img.naturalWidth,
 						height: img.naturalHeight
 					};
+					// canvas.style.width = srcRect.width * self.fscale;
+					// canvas.style.height = srcRect.height * self.fscale;
 					var dstRect = scaleRect(srcRect, {
 						width: canvas.width,
 						height: canvas.height
@@ -179,6 +182,10 @@
 						console.log("!");
 					throw e;
 					}
+				}
+
+				self.updateFScale = function(fs) {
+					self.fscale = fs;
 				}
 
 				self.start = function() { self.stream.start(); }

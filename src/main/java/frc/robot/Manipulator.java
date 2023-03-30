@@ -1,9 +1,13 @@
 package frc.robot;
 
-import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
-import javax.lang.model.util.ElementScanner14;
+import com.ctre.phoenix.motorcontrol.ControlMode;
+import com.ctre.phoenix.motorcontrol.FeedbackDevice;
+import com.ctre.phoenix.motorcontrol.LimitSwitchNormal;
+import com.ctre.phoenix.motorcontrol.LimitSwitchSource;
+import com.ctre.phoenix.motorcontrol.NeutralMode;
+import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
 
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
@@ -11,9 +15,6 @@ import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.CommandBase;
 import edu.wpi.first.wpilibj2.command.Subsystem;
-
-import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
-import com.ctre.phoenix.motorcontrol.*;
 
 
 public final class Manipulator implements Sendable {
@@ -296,11 +297,27 @@ public final class Manipulator implements Sendable {
 		{
 			if(this.wrist_set.getAsDouble() > 0 && wristPosition < 1.0)
 			{
-				return wristPosition += 0.1;
+				if(wristPosition + 0.001 < 0.95)
+				{
+					return wristPosition += 0.001;
+				}
+				else
+				{
+					return this.WRIST_UPPER_LIMIT_PERCENT - 0.1;
+				}
+				
 			}
 			else if(this.wrist_set.getAsDouble() < 0 && wristPosition > 0.0)
 			{
-				return wristPosition -= 0.1;
+				if(wristPosition- 0.001 > 0.05)
+				{
+					return wristPosition -= 0.001;
+				}
+				else 
+				{
+					return this.WRIST_UPPER_LIMIT_PERCENT + 0.1;
+				}
+				
 			}
 			else 
 			{
@@ -316,7 +333,9 @@ public final class Manipulator implements Sendable {
 		public void execute() {
 			this.manipulator.arm.setWinchVoltage(this.arm_percent.getAsDouble() * ARM_WINCH_VOLTAGE_SCALE);
 			this.manipulator.grabber.setGrabberVoltage(this.grab_percent.getAsDouble() * GRAB_CLAW_VOLTAGE_SCALE);
-			this.manipulator.grabber.setWristPercent(this.calcWristPos());
+			double p = calcWristPos();
+			this.manipulator.grabber.setWristPercent(p);
+			System.out.println("Wrist position =" + p);
 		}
 		@Override
 		public boolean isFinished() {

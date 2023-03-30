@@ -17,27 +17,55 @@
 		canvas {
 			image-rendering: pixelated;
 			background: #000;
+			width: 40%;
+			height: 40%;
+			margin: 5px;
+			visibility: visible;
+		}
+
+		.flex
+		{
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+		}
+
+		.flex > div > input {
+			width: 80px;
+			margin: 3px;
+			background-color: rgb(57, 57, 57);
+			color: white;
 		}
 	</style>
 
 	<body>
 		<div id="main">
-			<div id="options">
-				<form>
-					<span>Hostname/Ip: </span>
-					<input id="ip" type="text" value="wpilibpi"><br>
-					<span>Starting Port: </span>
-					<input id="port1" type="number" value="1181"><br>
-					<span>Num Streams: </span>
-					<input id="streams" type="number" value="2"><br>
-					<span>Frame Scaling: </span>
-					<input id="fscaling" type="number" value="1"><br>
-					<span>Compression: </span>
-					<input id="compression" type="range" value="50"><br>
+			<div id="options" style="margin: 20px 0px 30px 10px;">
+				<form class="flex">
+					<div style="margin: 10px 0px;">
+						<span>Hostname/Ip: </span>
+						<input id="ip" type="text" value="wpilibpi"><br>
+					</div>
+					<div style="margin: 10px 0px;">
+						<span>Starting Port: </span>
+						<input id="port1" type="number" value="1181"><br>
+					</div>
+					<div style="margin: 10px 0px;">
+						<span>Num Streams: </span>
+						<input id="streams" type="number" value="4" max="4" min="1"><br>
+					</div>
+					<div style="margin: 10px 0px;">
+						<span>Frame Scaling: </span>
+						<input id="fscaling" type="number" value="1"><br>
+					</div>
+					<div style="margin: 10px 0px;">
+						<span>Compression: </span>
+						<input id="compression" type="range" value="50"><br>
+					</div>
 				</form>
 			</div>
-			<div id="viewer">
-				<canvas id="stream">
+			<div id="viewer" class="flex">
+				<canvas id="stream1">
 					Failed to load stream.
 				</canvas>
 				<canvas id="stream2">
@@ -214,8 +242,8 @@
 		};
 		Elements.input_address.addEventListener('input', function(e){ State.address = e.target.value; updateStreams(); });
 		Elements.input_startport.addEventListener('input', function(e){ State.startport = e.target.value; updateStreams(); });
-		Elements.input_num_streams.addEventListener('input', function(e){ State.streams = e.target.value; });
-		Elements.input_fscale.addEventListener('input', function(e){ State.fscale = e.target.value; });
+		Elements.input_num_streams.addEventListener('input', function(e){ State.streams = e.target.value; updateStreams(); });
+		Elements.input_fscale.addEventListener('input', function(e){ State.fscale = e.target.value; updateStreams(); updateFScale(State.fscale); });
 		Elements.input_compression.addEventListener('input', function(e){ State.compression = e.target.value; updateStreams(); });
 
 		function composeUrl(addr, port, compr, obj = "stream.mjpg") {
@@ -224,6 +252,17 @@
 		function updateStreams() {
 			for(let i = 0; i < players.length; i++) {
 				players[i].stream.updateUrl(composeUrl(State.address, (State.startport + i), State.compression));
+			}
+			for(let i = 4; i>0; i--)
+			{
+				if(i>State.streams)
+				{
+					document.getElementById("stream"+i).style.visibility = "hidden";
+				}
+				else
+				{
+					document.getElementById("stream"+i).style.visibility = "visible";
+				}
 			}
 		}
 

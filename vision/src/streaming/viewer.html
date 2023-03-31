@@ -342,7 +342,7 @@
 			x.globalAlpha = 0.5;
 			x.drawImage(buffer,0,0);
 			clickedStreams.push(element.getAttribute("id"));
-			players[element.getAttribute("id").substring(6)].stop();
+			players[element.getAttribute("id").substring(6)-1].stop();
 		}
 	</script>
 

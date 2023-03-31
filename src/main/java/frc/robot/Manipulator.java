@@ -64,8 +64,8 @@ public final class Manipulator implements Sendable {
 			b.addDoubleProperty("Arm Encoder Value Raw", this::getWinchRawPosition, null);
 			b.addDoubleProperty("Arm Angle (degrees)", this::getWinchDegPosition, null);
 			b.addDoubleProperty("Arm Angle Rate", this::getWinchDegVelocity, null);
-			b.addIntegerProperty("Winch Lower Limit", this.winch::isRevLimitSwitchClosed, null);
-			b.addIntegerProperty("Winch Upper Limit", this.winch::isFwdLimitSwitchClosed, null);
+			b.addBooleanProperty("Winch Lower Limit", ()->this.winch.isRevLimitSwitchClosed() == 1, null);
+			b.addBooleanProperty("Winch Upper Limit", ()->this.winch.isFwdLimitSwitchClosed() == 1, null);
 			b.addDoubleProperty("Winch Voltage", this.winch::getMotorOutputVoltage, null);
 			b.addDoubleArrayProperty("Winch Current [In:Out]",
 				()->{ return new double[]{
@@ -121,14 +121,14 @@ public final class Manipulator implements Sendable {
 		 */
 
 		public static final double
-			WRIST_MIN_PULSE_uS = 0.5,
-			WRIST_MAX_PULSE_uS = 2.5,
+			WRIST_MIN_PULSE_uS = 550.0,
+			WRIST_MAX_PULSE_uS = 2450.0,
 			WRIST_TOTAL_INPUT_RANGE = 270.0,	// range before gearing
 			WRIST_GEARING = (3.0 / 2.0),
 			WRIST_TOTAL_OUTPUT_RANGE = (WRIST_TOTAL_INPUT_RANGE / WRIST_GEARING),
 			WRIST_CENTER_OFFSET = 0,	// should make setting wrist angle simpler if angles are based off of center (parallel to arm) angle
 			WRIST_LOWER_LIMIT = 0,
-			WRIST_UPPER_LIMIT = 120,
+			WRIST_UPPER_LIMIT = 130,
 			WRIST_NEUTRAL_PERCENT = WRIST_CENTER_OFFSET / WRIST_TOTAL_OUTPUT_RANGE,
 			WRIST_LOWER_LIMIT_PERCENT = (WRIST_LOWER_LIMIT + WRIST_CENTER_OFFSET) / WRIST_TOTAL_OUTPUT_RANGE,
 			WRIST_UPPER_LIMIT_PERCENT = (WRIST_UPPER_LIMIT + WRIST_CENTER_OFFSET) / WRIST_TOTAL_OUTPUT_RANGE,
@@ -137,6 +137,7 @@ public final class Manipulator implements Sendable {
 			FB_UNITS_PER_ROTATION = (int)(Constants.NEVEREST_UNITS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT),
 			CONTROL_LOOP_IDX = 0;
 		public static final boolean
+			INVERT_WRIST_OUTPUT = true,
 			INVERT_GRAB_ENCODER = false,
 			CLEAR_GRAB_ANGLE_ON_RLIMIT = true;
 
@@ -147,7 +148,7 @@ public final class Manipulator implements Sendable {
 			this.main = new WPI_TalonSRX(id);
 			this.wrist = new Servo(schan);
 
-			this.wrist.setBounds(WRIST_MAX_PULSE_uS, 0, 0, 0, WRIST_MIN_PULSE_uS);
+			this.wrist.setBounds(WRIST_MAX_PULSE_uS / 1000.0, 0, 0, 0, WRIST_MIN_PULSE_uS / 1000.0);
 			this.main.configFactoryDefault();
 			this.main.configSelectedFeedbackSensor(FeedbackDevice.QuadEncoder, CONTROL_LOOP_IDX, 0);
 			this.main.setSelectedSensorPosition(0.0, CONTROL_LOOP_IDX, 0);
@@ -167,10 +168,12 @@ public final class Manipulator implements Sendable {
 		public void initSendable(SendableBuilder b) {
 			b.addDoubleProperty("Wrist Angle", this::getWristAngle, null);
 			b.addDoubleProperty("Wrist Percent Output", this::getWristPercent, null);
+			b.addDoubleProperty("Wrist PWM Raw", this.wrist::getRaw, null);
 			b.addDoubleProperty("Grabber Rotation (degrees)", this::getGrabDegPosition, null);
 			b.addDoubleProperty("Grabber Encoder Raw", this::getGrabRawPosition, null);
 			b.addDoubleProperty("Grabber Rotation Rate", this::getGrabDegVelocity, null);
 			b.addDoubleProperty("Grabber Width (inches)", this::getGrabWidth, null);
+			b.addBooleanProperty("Grabber Reset Limit", ()->this.main.isRevLimitSwitchClosed() == 1, null);
 			b.addDoubleProperty("Grab Motor Voltage", this.main::getMotorOutputVoltage, null);
 			b.addDoubleArrayProperty("Grab Motor Current [In:Out]", ()->{
 				return new double[]{
@@ -206,6 +209,8 @@ public final class Manipulator implements Sendable {
 
 		public void setWristPercent(double p) {
 			p = Math.max(WRIST_LOWER_LIMIT_PERCENT, Math.min(WRIST_UPPER_LIMIT_PERCENT, p));
+			if(INVERT_WRIST_OUTPUT) { p = 1.0 - p; }
+			// System.out.println("Setting PWM to: " + p);
 			this.wrist.setPosition(p);
 		}
 		public void setWristAngle(double deg) {
@@ -213,6 +218,9 @@ public final class Manipulator implements Sendable {
 			if(deg < 0) { deg = 0; }
 			if(deg > WRIST_TOTAL_OUTPUT_RANGE) { deg = WRIST_TOTAL_OUTPUT_RANGE; }
 			this.setWristPercent(deg / WRIST_TOTAL_OUTPUT_RANGE);
+		}
+		public void setWristDisabled() {
+			this.wrist.setDisabled();
 		}
 
 		public double getWristPercent() {
@@ -288,9 +296,9 @@ public final class Manipulator implements Sendable {
 
 		public static final double
 			ARM_WINCH_VOLTAGE_SCALE = 5.0,
-			ARM_WINCH_LOCK_VOLTAGE = 2.5,
+			ARM_WINCH_LOCK_VOLTAGE = 1.2,
 			GRAB_CLAW_VOLTAGE_SCALE = 7.0,
-			GRAB_CLAW_LOCK_VOLTAGE = 2.5,
+			GRAB_CLAW_LOCK_VOLTAGE = 8.0,
 			WRIST_ACCUMULATION_RATE_SCALE = 0.01;	// at full throttle, add 0.01 x 50 loops per second = 0.5 per second change [maximum]
 
 		private final Manipulator
@@ -388,11 +396,13 @@ public final class Manipulator implements Sendable {
 		public void end(boolean isfinished) {
 			this.manipulator.arm.setWinchVoltage(0);
 			this.manipulator.grabber.setGrabberVoltage(0);
-			this.manipulator.grabber.setWristPercent(Grabber.WRIST_NEUTRAL_PERCENT);
+			// this.manipulator.grabber.setWristPercent(Grabber.WRIST_NEUTRAL_PERCENT);
+			this.manipulator.grabber.setWristDisabled();
 		}
 
 		@Override
 		public void initSendable(SendableBuilder b) {
+			super.initSendable(b);
 			b.addDoubleProperty("Winch Voltage Setpoint",
 				()->this.is_arm_locked ? ARM_WINCH_LOCK_VOLTAGE : (this.arm_rate.getAsDouble() * ARM_WINCH_VOLTAGE_SCALE), null);
 			b.addDoubleProperty("Grabber Voltage Setpoint",

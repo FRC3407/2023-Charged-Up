@@ -73,7 +73,7 @@ public final class Constants {
 
 		ACTIVE_PARK_VOLTS_PER_METER = 100.0,
 		BALANCE_PARK_VOLTS_PER_DEGREE = 0.2,
-		AUTO_PAD_ENGAGE_VELOCITY = 0.8,
+		AUTO_PAD_ENGAGE_VELOCITY = 1.0,
 		AUTO_PAD_INCLINE_VELOCITY = 0.5,	// set to 0.1 if we ever fix ff/fb for inclines
 
 		ARM_ANGLE_KF = 1.0,

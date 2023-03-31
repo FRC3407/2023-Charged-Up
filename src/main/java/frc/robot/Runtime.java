@@ -72,7 +72,9 @@ public final class Runtime extends TimedRobot {
 	private final Robot robot = new Robot();
 	// private final LEDTest leds = new LEDTest(2, 3, 4);
 	private final ControlSchemeManager controls = new ControlSchemeManager();
-	private final SendableChooser<Command> auto = new SendableChooser<>();
+	// private final SendableChooser<Command> auto = new SendableChooser<>();
+	private BooleanSupplier auto_enable = ()->false, auto_select = ()->false;
+	private CommandBase auto_driveforward, auto_balance;
 
 
 	private Runtime() {
@@ -102,19 +104,23 @@ public final class Runtime extends TimedRobot {
 
 		Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
 
-		this.auto.addOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
-		this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
-		for(String t : Constants.TRAJECTORIES) {
-			this.auto.addOption(
-				t + " [Trajectory]",
-				this.robot.drivebase.followAutoBuilderPathRelative(t)
-			);
-		}
-		this.auto.addOption("Drive Forward", Auto.driveStraight(this.robot.drivebase, 3.0, 1.5));
-		this.auto.setDefaultOption("Climb Charging Pad",
-			send(Auto.climbPad(this.robot.drivebase, pitch,
-				Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
-		SmartDashboard.putData("Autonomous", this.auto);
+		// this.auto.addOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
+		// this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
+		// for(String t : Constants.TRAJECTORIES) {
+		// 	this.auto.addOption(
+		// 		t + " [Trajectory]",
+		// 		this.robot.drivebase.followAutoBuilderPathRelative(t)
+		// 	);
+		// }
+		// this.auto.addOption("Drive Forward", Auto.driveStraight(this.robot.drivebase, 3.0, 1.5));
+		// this.auto.setDefaultOption("Climb Charging Pad",
+		// 	send(Auto.climbPad(this.robot.drivebase, pitch,
+		// 		Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
+		// SmartDashboard.putData("Autonomous", this.auto);
+
+		this.auto_driveforward = Auto.driveStraight(this.robot.drivebase, 3.0, 1.5);
+		this.auto_balance = Auto.climbPad(this.robot.drivebase, pitch,
+			Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY);
 
 		// this.leds.setRGB(0.5, 0.5, 0.5);
 		// SmartDashboard.putData("Robot/LEDS", this.leds);
@@ -133,11 +139,24 @@ public final class Runtime extends TimedRobot {
 
 	@Override
 	public void autonomousInit() {
-		Command a = this.auto.getSelected();
-		if(a != null) {
-			AutonomousTrigger.WhileTrue(a);		// start now, end when auto ends
+		// Command a = this.auto.getSelected();
+		// if(a != null && this.auto_enable.getAsBoolean()) {
+		// 	AutonomousTrigger.WhileTrue(a);		// start now, end when auto ends
+		// } else {
+		// 	System.out.println("No auto command selected!");
+		// }
+		if(this.auto_enable.getAsBoolean()) {
+			if(this.auto_select.getAsBoolean() && this.auto_balance != null) {
+				// this.auto_balance.until(AutonomousTrigger.Get().negate()).schedule();
+				send(this.auto_balance, "Climb Charging Pad").schedule();
+				System.out.println("Balance Auto Started!");
+			} else if(this.auto_driveforward != null) {
+				// this.auto_driveforward.until(AutonomousTrigger.Get().negate()).schedule();
+				send(this.auto_driveforward).schedule();
+				System.out.println("Drive Forward Auto Started!");
+			}
 		} else {
-			System.out.println("No auto command selected!");
+			System.out.println("Auto Disabled!");
 		}
 	}
 	@Override
@@ -268,10 +287,15 @@ public final class Runtime extends TimedRobot {
 			}
 		}
 		if(bbox != null) {
-			new Vision.CameraControl(
+			new Vision.CameraControl.DirectSwitching(
 				ButtonBox.Digital.B1.getPressedSupplier(bbox),
-				ButtonBox.Digital.B2.getPressedSupplier(bbox)
+				ButtonBox.Digital.B2.getPressedSupplier(bbox),
+				ButtonBox.Digital.B3.getPressedSupplier(bbox),
+				ButtonBox.Digital.B4.getPressedSupplier(bbox),
+				ButtonBox.Digital.B5.getPressedSupplier(bbox)
 			).schedule();
+			this.auto_enable = ButtonBox.Digital.S1.getSupplier(bbox);
+			this.auto_select = ButtonBox.Digital.S2.getSupplier(bbox);
 		}
 	}
 

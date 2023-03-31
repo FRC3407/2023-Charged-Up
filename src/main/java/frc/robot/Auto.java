@@ -4,7 +4,7 @@ import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.wpilibj2.command.CommandBase;
-import frc.robot.team3407.drive.DriveSupplier.StaticSupplier;
+import frc.robot.team3407.drive.DriveSupplier.*;
 
 
 public class Auto {
@@ -123,10 +123,11 @@ public class Auto {
 
 		public static final double
 			DEFAULT_ENGAGE_VELOCITY = 0.8,
-			DEFAULT_INCLINE_VELOCITY = 0.1,	// this should be the target, but the db doesn't actually go this speed bc of the angle
+			DEFAULT_INCLINE_VELOCITY = 0.15,	// this should be the target, but the db doesn't actually go this speed bc of the angle
 			DELTA_ANGLE_THRESH = 14.0,	// the charging pad main incline is 15 degrees, so give some room for error
-			DELTA_ANGLE_RATE_THRESH = 20,
+			DELTA_ANGLE_RATE_THRESH = 15.0,
 			STABLE_ANGLE_THRESH = 0.5,
+			STABLE_ANGLE_RATE_THRESH = 5.0,
 			STABLE_VELOCITY_THRESH = 0.03;
 
 		private static enum State {
@@ -142,9 +143,13 @@ public class Auto {
 
 		private final DriveBase drivebase;
 		private final Gyro pitch;
-		private final PIDController left_fb, right_fb;
+		private final CommandBase driver;
+		// private final PIDController left_fb, right_fb;
 		private final double engage_velocity, incline_velocity;
-		private double pitch_init = 0.0;
+		private double
+			pitch_init = 0.0,
+			leftv = 0.0,
+			rightv = 0.0;
 		private State state = State.STABLE;
 
 		public ClimbPad(DriveBase db, Gyro pa)
@@ -152,31 +157,39 @@ public class Auto {
 		public ClimbPad(DriveBase db, Gyro pa, double ev, double iv) {
 			this.drivebase = db;
 			this.pitch = pa;
-			this.left_fb = drivebase.parameters.getFeedbackController();
-			this.right_fb = drivebase.parameters.getFeedbackController();
+			this.driver = db.tankDriveVelocityProfiled(new TankSupplier(()->this.leftv, ()->this.rightv));
+			// this.left_fb = drivebase.parameters.getFeedbackController();
+			// this.right_fb = drivebase.parameters.getFeedbackController();
 			this.engage_velocity = ev;
 			this.incline_velocity = iv;
 			super.addRequirements(db);
 		}
 
+		// private void driveVelocity(double lv, double rv) {
+		// 	double
+		// 		lc = this.drivebase.getLeftVelocity(),  // the actual velocity
+		// 		rc = this.drivebase.getRightVelocity();
+		// 	this.drivebase.setDriveVoltage(
+		// 		this.drivebase.feedforward.calculate(lv) +  // the calculated feedforward
+		// 			this.left_fb.calculate(lc, lv),   		// add the feedback adjustment
+		// 		this.drivebase.feedforward.calculate(rv) +
+		// 			this.right_fb.calculate(rc, rv)
+		// 	);
+		// }
 		private void driveVelocity(double lv, double rv) {
-			double
-				lc = this.drivebase.getLeftVelocity(),  // the actual velocity
-				rc = this.drivebase.getRightVelocity();
-			this.drivebase.setDriveVoltage(
-				this.drivebase.feedforward.calculate(lv) +  // the calculated feedforward
-					this.left_fb.calculate(lc, lv),   		// add the feedback adjustment
-				this.drivebase.feedforward.calculate(rv) +
-					this.right_fb.calculate(rc, rv)
-			);
+			this.leftv = lv;
+			this.rightv = rv;
 		}
 
 		@Override
 		public void initialize() {
-			this.left_fb.reset();
-			this.right_fb.reset();
+			this.driver.initialize();
+			// this.left_fb.reset();
+			// this.right_fb.reset();
 			this.state = State.ENGAGING;
 			this.pitch_init = this.pitch.getAngle();
+			this.leftv = 0.0;
+			this.rightv = 0.0;
 		}
 		@Override
 		public void execute() {
@@ -205,7 +218,7 @@ public class Auto {
 				case STABILIZING: {
 					this.driveVelocity(0.0, 0.0);	// or use position lock
 					double da = this.pitch_init - this.pitch.getAngle();
-					if(Math.abs(da) < STABLE_ANGLE_THRESH &&
+					if(Math.abs(da) < STABLE_ANGLE_THRESH && Math.abs(this.pitch.getRate()) < STABLE_ANGLE_RATE_THRESH &&
 						Math.abs(this.drivebase.getLeftVelocity()) < STABLE_VELOCITY_THRESH &&
 						Math.abs(this.drivebase.getRightVelocity()) < STABLE_VELOCITY_THRESH)
 					{
@@ -232,6 +245,7 @@ public class Auto {
 					break;
 				}
 			}
+			this.driver.execute();
 		}
 		@Override
 		public boolean isFinished() {
@@ -240,6 +254,7 @@ public class Auto {
 		@Override
 		public void end(boolean i) {
 			this.drivebase.setDriveVoltage(0, 0);
+			this.driver.end(i);
 		}
 
 		@Override

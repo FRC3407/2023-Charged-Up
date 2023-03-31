@@ -17,55 +17,27 @@
 		canvas {
 			image-rendering: pixelated;
 			background: #000;
-			width: 45%;
-			height: 45%;
-			margin: 5px 5px 10px 2%;
-			visibility: visible;
-		}
-
-		.flex
-		{
-			display: flex;
-			flex-wrap: wrap;
-			align-items: center;
-		}
-
-		.flex > div > input {
-			width: 80px;
-			margin: 5px;
-			background-color: rgb(57, 57, 57);
-			color: white;
 		}
 	</style>
 
 	<body>
 		<div id="main">
-			<div id="options" style="margin: 15px 0px 20px 10px;">
-				<form class="flex">
-					<div style="margin: 10px 0px;">
-						<span>Hostname/Ip: </span>
-						<input id="ip" type="text" value="wpilibpi"><br>
-					</div>
-					<div style="margin: 10px 0px;">
-						<span>Starting Port: </span>
-						<input id="port1" type="number" value="1181"><br>
-					</div>
-					<div style="margin: 10px 0px;">
-						<span>Num Streams: </span>
-						<input id="streams" type="number" value="4" max="4" min="1"><br>
-					</div>
-					<div style="margin: 10px 0px;">
-						<span>Frame Scaling: </span>
-						<input id="fscaling" type="number" value="1"><br>
-					</div>
-					<div style="margin: 10px 0px;">
-						<span>Compression: </span>
-						<input id="compression" type="range" value="50"><br>
-					</div>
+			<div id="options">
+				<form>
+					<span>Hostname/Ip: </span>
+					<input id="ip" type="text" value="wpilibpi"><br>
+					<span>Starting Port: </span>
+					<input id="port1" type="number" value="1181"><br>
+					<span>Num Streams: </span>
+					<input id="streams" type="number" value="2"><br>
+					<span>Frame Scaling: </span>
+					<input id="fscaling" type="number" value="1"><br>
+					<span>Compression: </span>
+					<input id="compression" type="range" value="50"><br>
 				</form>
 			</div>
-			<div id="viewer" class="flex">
-				<canvas id="stream1">
+			<div id="viewer">
+				<canvas id="stream">
 					Failed to load stream.
 				</canvas>
 				<canvas id="stream2">
@@ -158,7 +130,7 @@
 				options.onFrame = updateFrame;
 				options.onStart = function() { console.log("started"); }
 				options.onStop = function() { console.log("stopped"); }
-				;;;
+
 				self.stream = new module.Stream(options);
 				self.fscale = 1;
 
@@ -186,12 +158,14 @@
 						width: img.naturalWidth,
 						height: img.naturalHeight
 					};
-					// canvas.style.width = srcRect.width * self.fscale;
-					// canvas.style.height = srcRect.height * self.fscale;
 					var dstRect = scaleRect(srcRect, {
-						width: canvas.width,
-						height: canvas.height
+						width: canvas.width * self.fscale,
+						height: canvas.height * self.fscale
 					});
+					// if(canvas.width != dstRect.width || canvas.height != dstRect.height) {
+					// 	canvas.width = dstRect.width;
+					// 	canvas.height = dstRect.height;
+					// }
 					try {
 						context.drawImage(img,
 							srcRect.x,
@@ -231,7 +205,9 @@
 			input_startport :	document.getElementById("port1"),
 			input_num_streams :	document.getElementById("streams"),
 			input_fscale :		document.getElementById("fscaling"),
-			input_compression :	document.getElementById("compression")
+			input_compression :	document.getElementById("compression"),
+
+			div_display :		document.getElementById("viewer")
 		};
 		const State = {
 			address : "wpilibpi",
@@ -242,58 +218,43 @@
 		};
 		Elements.input_address.addEventListener('input', function(e){ State.address = e.target.value; updateStreams(); });
 		Elements.input_startport.addEventListener('input', function(e){ State.startport = e.target.value; updateStreams(); });
-		Elements.input_num_streams.addEventListener('input', function(e){ State.streams = e.target.value; updateStreams(); });
-		Elements.input_fscale.addEventListener('input', function(e){ State.fscale = e.target.value; updateStreams(); updateFScale(State.fscale); });
+		Elements.input_num_streams.addEventListener('input', function(e){ State.streams = e.target.value; genStreams(); });
+		Elements.input_fscale.addEventListener('input', function(e){ State.fscale = e.target.value; updateScaling(); });
 		Elements.input_compression.addEventListener('input', function(e){ State.compression = e.target.value; updateStreams(); });
 
 		function composeUrl(addr, port, compr, obj = "stream.mjpg") {
 			return `http://${addr}:${port}/${obj}?compression=${compr}`;
 		}
 
-		let options = { refreshRate : 20 };
-		const players = [];
-		const c = document.getElementsByTagName("canvas");
-		for(let i = 0; i < c.length; i++) {
-			players.push(new MJPEG.Player(c[i].getAttribute('id'), `http://wpilibpi:118${i + 1}/stream.mjpg`, options));
-			players[i].start();
+		function genStreams() {
+			players = [];
+			Elements.div_display.innerHTML = "";
+			for (let i = 0; i < parseInt(Elements.input_num_streams.value); i++) {
+				Elements.div_display.innerHTML += `<canvas id="stream${i}" width=720 height=400>Stream Failure :(</canvas>`;
+				players.push(new MJPEG.Player(`stream${i}`, composeUrl(State.address, (State.startport + i), State.compression), options));
+				players[i].start();
+			}
 		}
-
 		function updateStreams() {
 			for(let i = 0; i < players.length; i++) {
 				players[i].stream.updateUrl(composeUrl(State.address, (State.startport + i), State.compression));
 			}
-			for(let i = 4; i>0; i--)
-			{
-				if(i>State.streams)
-				{
-					document.getElementById("stream"+i).style.visibility = "hidden";
-					players[i-1].stop();
-				}
-				else
-				{
-					document.getElementById("stream"+i).style.visibility = "visible";
-					players[i-1].start();
-				}
-			}
-			if(State.streams == 1)
-			{
-				document.getElementById("stream1").style.width = "90%";
-				document.getElementById("stream1").style.height = "90%";
-			}
-			else
-			{
-				document.getElementById("stream1").style.width = "45%";
-				document.getElementById("stream1").style.height = "45%";
+		}
+		function updateScaling() {
+			for(let i = 0; i < players.length; i++) {
+				players[i].updateFScale(State.fscale);
 			}
 		}
-		// let player = new MJPEG.Player("stream", "http://wpilibpi:1181/stream.mjpg", options);
-		// let player2 = new MJPEG.Player("stream2", "http://wpilibpi:1182/stream.mjpg", options);
-		// let player3 = new MJPEG.Player("stream3", "http://wpilibpi:1183/stream.mjpg", options);
-		// let player4 = new MJPEG.Player("stream4", "http://wpilibpi:1184/stream.mjpg", options);
-		// player.start();
-		// player2.start();
-		// player3.start();
-		// player4.start();
+
+
+		let options = { refreshRate : 20 };
+		let players = [];
+		// const c = document.getElementsByTagName("canvas");
+		// for(let i = 0; i < c.length; i++) {
+		// 	players.push(new MJPEG.Player(c[i].getAttribute('id'), `http://wpilibpi:118${i + 1}/stream.mjpg`, options));
+		// 	players[i].start();
+		// }
+		genStreams();
 	</script>
 
 </html>

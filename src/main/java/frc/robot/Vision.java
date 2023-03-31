@@ -104,7 +104,7 @@ public class Vision {
 			increment,
 			decrement,
 			verbosity;
-		private CameraSelect selected;
+		protected CameraSelect selected;
 
 		public CameraControl(BooleanSupplier inc, BooleanSupplier dec, BooleanSupplier vrb) {
 			this.increment = inc;
@@ -123,10 +123,6 @@ public class Vision {
 			selected = vals[id >= vals.length ? vals.length - 1 : id];
 		}
 		
-		// did this to resolve
-		private int getSelectedCamera() {
-			return 0;
-		}
 		@Override
 		public void execute() {
 			if(this.increment.getAsBoolean()) {
@@ -144,6 +140,43 @@ public class Vision {
 		public boolean runsWhenDisabled() { return true; }
 		@Override
 		public void end(boolean i) {}
+
+
+
+		public static class DirectSwitching extends CameraControl {
+
+			protected final BooleanSupplier
+				sel_forward,
+				sel_arm,
+				sel_top;
+
+			public DirectSwitching(
+				BooleanSupplier inc, BooleanSupplier dec, BooleanSupplier vrb,
+				BooleanSupplier fwd, BooleanSupplier arm, BooleanSupplier top
+			) {
+				super(inc, dec, vrb);
+				this.sel_forward = fwd;
+				this.sel_arm = arm;
+				this.sel_top = top;
+			}
+			public DirectSwitching(
+				BooleanSupplier inc, BooleanSupplier vrb,
+				BooleanSupplier fwd, BooleanSupplier arm, BooleanSupplier top
+			) { this(inc, ()->false, vrb, fwd, arm, top); }
+			public DirectSwitching(
+				BooleanSupplier inc,
+				BooleanSupplier fwd, BooleanSupplier arm, BooleanSupplier top
+			) { this(inc, ()->false, ()->false, fwd, arm, top); }
+
+			@Override
+			public void execute() {
+				super.execute();
+				if(this.sel_forward.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.FORWARD); }
+				if(this.sel_arm.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.ARM); }
+				if(this.sel_top.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.TOP); }
+			}
+
+		}
 
 	}
 

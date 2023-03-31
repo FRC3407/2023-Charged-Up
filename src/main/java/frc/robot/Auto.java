@@ -124,8 +124,9 @@ public class Auto {
 		public static final double
 			DEFAULT_ENGAGE_VELOCITY = 0.8,
 			DEFAULT_INCLINE_VELOCITY = 0.15,	// this should be the target, but the db doesn't actually go this speed bc of the angle
-			DELTA_ANGLE_THRESH = 14.0,	// the charging pad main incline is 15 degrees, so give some room for error
+			DELTA_ANGLE_THRESH = 14.0,		// the charging pad main incline is 15 degrees, so give some room for error
 			DELTA_ANGLE_RATE_THRESH = 15.0,
+			CLIMB_DISPLACEMENT_THRESH = 0.8,	// minimum displacement from when incline is first detected to when stabilization can occur
 			STABLE_ANGLE_THRESH = 0.5,
 			STABLE_ANGLE_RATE_THRESH = 5.0,
 			STABLE_VELOCITY_THRESH = 0.03;
@@ -144,79 +145,63 @@ public class Auto {
 		private final DriveBase drivebase;
 		private final Gyro pitch;
 		private final CommandBase driver;
-		// private final PIDController left_fb, right_fb;
 		private final double engage_velocity, incline_velocity;
 		private double
 			pitch_init = 0.0,
-			leftv = 0.0,
-			rightv = 0.0;
-		private State state = State.STABLE;
+			climb_init_pos = 0.0,
+			fwdvel = 0.0;
+		private State
+			state = State.STABLE;
 
 		public ClimbPad(DriveBase db, Gyro pa)
 			{ this(db, pa, DEFAULT_INCLINE_VELOCITY, DEFAULT_ENGAGE_VELOCITY); }
 		public ClimbPad(DriveBase db, Gyro pa, double ev, double iv) {
 			this.drivebase = db;
 			this.pitch = pa;
-			this.driver = db.tankDriveVelocityProfiled(new TankSupplier(()->this.leftv, ()->this.rightv));
-			// this.left_fb = drivebase.parameters.getFeedbackController();
-			// this.right_fb = drivebase.parameters.getFeedbackController();
+			this.driver = db.tankDriveVelocityProfiled(new TankSupplier(()->this.fwdvel, ()->this.fwdvel));
 			this.engage_velocity = ev;
 			this.incline_velocity = iv;
 			super.addRequirements(db);
 		}
 
-		// private void driveVelocity(double lv, double rv) {
-		// 	double
-		// 		lc = this.drivebase.getLeftVelocity(),  // the actual velocity
-		// 		rc = this.drivebase.getRightVelocity();
-		// 	this.drivebase.setDriveVoltage(
-		// 		this.drivebase.feedforward.calculate(lv) +  // the calculated feedforward
-		// 			this.left_fb.calculate(lc, lv),   		// add the feedback adjustment
-		// 		this.drivebase.feedforward.calculate(rv) +
-		// 			this.right_fb.calculate(rc, rv)
-		// 	);
-		// }
-		private void driveVelocity(double lv, double rv) {
-			this.leftv = lv;
-			this.rightv = rv;
+		private void driveVelocity(double v) {
+			this.fwdvel = v;
+		}
+		private double getAvgWheelPos() {
+			return (this.drivebase.getLeftPosition() + this.drivebase.getRightPosition()) / 2.0;
 		}
 
 		@Override
 		public void initialize() {
 			this.driver.initialize();
-			// this.left_fb.reset();
-			// this.right_fb.reset();
 			this.state = State.ENGAGING;
 			this.pitch_init = this.pitch.getAngle();
-			this.leftv = 0.0;
-			this.rightv = 0.0;
+			this.climb_init_pos = this.getAvgWheelPos();
+			this.fwdvel = 0.0;
 		}
 		@Override
 		public void execute() {
 			switch(this.state) {
 				case ENGAGING: {
-					this.driveVelocity(
-						this.engage_velocity,
-						this.engage_velocity
-					);
-					if(pitch_init - this.pitch.getAngle() > DELTA_ANGLE_THRESH) {
+					this.driveVelocity(this.engage_velocity);
+					if(this.pitch_init - this.pitch.getAngle() > DELTA_ANGLE_THRESH) {
 						this.state = State.CLIMBING;
+						this.climb_init_pos = this.getAvgWheelPos();
 					}
 					break;
 				}
 				case CLIMBING: {
-					this.driveVelocity(
-						this.incline_velocity,
-						this.incline_velocity
-					);
-					if(-this.pitch.getRate() < -DELTA_ANGLE_RATE_THRESH) {	// the actual rate is the inverse bc of CW <--> CCW weridness w/ Gyro interface so invert
+					this.driveVelocity(this.incline_velocity);
+					if(-this.pitch.getRate() < -DELTA_ANGLE_RATE_THRESH &&	// the actual rate is the inverse bc of CW <--> CCW weridness w/ Gyro interface so invert
+						(this.getAvgWheelPos() - this.climb_init_pos) >= CLIMB_DISPLACEMENT_THRESH
+					) {
 						this.state = State.STABILIZING;
 						// maybe store the position here, use position locking in the stabilization block?
 					}
 					break;
 				}
 				case STABILIZING: {
-					this.driveVelocity(0.0, 0.0);	// or use position lock
+					this.driveVelocity(0.0);	// or use position lock
 					double da = this.pitch_init - this.pitch.getAngle();
 					if(Math.abs(da) < STABLE_ANGLE_THRESH && Math.abs(this.pitch.getRate()) < STABLE_ANGLE_RATE_THRESH &&
 						Math.abs(this.drivebase.getLeftVelocity()) < STABLE_VELOCITY_THRESH &&
@@ -231,10 +216,7 @@ public class Auto {
 					break;
 				}
 				case OVERSHOT: {
-					this.driveVelocity(
-						-this.incline_velocity,
-						-this.incline_velocity
-					);
+					this.driveVelocity(-this.incline_velocity);
 					if(-this.pitch.getRate() > DELTA_ANGLE_RATE_THRESH) {	// see above for inverting rate
 						this.state = State.STABILIZING;
 					}
@@ -261,6 +243,7 @@ public class Auto {
 		public void initSendable(SendableBuilder b) {
 			super.initSendable(b);
 			b.addStringProperty("Control State", ()->this.state.desc, null);
+			b.addDoubleProperty("Velocity Setpoint", ()->this.fwdvel, null);
 		}
 
 	}

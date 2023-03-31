@@ -219,6 +219,9 @@ public final class Manipulator implements Sendable {
 			if(deg > WRIST_TOTAL_OUTPUT_RANGE) { deg = WRIST_TOTAL_OUTPUT_RANGE; }
 			this.setWristPercent(deg / WRIST_TOTAL_OUTPUT_RANGE);
 		}
+		public void setWristDisabled() {
+			this.wrist.setDisabled();
+		}
 
 		public double getWristPercent() {
 			return this.wrist.getPosition();
@@ -393,7 +396,8 @@ public final class Manipulator implements Sendable {
 		public void end(boolean isfinished) {
 			this.manipulator.arm.setWinchVoltage(0);
 			this.manipulator.grabber.setGrabberVoltage(0);
-			this.manipulator.grabber.setWristPercent(Grabber.WRIST_NEUTRAL_PERCENT);
+			// this.manipulator.grabber.setWristPercent(Grabber.WRIST_NEUTRAL_PERCENT);
+			this.manipulator.grabber.setWristDisabled();
 		}
 
 		@Override

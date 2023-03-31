@@ -73,15 +73,11 @@
       "/SmartDashboard/Commands/Manipulator Control": "Command",
       "/SmartDashboard/Commands/Velocity Drive": "Command",
       "/SmartDashboard/Control Scheme": "String Chooser",
+      "/SmartDashboard/Control Scheme/Selector": "String Chooser",
       "/SmartDashboard/Robot Location": "Field2d"
     },
     "windows": {
-      "/SmartDashboard/Autonomous": {
-        "window": {
-          "visible": true
-        }
-      },
-      "/SmartDashboard/Control Scheme": {
+      "/SmartDashboard/Control Scheme/Selector": {
         "window": {
           "visible": true
         }
@@ -114,6 +110,12 @@
           "Manipulator Test": {
             "open": true
           }
+        },
+        "Control Scheme": {
+          "Selector": {
+            "open": true
+          },
+          "open": true
         },
         "Robot": {
           "Manipulator": {

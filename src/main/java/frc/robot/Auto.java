@@ -1,6 +1,5 @@
 package frc.robot;
 
-import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.wpilibj2.command.CommandBase;
@@ -17,7 +16,7 @@ public class Auto {
 	 * @return A command for driving the given distance at the given velocity
 	 */
 	public static CommandBase driveStraight(DriveBase db, double d, double v) {
-		return new DriveBase.TankDriveVelocityProfiled(db, StaticSupplier.genSimple(v)).withTimeout(d / v);
+		return new DistanceDrive(db, d, v);
 	}
 	/** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
 	 * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
@@ -44,6 +43,8 @@ public class Auto {
 	public static BalancePark balancePark(DriveBase db, Gyro pitch, double kp) {
 		return new BalancePark(db, pitch, kp);
 	}
+
+
 
 	public static class ActivePark extends CommandBase {
 
@@ -244,6 +245,46 @@ public class Auto {
 			super.initSendable(b);
 			b.addStringProperty("Control State", ()->this.state.desc, null);
 			b.addDoubleProperty("Velocity Setpoint", ()->this.fwdvel, null);
+		}
+
+	}
+
+	public static class DistanceDrive extends CommandBase {
+
+		public static final double STOP_BUFF_VEL_SCALE = 0.05;	// the amount of stopping buffer should scale with the velocity driven at
+
+		private final DriveBase drivebase;
+		private final CommandBase driver;
+		private final double target, velocity;
+		private double init = 0.0;
+
+		public DistanceDrive(DriveBase db, double x, double v) {
+			this.drivebase = db;
+			this.driver = db.tankDriveVelocityProfiled(StaticSupplier.genSimple(v));
+			this.target = x;
+			this.velocity = v;
+		}
+
+		public double posAvg() {
+			return (this.drivebase.getLeftPosition() + this.drivebase.getRightPosition()) / 2.0;
+		}
+
+		@Override
+		public void initialize() {
+			this.driver.initialize();
+			this.init = posAvg();
+		}
+		@Override
+		public void execute() {
+			this.driver.execute();
+		}
+		@Override
+		public boolean isFinished() {
+			return (this.posAvg() - this.init) >= (this.target - this.velocity * STOP_BUFF_VEL_SCALE);
+		}
+		@Override
+		public void end(boolean i) {
+			this.driver.end(i);
 		}
 
 	}

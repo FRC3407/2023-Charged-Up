@@ -2,8 +2,9 @@ package frc.robot;
 
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
-import edu.wpi.first.wpilibj2.command.CommandBase;
+import edu.wpi.first.wpilibj2.command.*;
 import frc.robot.team3407.drive.DriveSupplier.*;
+import edu.wpi.first.wpilibj2.command.Commands;
 
 
 public class Auto {
@@ -18,13 +19,6 @@ public class Auto {
 	public static CommandBase driveStraight(DriveBase db, double d, double v) {
 		return new DistanceDrive(db, d, v);
 	}
-	/** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
-	 * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
-	 * @return A command for active parking
-	 */
-	public static ActivePark activePark(DriveBase db, double p_gain) {
-		return new ActivePark(db, p_gain);
-	}
 	/** Get a command for driving up the charging pad and balancing at the top.
 	 * @param db The drivebase subsystem
 	 * @param pitch	A gyro implementation for the robot's pitch axis
@@ -34,6 +28,25 @@ public class Auto {
 	public static ClimbPad climbPad(DriveBase db, Gyro pitch, double evel, double ivel) {
 		return new ClimbPad(db, pitch, evel, ivel);
 	}
+	/** Get a composed command for driving a distance, then engaging the charging pad - ex. taxi beyond the pad, then climb it
+	 * @param db The drivebase subsystem
+	 * @param d The distance to taxi
+	 * @param v The velocity to taxi at
+	 * @param pitch Gyro supplier for the forward incline detection
+	 * @param envel engage velocity for climbing
+	 * @param icvel incline velocity for climbing
+	 * @return The composed commaned
+	 */
+	public static CommandBase taxiClimb(DriveBase db, double d, double v, Gyro pitch, double envel, double icvel) {
+		return driveStraight(db, d, v).andThen(climbPad(db, pitch, envel, icvel));
+	}
+	/** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
+	 * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
+	 * @return A command for active parking
+	 */
+	public static ActivePark activePark(DriveBase db, double p_gain) {
+		return new ActivePark(db, p_gain);
+	}
 	/**	Get a command for parking on the charging pad based on the gyro angle
 	 * @param db The drivebase subsystem
 	 * @param pitch A gyro implementation for the robot's pitch axis
@@ -42,6 +55,16 @@ public class Auto {
 	 */
 	public static BalancePark balancePark(DriveBase db, Gyro pitch, double kp) {
 		return new BalancePark(db, pitch, kp);
+	}
+
+	public static CommandBase setWristAngle(Manipulator m, double a) {
+		return new InstantCommand(()->m.grabber.setWristAngle(a));
+	}
+	public static CommandBase setWristPercent(Manipulator m, double p) {
+		return new InstantCommand(()->m.grabber.setWristPercent(p));
+	}
+	public static AutoGrabControl setGrabber(Manipulator m, double wa, double gv) {
+		return new AutoGrabControl(m, wa, gv);
 	}
 
 
@@ -280,11 +303,41 @@ public class Auto {
 		}
 		@Override
 		public boolean isFinished() {
-			return (this.posAvg() - this.init) >= (this.target - this.velocity * STOP_BUFF_VEL_SCALE);
+			return Math.abs(this.posAvg() - this.init) >= Math.abs(this.target - this.velocity * STOP_BUFF_VEL_SCALE);
 		}
 		@Override
 		public void end(boolean i) {
 			this.driver.end(i);
+		}
+
+	}
+
+	public static class AutoGrabControl extends CommandBase {
+
+		private final Manipulator.Grabber grabber;
+		private final double wrist_angle, grab_volts;
+
+		public AutoGrabControl(Manipulator m, double wangle, double gvolts) {
+			grabber = m.grabber;
+			this.wrist_angle = wangle;
+			this.grab_volts = gvolts;
+		}
+
+		@Override
+		public void initialize() {
+			this.grabber.setWristAngle(this.wrist_angle);
+		}
+		@Override
+		public void execute() {
+			this.grabber.setGrabberVoltage(this.grab_volts);
+		}
+		@Override
+		public boolean isFinished() {
+			return false;
+		}
+		@Override
+		public void end(boolean i) {
+			
 		}
 
 	}

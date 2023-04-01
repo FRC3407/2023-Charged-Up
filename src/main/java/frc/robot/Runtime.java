@@ -118,12 +118,19 @@ public final class Runtime extends TimedRobot {
 		// 		Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
 		// SmartDashboard.putData("Autonomous", this.auto);
 
-		this.auto_driveforward = Auto.driveStraight(this.robot.drivebase, 4.0, 1.5);
+		// CommandBase drivedump = send(Auto.driveStraight(this.robot.drivebase, -0.2, 0.8), "Commands/Auto/Dump Scube").andThen(
+		// 	send(Auto.driveStraight(this.robot.drivebase, 0.2, 0.4), "Commands/Auto/Push Scube"));
+		// .andThen(drivedump)
+
+		//this.auto_driveforward = (new WaitCommand(1.5)).andThen(send(Auto.driveStraight(this.robot.drivebase, -4.0, -1.2), "Commands/Auto/Taxi"));
+		this.auto_driveforward = new SequentialCommandGroup(Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),new WaitCommand(0.3),Auto.driveStraight(this.robot.drivebase, 0.5, 0.6),new WaitCommand(0.5),Auto.driveStraight(this.robot.drivebase, -4.0, -1.2));
 		this.auto_balance = Auto.climbPad(this.robot.drivebase, pitch,
 			Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY);
 
 		// this.leds.setRGB(0.5, 0.5, 0.5);
 		// SmartDashboard.putData("Robot/LEDS", this.leds);
+
+		this.robot.manipulator.grabber.setWristAngle(Manipulator.Grabber.WRIST_MAX_ANGLE);
 	}
 	@Override
 	public void robotPeriodic() {
@@ -146,14 +153,14 @@ public final class Runtime extends TimedRobot {
 		// 	System.out.println("No auto command selected!");
 		// }
 		if(this.auto_enable.getAsBoolean()) {
-			Auto.setGrabber(this.robot.manipulator, Manipulator.Grabber.WRIST_MAX_ANGLE, 5.0).schedule();
+			//Auto.setGrabber(this.robot.manipulator, Manipulator.Grabber.WRIST_MAX_ANGLE, 5.0).schedule();
 			if(this.auto_select.getAsBoolean() && this.auto_balance != null) {
 				// this.auto_balance.until(AutonomousTrigger.Get().negate()).schedule();
 				Auto.driveStraight(this.robot.drivebase, -2.0, -1.2).andThen(Auto.driveStraight(this.robot.drivebase, -2.0, 0.7)).andThen(send(this.auto_balance, "Climb Charging Pad")).schedule();
 				System.out.println("Balance Auto Started!");
 			} else if(this.auto_driveforward != null) {
 				// this.auto_driveforward.until(AutonomousTrigger.Get().negate()).schedule();
-				send(this.auto_driveforward).schedule();
+				this.auto_driveforward.schedule();
 				System.out.println("Drive Forward Auto Started!");
 			}
 		} else {

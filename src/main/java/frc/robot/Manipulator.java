@@ -414,8 +414,8 @@ public final class Manipulator implements Sendable {
 	public static class ManipulatorControl2 extends ManipulatorControl {
 
 		public static final double
-			ARM_ANGLE_OFFSET = -37.0,
-			ARM_PARK_UPPER_ANGLE_REL = 30.0;
+			ARM_ANGLE_OFFSET = -130.0,
+			ARM_PARK_UPPER_ANGLE_REL = 15.0;
 		public static final boolean
 			ENABLE_WRIST_PARK_BOUND_LIMITING = true;
 
@@ -461,7 +461,7 @@ public final class Manipulator implements Sendable {
 			} else {
 				this.wrist_bounded_lower_limit = Grabber.WRIST_MIN_ANGLE;
 				if(ENABLE_WRIST_PARK_BOUND_LIMITING && this.arm_rel_angle < ARM_PARK_UPPER_ANGLE_REL) {
-					this.wrist_bounded_lower_limit = (ARM_PARK_UPPER_ANGLE_REL - this.arm_rel_angle) * 4.0 - 30.0;	// [inverted based on threshold] arm angle from vertical  / threshold range * 120 degrees wrist range - 30.0 degrees lowest wrist angle
+					this.wrist_bounded_lower_limit = (ARM_PARK_UPPER_ANGLE_REL - this.arm_rel_angle) * 8.0 - 30.0;	// [inverted based on threshold] arm angle from vertical  / threshold range * 120 degrees wrist range - 30.0 degrees lowest wrist angle
 				}
 				this.wrist_pos_offset = Math.max(
 					this.wrist_bounded_lower_limit - this.wrist_hz_angle, Math.min(

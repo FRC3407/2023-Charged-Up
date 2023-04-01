@@ -107,9 +107,13 @@
           "open": true
         },
         "Commands": {
+          "Manipulator Control": {
+            "open": true
+          },
           "Manipulator Test": {
             "open": true
-          }
+          },
+          "open": true
         },
         "Control Scheme": {
           "Selector": {

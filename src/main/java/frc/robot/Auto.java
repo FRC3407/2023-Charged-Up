@@ -341,5 +341,32 @@ public class Auto {
 		}
 
 	}
+	public static class AutoArmControl extends CommandBase {
+
+		private final Manipulator.Arm arm;
+		private final double voltage;
+
+		public AutoArmControl(Manipulator m, double volts) {
+			this.arm = m.arm;
+			this.voltage = volts;
+		}
+
+		@Override
+		public void initialize() {}		}
+		@Override
+		public void execute() {
+			this.arm.setWinchVoltage(this.voltage);
+		}
+		@Override
+		public boolean isFinished() {
+			return false;
+		}
+		@Override
+		public void end(boolean i) {
+			
+		}
+
+	}
+	
 
 }

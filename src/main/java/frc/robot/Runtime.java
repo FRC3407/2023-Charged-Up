@@ -118,7 +118,7 @@ public final class Runtime extends TimedRobot {
 		// 		Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
 		// SmartDashboard.putData("Autonomous", this.auto);
 
-		this.auto_driveforward = Auto.driveStraight(this.robot.drivebase, 3.0, 1.5);
+		this.auto_driveforward = Auto.driveStraight(this.robot.drivebase, 4.0, 1.5);
 		this.auto_balance = Auto.climbPad(this.robot.drivebase, pitch,
 			Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY);
 
@@ -146,9 +146,10 @@ public final class Runtime extends TimedRobot {
 		// 	System.out.println("No auto command selected!");
 		// }
 		if(this.auto_enable.getAsBoolean()) {
+			Auto.setGrabber(this.robot.manipulator, Manipulator.Grabber.WRIST_MAX_ANGLE, 5.0).schedule();
 			if(this.auto_select.getAsBoolean() && this.auto_balance != null) {
 				// this.auto_balance.until(AutonomousTrigger.Get().negate()).schedule();
-				send(this.auto_balance, "Climb Charging Pad").schedule();
+				Auto.driveStraight(this.robot.drivebase, -2.0, -1.2).andThen(Auto.driveStraight(this.robot.drivebase, -2.0, 0.7)).andThen(send(this.auto_balance, "Climb Charging Pad")).schedule();
 				System.out.println("Balance Auto Started!");
 			} else if(this.auto_driveforward != null) {
 				// this.auto_driveforward.until(AutonomousTrigger.Get().negate()).schedule();
@@ -212,7 +213,7 @@ public final class Runtime extends TimedRobot {
 		);
 		if(controller2 != null) {	// this function can be used whether 1 or 2 are connected
 			TeleopTrigger.OnTrue(send(
-				this.robot.manipulator.controlManipulator(
+				this.robot.manipulator.controlManipulatorAdv(
 					Xbox.Analog.RY.getDriveInputSupplier(controller2,
 						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),
 					()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
@@ -268,7 +269,7 @@ public final class Runtime extends TimedRobot {
 		);
 		if(controller != null) {
 			TeleopTrigger.OnTrue(send(
-				this.robot.manipulator.controlManipulator(
+				this.robot.manipulator.controlManipulatorAdv(
 					Xbox.Analog.RY.getDriveInputSupplier(controller,
 						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),		// right stick y-axis for the arm %-output
 					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-

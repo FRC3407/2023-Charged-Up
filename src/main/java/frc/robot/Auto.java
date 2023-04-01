@@ -352,7 +352,7 @@ public class Auto {
 		}
 
 		@Override
-		public void initialize() {}		}
+		public void initialize() {}
 		@Override
 		public void execute() {
 			this.arm.setWinchVoltage(this.voltage);

@@ -20,16 +20,15 @@
 #include <wpi/raw_ostream.h>
 #include <wpi/raw_istream.h>
 #include <wpi/StringExtras.h>
-#include <networktables/NetworkTable.h>
-#include <networktables/IntegerTopic.h>
 #include <wpi/sendable/Sendable.h>
 #include <wpi/sendable/SendableBuilder.h>
 #include <frc/smartdashboard/SmartDashboard.h>
 #include <frc/geometry/Pose3d.h>
 #include <frc/apriltag/AprilTagDetector.h>
+#include <networktables/NetworkTable.h>
+#include <networktables/IntegerTopic.h>
+#include <networktables/DoubleArrayTopic.h>
 #include <cameraserver/CameraServer.h>
-
-#include <libpixyusb2.h>
 
 #include <core/calib.h>
 
@@ -41,14 +40,12 @@
 
 
 #define DLOG(x) std::cout << (x) << std::endl;
-#define DEBUG 0
+#define DEBUG 2
 
 #define FRC_CONFIG "/boot/frc.json"
 #define NT_IDENTITY "Vision RPI"
 #define SIM_ADDR "192.168.0.8"
-#define DEBUG_VIEW 0
 #define NT_DEFAULT 0
-#define SEND_EXTRA_POSE_ESTIMATIONS 0
 
 using namespace std::chrono_literals;
 using namespace std::chrono;
@@ -57,29 +54,24 @@ enum CamID {
 	FWD_CAMERA,
 	ARM_CAMERA,
 	TOP_CAMERA,
-	// PIXY2,
-	START_ADDITIONAL
+
+	NUM_CAMERAS
 };
 static const nt::PubSubOptions
 	NT_OPTIONS = { .periodic = 1.0 / 30.0 };
-static const std::array<const char*, (size_t)CamID::START_ADDITIONAL>
-	CAMERA_TAGS{ "forward", "arm", "top"/*, "pixy2"*/ };
-static const std::array<frc::Pose3d, (size_t)CamID::START_ADDITIONAL>
-	CAMERA_POSES{		// camera poses relative to robot center position
-		frc::Pose3d{},
-		frc::Pose3d{},
-		frc::Pose3d{}
-	};
+static const std::array<const char*, (size_t)CamID::NUM_CAMERAS>
+	CAMERA_TAGS{ "forward", "arm", "top" };
 static const cs::VideoMode
 	DEFAULT_VMODE{ cs::VideoMode::kMJPEG, 640, 480, 30 };
 static const int
 	DEFAULT_EXPOSURE = 40,
 	DEFAULT_WBALANCE = -1,
-	DEFAULT_BRIGHTNESS = 50;
-static const CalibSList
+	DEFAULT_BRIGHTNESS = 50,
+	DEFAULT_DOWNSCALE = 4;
+static const CalibList
 	STATIC_CALIBRATIONS{
 		{
-			{ "lifecam_hd3000", {
+			{ "Microsoft® LifeCam HD-3000", {
 				{ cv::Size{640, 480}, {
 					cv::Mat1f{ {3, 3}, {
 						673.6653136395231, 0, 339.861572657799,
@@ -91,10 +83,8 @@ static const CalibSList
 						-0.001655316303789686, -0.00019284071985319236,
 						0.5736326357832554
 					} }
-				} }
-			} },
-			{ "Microsoft® LifeCam HD-3000", {
-				{ cv::Size{640, 480}, {
+				} },
+				{ cv::Size{1280, 720}, {
 					cv::Mat1f{ {3, 3}, {
 						673.6653136395231, 0, 339.861572657799,
 						0, 666.1104961259615, 244.21065776461745,
@@ -121,7 +111,10 @@ public:
 	virtual void InitSendable(wpi::SendableBuilder& b) override {
 		b.AddFloatProperty("Core temp", [this](){ return this->temp(); }, nullptr);
 		b.AddFloatProperty("Utilization", [this](){ return this->fromLast(); }, nullptr);
+		b.AddFloatProperty("Avg FTime", [this](){ return (float)this->ftime_avg; }, nullptr);
 	}
+
+	std::atomic<float> ftime_avg{};
 
 };
 
@@ -146,9 +139,9 @@ struct CThread {
 	cv::Mat_<float>
 		camera_matrix{ DEFAULT_CAM_MATX },
 		dist_matrix{ DEFAULT_CAM_MATX };
-	const frc::Pose3d
-		*robot_camera_pose{ nullptr };
 	cs::VideoMode vmode;
+	cv::Mat frame, buff;
+	std::atomic<float> ftime{0.f};
 
 	struct ProcBuff {
 		// using PVec = std::array<float, 3>;
@@ -159,18 +152,17 @@ struct CThread {
 		std::vector<PVec> tvecs, rvecs;
 		cv::Mat fbuff;
 	} *vproc_buffer{nullptr};
-	cv::Mat frame;
 
 	int vid{-1};
 	CS_Source camera_h, fout_h;
-	CS_Sink fin_h;
+	CS_Sink fin_h, view_h;
 
 	std::atomic<bool> link_state{true};
 	std::atomic<int> procm{0};
 	std::thread proc;
 
 };
-bool _update(CThread&);	// these are like instance methods
+void _update(CThread&);	// these are like instance methods
 void _worker(CThread&);
 void _shutdown(CThread&);
 
@@ -183,7 +175,9 @@ struct {
 		std::atomic<bool>
 			program_enable{true},
 			view_updated{false},
-			vrbo_updated{false}
+			vrbo_updated{false},
+			exposure_updated{false},
+			dscale_updated{false}
 		;
 	} state;
 	Stats stats{};
@@ -194,41 +188,44 @@ struct {
 			views_avail,
 			view_id,		// active camera id
 			ovl_verbosity,	// overlay verbosity - 0 for off, >0 for increasing verbosity outputs
-			april_mode		// apriltag detection mode - 0 for off, -1 for all threads, -2 for active thread, >0 for specific thread
+			april_mode,		// apriltag detection mode - 0 for off, -1 for all threads, -2 for active thread, >0 for specific thread
+			exposure,
+			downscale
 		;
+		nt::DoubleArrayEntry
+			poses;
 	} nt;
 
 	int next_stream_port = 1181;
 	std::vector<CThread> cthreads;
 	cv::Mat disconnect_frame;
-	// Pixy2 pixycam;
 	CS_Source discon_frame_h;
 	CS_Sink stream_h;
 
-	struct {
-		const cv::Ptr<cv::aruco::DetectorParameters> params{cv::aruco::DetectorParameters::create()};
-		const cv::Ptr<cv::aruco::Board> field{::FIELD_2023};
-		const frc::AprilTagDetector wpi_detector{};
 
-		std::vector<frc::Pose3d> robot_est_queue;
-		std::mutex robot_queue_rw;
-#if SEND_EXTRA_POSE_ESTIMATIONS > 0
-		std::vector<frc::Pose3d> raw_est_queue;
-		std::mutex robot_queue_rw;
-#endif
-		std::thread queue;
-		std::atomic<bool> link_state;
-	} aprilpose;
+	const cv::Ptr<cv::aruco::DetectorParameters> aprilp_params{cv::aruco::DetectorParameters::create()};
+	const cv::Ptr<cv::aruco::Board> aprilp_field{::FIELD_2023};
+	std::vector<double> nt_pose_buffer{};
 
 } _global;
-void _ap_update();
-void _ap_worker();
-void _ap_shutdown();
-void _ap_detect_aruco(const cv::Mat&, std::vector<std::vector<cv::Point2f>>&, std::vector<int32_t>&);
-void _ap_detect_wpi(const cv::Mat&, frc::AprilTagDetector::Results&);
-int _ap_estimate_aruco(cv::InputArrayOfArrays&, cv::InputArray&, cv::InputArray, cv::InputArray, std::vector<CThread::ProcBuff::PVec>&, std::vector<CThread::ProcBuff::PVec>&);
-frc::Pose3d toPose3d(const CThread::ProcBuff::PVec&, const CThread::ProcBuff::PVec&);
-std::span<frc::Pose3d> toPose3d(std::vector<frc::Pose3d>&, const std::vector<CThread::ProcBuff::PVec>&, const std::vector<CThread::ProcBuff::PVec>&);
+
+frc::Pose3d toPose3d(
+	const CThread::ProcBuff::PVec&,
+	const CThread::ProcBuff::PVec&);
+std::span<frc::Pose3d> toPose3d(
+	std::vector<frc::Pose3d>&,
+	const std::vector<CThread::ProcBuff::PVec>&,
+	const std::vector<CThread::ProcBuff::PVec>&);
+void _ap_detect_aruco(
+	const cv::Mat&,
+	std::vector<std::vector<cv::Point2f>>&,
+	std::vector<int32_t>&);
+int _ap_estimate_aruco(
+	cv::InputArrayOfArrays&, cv::InputArray&,
+	cv::InputArray, cv::InputArray,
+	std::vector<CThread::ProcBuff::PVec>&,
+	std::vector<CThread::ProcBuff::PVec>&);
+
 
 int main(int argc, char** argv) {
 
@@ -265,21 +262,28 @@ int main(int argc, char** argv) {
 #endif
 
 	// mainloop
-	int last_vid = -1;
-	int last_vrb = 0;
 	for(;_global.state.program_enable;) {
 
-		int vid = _global.nt.view_id.Get();
-		int vrb = _global.nt.ovl_verbosity.Get();
-		_global.state.view_updated = (vid != last_vid);
-		_global.state.vrbo_updated = (vrb != last_vrb);
-		last_vid = vid;
-		last_vrb = vrb;
+		_global.state.view_updated = (_global.nt.view_id.ReadQueue().size() > 0);
+		_global.state.vrbo_updated = (_global.nt.ovl_verbosity.ReadQueue().size() > 0);
+		_global.state.exposure_updated = (_global.nt.exposure.ReadQueue().size() > 0);
+		_global.state.dscale_updated = (_global.nt.downscale.ReadQueue().size() > 0);
 
+#if DEBUG > 1
+		if(_global.state.view_updated) { std::cout << "MAINLOOP: View idx updated." << std::endl; }
+		if(_global.state.vrbo_updated) { std::cout << "MAINLOOP: Verbosity lvl updated." << std::endl; }
+		if(_global.state.exposure_updated) { std::cout << "MAINLOOP: Exposure updated." << std::endl; }
+		if(_global.state.dscale_updated) { std::cout << "MAINLOOP: Downscale updated." << std::endl; }
+#endif
+
+		size_t i = 0;
+		float a = 0;
 		for(CThread& t : _global.cthreads) {
 			_update(t);
+			a += t.ftime;
+			i++;
 		}
-		_ap_update();
+		_global.stats.ftime_avg = a / i;
 
 		frc::SmartDashboard::UpdateValues();
 
@@ -292,11 +296,9 @@ int main(int argc, char** argv) {
 		for(CThread& t : _global.cthreads) {
 			_shutdown(t);
 		}
-		_ap_shutdown();
 		cs::ReleaseSink(_global.stream_h, &status);
 		cs::ReleaseSource(_global.discon_frame_h, &status);
 		cs::Shutdown();
-		// _global.pixycam.m_link.close();
 		std::cout << "Shutdown complete. Exitting..." << std::endl;
 	}
 
@@ -370,9 +372,6 @@ bool init(const char* fname) {
 #endif
 	}
 
-	frc::SmartDashboard::init();
-	frc::SmartDashboard::PutData("Vision/Stats", &_global.stats);
-
 	_global.disconnect_frame = cv::Mat::zeros({DEFAULT_VMODE.width, DEFAULT_VMODE.height}, CV_8UC3);
 	cv::putText(
 		_global.disconnect_frame, "Camera is Unavailable :(",
@@ -383,45 +382,13 @@ bool init(const char* fname) {
 	_global.discon_frame_h = cs::CreateCvSource("Disconnected Frame Source", DEFAULT_VMODE, &status);
 	_global.stream_h = cs::CreateMjpegServer("Viewport Stream", "", _global.next_stream_port++, &status);
 	frc::CameraServer::AddServer(VideoSinkImpl(_global.stream_h));
-
-	// status = _global.pixycam.init();
-	// switch(status) {
-	// 	default:
-	// 	case PIXY_RESULT_OK: {
-	// 		std::cout << "Pixy init successful." << std::endl;
-	// 		_global.pixycam.getVersion();
-	// 		//_global.pixycam.version->print();
-	// 		break;
-	// 	}
-	// 	case PIXY_RESULT_ERROR: {
-	// 		std::cout << "Pixy init fail - general error." << std::endl;
-	// 		break;
-	// 	}
-	// 	case PIXY_RESULT_BUSY: {
-	// 		std::cout << "Pixy init fail - no new data (busy)." << std::endl;
-	// 		break;
-	// 	}
-	// 	case PIXY_RESULT_CHECKSUM_ERROR: {
-	// 		std::cout << "Pixy init fail - checksum error." << std::endl;
-	// 		break;
-	// 	}
-	// 	case PIXY_RESULT_TIMEOUT: {
-	// 		std::cout << "Pixy init fail - timeout." << std::endl;
-	// 		break;
-	// 	}
-	// 	case PIXY_RESULT_BUTTON_OVERRIDE: {
-	// 		std::cout << "Pixy init fail - user button override." << std::endl;
-	// 		break;
-	// 	}
-	// 	case PIXY_RESULT_PROG_CHANGING: {
-	// 		std::cout << "Pixy init fail - program is changing." << std::endl;
-	// 		break;
-	// 	}
-	// }
+#if DEBUG > 0
+	std::cout << fmt::format("Created main stream with port {}.", _global.next_stream_port - 1) << std::endl;
+#endif
 
 	std::vector<cs::UsbCameraInfo> connections = cs::EnumerateUsbCameras(&status);
 
-	int vid_additions = CamID::START_ADDITIONAL;
+	int vid_additions = CamID::NUM_CAMERAS;
 	try {
 		for(const wpi::json& camera : j.at("cameras")) {
 			CThread& cthr = _global.cthreads.emplace_back();
@@ -436,13 +403,22 @@ bool init(const char* fname) {
 			cs::SetCameraWhiteBalanceAuto(cthr.camera_h, &status);
 			cs::SetCameraBrightness(cthr.camera_h, DEFAULT_BRIGHTNESS, &status);
 
-			cthr.fin_h = cs::CreateCvSink(fmt::format("{}_cv_in", name), &status);
-			cthr.fout_h = cs::CreateCvSource(fmt::format("{}_cv_out", name), cthr.vmode, &status);
-			
+			cthr.fin_h = cs::CreateCvSink(
+				fmt::format("{}_cv_in", name), &status);
+			cthr.fout_h = cs::CreateCvSource(
+				fmt::format("{}_cv_out", name), cthr.vmode, &status);
+			cthr.view_h = cs::CreateMjpegServer(
+				fmt::format("{}_view_stream", name), "", _global.next_stream_port++, &status);
+			frc::CameraServer::AddServer(VideoSinkImpl(cthr.view_h));
+#if DEBUG > 0
+			std::cout << fmt::format("Created {} camera view stream with port {}.", name, _global.next_stream_port - 1) << std::endl;
+#endif
+			// cs::SetSinkSource(cthr.view_h, cthr.camera_h, &status);
+			cs::SetSinkSource(cthr.view_h, cthr.fout_h, &status);		// there is some sort of bug where these streams don't switch, so start with the one more likely to be used
+
 			for(size_t t = 0; t < CAMERA_TAGS.size(); t++) {
 				if(wpi::equals_lower(name, CAMERA_TAGS[t])) {
 					cthr.vid = t;
-					cthr.robot_camera_pose = &CAMERA_POSES[t];
 					break;
 				}
 			}
@@ -462,6 +438,9 @@ bool init(const char* fname) {
 			for(cs::UsbCameraInfo& info : connections) {
 				if(wpi::equals_lower(info.path, path)) {
 					info.dev = -1;
+#if DEBUG > 0
+					std::cout << fmt::format("Camera path '{}' classified as type '{}'.", path, info.name) << std::endl;
+#endif
 					if(!cal && (cal = findCalib(info.name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS))) {	// maybe search by path too?
 						std::cout << fmt::format("Found calibration for camera '{}' by type.", name) << std::endl;
 						cthr.camera_matrix = cal->at(0);
@@ -475,7 +454,10 @@ bool init(const char* fname) {
 				}
 			}
 
-			// calibrations
+			if(cal == nullptr) {
+				std::cout << fmt::format("Failed to find calibration for camera '{}'.", name) << std::endl;
+			}
+
 		}
 	} catch(const wpi::json::exception& e) {
 		std::cout << "Config file error in '" << fname << "': Could not read camera configuration: " << e.what() << std::endl;
@@ -496,6 +478,25 @@ bool init(const char* fname) {
 				fmt::format("Camera{}_cv_in", cthr.vid), &status);
 			cthr.fout_h = cs::CreateCvSource(
 				fmt::format("Camera{}_cv_out", cthr.vid), cthr.vmode, &status);
+			cthr.view_h = cs::CreateMjpegServer(
+				fmt::format("Camera{}_view_stream", cthr.vid), "", _global.next_stream_port++, &status);
+			frc::CameraServer::AddServer(VideoSinkImpl(cthr.view_h));
+#if DEBUG > 0
+			std::cout << fmt::format("Created Camera{} view stream with port {}.", cthr.vid, _global.next_stream_port - 1) << std::endl;
+#endif
+			// cs::SetSinkSource(cthr.view_h, cthr.camera_h, &status);
+			cs::SetSinkSource(cthr.view_h, cthr.fout_h, &status);
+
+			const decltype(STATIC_CALIBRATIONS)::Cal_T* cal = nullptr;
+			if(cal = findCalib(connections[i].name, {cthr.vmode.width, cthr.vmode.height}, STATIC_CALIBRATIONS)) {	// maybe search by path too?
+				std::cout << fmt::format("Found calibration for 'Camera{}' by type.", cthr.vid) << std::endl;
+				cthr.camera_matrix = cal->at(0);
+				cthr.dist_matrix = cal->at(1);
+#if DEBUG > 0
+				std::cout << "CMatx: " << cthr.camera_matrix << std::endl;
+				std::cout << "DCoefs: " << cthr.dist_matrix << std::endl;
+#endif
+			}
 		}
 	}
 
@@ -505,13 +506,23 @@ bool init(const char* fname) {
 	_global.nt.views_avail = _global.base_ntable->GetIntegerTopic("Available Outputs").GetEntry(0, NT_OPTIONS);
 	_global.nt.view_id = _global.base_ntable->GetIntegerTopic("Active Camera Thread").GetEntry(0, NT_OPTIONS);
 	_global.nt.ovl_verbosity = _global.base_ntable->GetIntegerTopic("Overlay Verbosity").GetEntry(0, NT_OPTIONS);
+	_global.nt.exposure = _global.base_ntable->GetIntegerTopic("Camera Exposure").GetEntry(0, NT_OPTIONS);
+	_global.nt.downscale = _global.base_ntable->GetIntegerTopic("Output Downscale").GetEntry(0, NT_OPTIONS);
 	_global.nt.april_mode = _global.base_ntable->GetIntegerTopic("AprilTag Mode").GetEntry(0, NT_OPTIONS);
+	_global.nt.poses = _global.base_ntable->GetDoubleArrayTopic("Camera Pose Estimations").GetEntry({}, NT_OPTIONS);
 	_global.nt.views_avail.Set(_global.cthreads.size());
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);
+	_global.nt.exposure.Set(DEFAULT_EXPOSURE);
+	_global.nt.downscale.Set(DEFAULT_DOWNSCALE);
 	_global.nt.april_mode.Set(0);
+	_global.nt.poses.Set(_global.nt_pose_buffer);
 
-	_global.aprilpose.wpi_detector.AddFamily(FRC_DICT_NAME);
+	frc::SmartDashboard::init();
+	frc::SmartDashboard::PutData("Vision/Stats", &_global.stats);
+
+	_global.aprilp_params->useAruco3Detection = false;
+	_global.aprilp_params->aprilTagQuadDecimate = 2.0;
 
 	std::cout << fmt::format("Initialization completed in {}s.",
 		duration<double>(high_resolution_clock::now() - start).count()) << std::endl;
@@ -519,25 +530,32 @@ bool init(const char* fname) {
 	return true;
 }
 
-bool _update(CThread& ctx) {
+void _update(CThread& ctx) {
 	int status = 0;
+	int apmode = _global.nt.april_mode.Get();
+	bool downscale = _global.nt.downscale.Get() > 1;
+	bool overlay = _global.nt.ovl_verbosity.Get() > 0;
 	bool outputting = ctx.vid == _global.nt.view_id.Get();
 	bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
-	bool overlay = _global.nt.ovl_verbosity.Get() > 0;
-	int apmode = _global.nt.april_mode.Get();
-	ctx.procm = 1 * (apmode == -2 || ((apmode == -1) && outputting) || apmode == ctx.vid);
-	bool enable = connected && ((overlay && outputting) || ctx.procm);
+	ctx.procm = 1 * (((apmode == -1) && outputting) || apmode == ctx.vid);
+	bool enable = connected && ((overlay && outputting) || downscale || ctx.procm);
 
-	if(outputting && (_global.state.view_updated || _global.state.vrbo_updated)) {
+	if(_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated) {
 		if(connected) {
-			if(overlay) {
-				cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);
+			if(overlay || downscale) {
+				cs::SetSinkSource(ctx.view_h, ctx.fout_h, &status);
+				if(outputting) cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);
 			} else {
-				cs::SetSinkSource(_global.stream_h, ctx.camera_h, &status);
+				cs::SetSinkSource(ctx.view_h, ctx.camera_h, &status);
+				if(outputting) cs::SetSinkSource(_global.stream_h, ctx.camera_h, &status);
 			}
 		} else {
-			cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
+			cs::SetSinkSource(ctx.view_h, _global.discon_frame_h, &status);
+			if(outputting) cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
 		}
+	}
+	if(_global.state.exposure_updated) {
+		cs::SetCameraExposureManual(ctx.camera_h, _global.nt.exposure.Get(), &status);
 	}
 	if(enable) {	// add other states to compute (ex. isproc, isactive) in the future too
 		if(!ctx.proc.joinable()) {
@@ -551,7 +569,6 @@ bool _update(CThread& ctx) {
 	if(outputting && !connected) {
 		cs::PutSourceFrame(_global.discon_frame_h, _global.disconnect_frame, &status);
 	}
-	return !enable;
 }
 void _worker(CThread& ctx) {
 
@@ -559,29 +576,40 @@ void _worker(CThread& ctx) {
 	cs::SetSinkSource(ctx.fin_h, ctx.camera_h, &status);
 
 	high_resolution_clock::time_point tp = high_resolution_clock::now();
-	int verbosity;
+	int verbosity, downscale;
+	cv::Size fsz{ctx.vmode.width, ctx.vmode.height};
 
 	for(;ctx.link_state && _global.state.program_enable;) {
 
 		cs::GrabSinkFrame(ctx.fin_h, ctx.frame, &status);
 		high_resolution_clock::time_point t = high_resolution_clock::now();
-		float fps = 1.f / duration<float>(t - tp).count();
+		ctx.ftime = duration<float>(t - tp).count();
 		tp = t;
 		verbosity = _global.nt.ovl_verbosity.Get();
-		if(verbosity <= 0) {
-			cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);		// keep latency as short as possible
-		}
+		downscale = _global.nt.downscale.Get();
+		// if(verbosity <= 0 && downscale <= 1) {
+		// 	cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);		// keep latency as short as possible
+		// }
 		switch(ctx.procm) {
 			case 0:
 			default:{	// none
 				if(verbosity > 0) {
 					cv::putText(
-						ctx.frame, std::to_string(fps),
+						ctx.frame, std::to_string(1.f / ctx.ftime),
 						cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX,
 						0.65, cv::Scalar(0, 255, 0), 1, cv::LINE_AA
 					);
 				}
-				cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);
+				if(downscale > 1) {
+					cv::Size f = fsz / downscale;
+					if(ctx.buff.size() != f) {
+						ctx.buff = cv::Mat(f, CV_8UC3);
+					}
+					cv::resize(ctx.frame, ctx.buff, f);
+					cs::PutSourceFrame(ctx.fout_h, ctx.buff, &status);
+				} else {
+					cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);
+				}
 			}
 			case 1: {	// apriltag
 				if(ctx.vproc_buffer == nullptr) {
@@ -590,48 +618,51 @@ void _worker(CThread& ctx) {
 				ctx.vproc_buffer->corners.clear();
 				ctx.vproc_buffer->ids.clear();
 				// resize
+				high_resolution_clock::time_point detect_beg = high_resolution_clock::now();
 				_ap_detect_aruco(
 					ctx.frame, ctx.vproc_buffer->corners, ctx.vproc_buffer->ids);
-				if(verbosity > 0) {
+				float dt = duration<float>(high_resolution_clock::now() - detect_beg).count();
 
-				}
 				if(verbosity > 1) {
 					if(ctx.vproc_buffer->ids.size() > 0) {
 						cv::aruco::drawDetectedMarkers(
 							ctx.frame, ctx.vproc_buffer->corners, ctx.vproc_buffer->ids);
 					}
+					cv::putText(
+						ctx.frame, fmt::format("Detection (ms): {}", dt * 1000.0),
+						cv::Point(5, 40), cv::FONT_HERSHEY_DUPLEX,
+						0.5, cv::Scalar(0, 255, 0), 1, cv::LINE_AA
+					);
 				}
 				if(verbosity > 0) {
 					cv::putText(
-						ctx.frame, std::to_string(fps),
+						ctx.frame, std::to_string(1.f / ctx.ftime),
 						cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX,
 						0.65, cv::Scalar(0, 255, 0), 1, cv::LINE_AA
 					);
-				} else {
-					goto skip_resend_frame;
 				}
-				cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);
+				if(downscale > 1) {
+					cv::Size f = fsz / downscale;
+					if(ctx.buff.size() != f) {
+						ctx.buff = cv::Mat(f, CV_8UC3);
+					}
+					cv::resize(ctx.frame, ctx.buff, f);
+					cs::PutSourceFrame(ctx.fout_h, ctx.buff, &status);
+				} else {
+					cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);
+				}
 
-				skip_resend_frame:
 				// clear tvecs, rvecs?
 				if(ctx.vproc_buffer->ids.size() > 0) {
 					_ap_estimate_aruco(
 						ctx.vproc_buffer->corners, ctx.vproc_buffer->ids,
 						ctx.camera_matrix, ctx.dist_matrix,
 						ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
-					if(ctx.robot_camera_pose != nullptr) {
-						// add the poses? :(
-						_global.aprilpose.robot_queue_rw.lock();
-						toPose3d(_global.aprilpose.robot_est_queue, ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
-						_global.aprilpose.robot_queue_rw.unlock();
-					}
-#if SEND_EXTRA_POSE_ESTIMATIONS > 0
-					else {
-						_global.aprilpose.raw_queue_rw.lock();
-						toPose3d(_global.aprilpose.raw_est_queue, ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
-						_global.aprilpose.raw_queue_rw.lock();
-					}
-#endif
+
+					std::vector<frc::Pose3d> poses;
+					toPose3d(poses, ctx.vproc_buffer->tvecs, ctx.vproc_buffer->rvecs);
+					double* d = reinterpret_cast<double*>(poses.data());
+					_global.nt.poses.Set(std::span<double>(d, d + (poses.size() * (sizeof(frc::Pose3d) / sizeof(double)))));
 				}
 			}
 		}
@@ -655,20 +686,31 @@ void _shutdown(CThread& ctx) {
 
 
 
-frc::Pose3d toPose3d(const CThread::ProcBuff::PVec& tvec, const CThread::ProcBuff::PVec& rvec) {
+frc::Pose3d toPose3d(
+	const CThread::ProcBuff::PVec& tvec,
+	const CThread::ProcBuff::PVec& rvec
+) {
 	cv::Mat_<float> R, t{tvec.clone()};
 	cv::Rodrigues(rvec, R);
 	R = R.t();
 	t = -R * t;
 
-	frc::Vectord<3> rv{ rvec.at<float>(2, 0), -rvec.at<float>(0, 0), rvec.at<float>(1, 0) };
+	frc::Vectord<3> rv{ rvec.at<float>(2, 0), -rvec.at<float>(0, 0), -rvec.at<float>(1, 0) };
 
 	return frc::Pose3d(
-		units::inch_t{ +t.at<float>(2, 0) },
-		units::inch_t{ -t.at<float>(0, 0) },
-		units::inch_t{ -t.at<float>(1, 0) },
+		// units::inch_t{ +t.at<float>(2, 0) },
+		// units::inch_t{ -t.at<float>(0, 0) },
+		// units::inch_t{ -t.at<float>(1, 0) },
+		units::inch_t{ +t.at<float>(0, 0) },
+		units::inch_t{ +t.at<float>(1, 0) },
+		units::inch_t{ -t.at<float>(2, 0) },
 		frc::Rotation3d{ rv, units::radian_t{ rv.norm() } }
 	);
+
+	// frc::Translation3d t3{ tvec.at<float>(2, 0), -tvec.at<float>(0, 0), -tvec.at<float>(1, 0) };
+	// frc::Rotation3d r3{ rv, units::radian_t{ rv.norm() } };
+	// frc::Transform3d t = frc::Transform3d{ t3, r3 }.Inverse();
+	// return frc::Pose3d{ t.Translation(), t.Rotation() };
 }
 std::span<frc::Pose3d> toPose3d(
 	std::vector<frc::Pose3d>& poses,
@@ -688,15 +730,9 @@ void _ap_detect_aruco(
 	std::vector<int32_t>& ids
 ) {
 	cv::aruco::detectMarkers(
-		frame, _global.aprilpose.field->dictionary,
-		corners, ids, _global.aprilpose.params
+		frame, _global.aprilp_field->dictionary,
+		corners, ids, _global.aprilp_params
 	);
-}
-void _ap_detect_wpi(
-	const cv::Mat& frame,
-	frc::AprilTagDetector::Results& results
-) {
-	results = _global.aprilpose.wpi_detector.Detect(frame.cols, frame.rows, frame.data);
 }
 
 int _ap_estimate_aruco(
@@ -705,7 +741,7 @@ int _ap_estimate_aruco(
 	std::vector<CThread::ProcBuff::PVec>& tvecs, std::vector<CThread::ProcBuff::PVec>& rvecs
 ) {
 	CV_Assert(corners.total() == ids.total());	
-	CV_Assert(_global.aprilpose.field->ids.size() == _global.aprilpose.field->objPoints.size());
+	CV_Assert(_global.aprilp_field->ids.size() == _global.aprilp_field->objPoints.size());
 
 	size_t ndetected = ids.total();
 	std::vector<cv::Point3f> _obj_points;
@@ -715,10 +751,10 @@ int _ap_estimate_aruco(
 
 	for(size_t i = 0; i < ndetected; i++) {
 		int id = ids.getMat().ptr<int>(0)[i];
-		for(size_t j = 0; j < _global.aprilpose.field->ids.size(); j++) {
-			if(id == _global.aprilpose.field->ids[j]) {
+		for(size_t j = 0; j < _global.aprilp_field->ids.size(); j++) {
+			if(id == _global.aprilp_field->ids[j]) {
 				for(int p = 0; p < 4; p++) {
-					_obj_points.push_back(_global.aprilpose.field->objPoints[j][p]);
+					_obj_points.push_back(_global.aprilp_field->objPoints[j][p]);
 					_img_points.push_back(corners.getMat(i).ptr<cv::Point2f>(0)[p]);
 				}
 			}
@@ -744,72 +780,3 @@ int _ap_estimate_aruco(
 	return tvecs.size();
 
 }
-
-
-void _ap_update() {
-	if(_global.nt.april_mode.Get() != 0) {	// if should be active
-		if(!_global.aprilpose.queue.joinable()) {
-			_global.aprilpose.link_state = true;
-			_global.aprilpose.queue = std::thread(_ap_worker);
-		}
-	} else if(_global.aprilpose.queue.joinable()) {
-		_global.aprilpose.link_state = false;
-		_global.aprilpose.queue.join();
-	}
-}
-void _ap_worker() {
-
-	for(;_global.aprilpose.link_state && _global.state.program_enable;) {
-		_global.aprilpose.robot_queue_rw.lock();
-		// handle poses
-		std::cout << "Poses detected: " << _global.aprilpose.robot_est_queue.size() << std::endl;
-		_global.aprilpose.robot_est_queue.clear();
-		_global.aprilpose.robot_queue_rw.unlock();
-#if SEND_EXTRA_POSE_ESTIMATIONS > 0
-		_global.aprilpose.raw_queue_rw.lock();
-		// handle
-		_global.aprilpose.raw_est_queue.clear();
-		_global.aprilpose.raw_queue_rw.unlock();
-#endif
-	}
-
-}
-void _ap_shutdown() {
-	if(_global.aprilpose.queue.joinable()) {
-		_global.aprilpose.link_state = false;
-		_global.aprilpose.queue.join();
-	}
-}
-
-
-// void _apriltag() {
-
-// 	int status = 0;
-// 	CS_Sink cv_in = cs::CreateCvSink("apriltag_cv_in", &status);
-// 	CS_Source cv_out = cs::CreateCvSource("apriltag_cv_out", _global.camera_vmode, &status);
-// 	cs::SetSinkSource(cv_in, _global.camera_src_handle, &status);
-// 	cs::SetSinkSource(_global.h_stream, cv_out, &status);
-
-// 	cv::Mat frame;
-// 	high_resolution_clock::time_point tp = high_resolution_clock::now();
-
-// 	for(;_global.s_program_enable;) {
-
-// 		uint64_t dt = cs::GrabSinkFrame(cv_in, frame, &status);
-// 		high_resolution_clock::time_point t = high_resolution_clock::now();
-// 		float fps = 1.f / duration<float>(t - tp).count();
-// 		tp = t;
-// 		cv::putText(
-// 			frame, std::to_string(fps),
-// 			cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX,
-// 			0.65, cv::Scalar(0, 255, 0), 1, cv::LINE_AA
-// 		);
-// 		cs::PutSourceFrame(cv_out, frame, &status);
-
-// 		std::this_thread::sleep_for(20ms);
-// 	}
-
-// 	cs::ReleaseSink(cv_in, &status);
-// 	cs::ReleaseSource(cv_out, &status);
-
-// }

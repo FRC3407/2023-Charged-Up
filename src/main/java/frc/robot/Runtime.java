@@ -14,6 +14,7 @@ import edu.wpi.first.wpilibj.PWM;
 import edu.wpi.first.wpilibj.PowerDistribution;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.*;
@@ -70,6 +71,7 @@ public final class Runtime extends TimedRobot {
 		}
 	}
 	private final Robot robot = new Robot();
+	private final Field2d field_logger = new Field2d();
 	// private final LEDTest leds = new LEDTest(2, 3, 4);
 	private final ControlSchemeManager controls = new ControlSchemeManager();
 	// private final SendableChooser<Command> auto = new SendableChooser<>();
@@ -91,6 +93,8 @@ public final class Runtime extends TimedRobot {
 		DriverStation.startDataLog(DataLogManager.getLog());
 		PathPlannerServer.startServer(5811);
 		this.robot.startLogging();
+		(new Vision.PoseUpdater(this.field_logger.getRobotObject())).schedule();
+		SmartDashboard.putData("Robot/FieldPosition", this.field_logger);
 
 		this.controls.addScheme("Single Xbox Testing", new AutomatedTester(Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
 		this.controls.addScheme("Dual Xbox Testing", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);

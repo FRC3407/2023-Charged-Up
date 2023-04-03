@@ -74,7 +74,8 @@
       "/SmartDashboard/Commands/Velocity Drive": "Command",
       "/SmartDashboard/Control Scheme": "String Chooser",
       "/SmartDashboard/Control Scheme/Selector": "String Chooser",
-      "/SmartDashboard/Robot Location": "Field2d"
+      "/SmartDashboard/Robot Location": "Field2d",
+      "/SmartDashboard/Robot/FieldPosition": "Field2d"
     },
     "windows": {
       "/SmartDashboard/Control Scheme/Selector": {
@@ -122,6 +123,9 @@
           "open": true
         },
         "Robot": {
+          "FieldPosition": {
+            "open": true
+          },
           "Manipulator": {
             "Arm": {
               "open": true
@@ -129,9 +133,6 @@
             "Grabber": {
               "open": true
             },
-            "open": true
-          },
-          "Power": {
             "open": true
           },
           "open": true

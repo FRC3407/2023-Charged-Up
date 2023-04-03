@@ -4,6 +4,7 @@ import java.util.HashMap;
 
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.GenericHID;
+import edu.wpi.first.wpilibj.PowerDistribution.ModuleType;
 import edu.wpi.first.wpilibj2.command.Command;
 
 import com.ctre.phoenix.motorcontrol.NeutralMode;
@@ -40,16 +41,21 @@ public final class Constants {
 			0.7,
 			10.0,
 			2.5,
-			2.5,
+			50.0,
+			50.0,
 			Inversions.BOTH
 		);
 	public static final int
-		ARM_WINCH_CAN_ID = 10,
-		ARM_EXTENDER_CAN_ID = 12,
-		GRABBER_CAN_ID = 11,
-		GRABBER_WRIST_PWM_PORT = 0
+		PDH_CAN_ID =				1,
+		ARM_WINCH_CAN_ID =			10,
+		ARM_EXTENDER_CAN_ID =		12,
+		GRABBER_CAN_ID =			11,
+
+		GRABBER_WRIST_PWM_PORT =	0
 	;
 
+	public static final ModuleType
+		PDH_MODULE_TYPE = ModuleType.kRev;
 	public static final IMUAxis
 		IMU_YAW_AXIS = IMUAxis.kZ,
 		IMU_PITCH_AXIS = IMUAxis.kY		// on the new robot the IMU is turned sidewasy so pitch is kY, not kX like before
@@ -57,14 +63,17 @@ public final class Constants {
 
 	public static final double
 		DRIVE_INPUT_DEADZONE = 0.05,
-		DRIVE_INPUT_VEL_SCALE = -2.5,
+		DRIVE_INPUT_VEL_SCALE = -DRIVEBASE_PARAMS.max_velocity,
 		DRIVE_INPUT_EXP_POWER = 1.0,
+		DRIVE_ROT_RATE_SCALE = 0.5,
+		DRIVE_BOOST_SCALE = 1.5,
+		DRIVE_FINE_SCALE = 0.5,
 
 		IMU_RATE_FILTER = 0.40,
 
 		ACTIVE_PARK_VOLTS_PER_METER = 100.0,
 		BALANCE_PARK_VOLTS_PER_DEGREE = 0.2,
-		AUTO_PAD_ENGAGE_VELOCITY = 0.8,
+		AUTO_PAD_ENGAGE_VELOCITY = 1.0,
 		AUTO_PAD_INCLINE_VELOCITY = 0.5,	// set to 0.1 if we ever fix ff/fb for inclines
 
 		ARM_ANGLE_KF = 1.0,
@@ -85,6 +94,7 @@ public final class Constants {
 		GRABBER_FINGER_OFFSET_INCHES = 1.5093,			// offset between linkage pivot and finger "grab surface"
 		GRABBER_PIVOT_OFFSET_INCHES = 1.8889,			// offset between large gear pivot and "center" - half the distance between large gear centers
 		GRABBER_GEARING_IN2OUT = (28.0 / 12.0),			// Input has 12 teeth, output has 28 teeth - "input rotations per output rotations"
+		GRABBER_A0_OFFSET = 120,						// difference in angle from when the grabber is at it's max angle compared to when the fingers are touching
 		GRABBER_A0_WIDTH_INCHES = Manipulator.Grabber.grabAngleToWidth(0.0),
 		GRABBER_W0_ANGLE_DEGREES = Manipulator.Grabber.grabWidthToAngle(0.0)
 	;

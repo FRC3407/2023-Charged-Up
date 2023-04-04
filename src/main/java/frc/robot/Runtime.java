@@ -18,6 +18,7 @@ import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.*;
+import edu.wpi.first.wpilibj.util.WPILibVersion;
 
 import com.pathplanner.lib.server.PathPlannerServer;
 
@@ -85,6 +86,7 @@ public final class Runtime extends TimedRobot {
 
 	@Override
 	public void robotInit() {
+		System.out.println("Using Wpilib Version " + WPILibVersion.Version);
 		PortForwarder.add(1180, "10.34.7.12", 80);
 		PortForwarder.add(1181, "10.34.7.12", 1181);
 		Vision.init();

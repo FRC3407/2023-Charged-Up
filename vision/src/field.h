@@ -10,7 +10,7 @@
 static inline constexpr float
 	TAG_SIDE_INCHES = 6.f;
 static inline const std::array<cv::Point3f, 4>
-	GENERIC_TAG_CORNERS{
+	GENERIC_TAG_CORNERS{	// in camera coord system
 		cv::Point3f{ -TAG_SIDE_INCHES / 2.f, TAG_SIDE_INCHES / 2.f, 0.f },
 		cv::Point3f{ TAG_SIDE_INCHES / 2.f, TAG_SIDE_INCHES / 2.f, 0.f },
 		cv::Point3f{ TAG_SIDE_INCHES / 2.f, -TAG_SIDE_INCHES / 2.f, 0.f },

@@ -31,6 +31,7 @@
 #include <cameraserver/CameraServer.h>
 
 #include <core/calib.h>
+#include <core/neon.h>
 
 #include <cpp-tools/src/sighandle.h>
 #include <cpp-tools/src/unix/stats2.h>
@@ -185,12 +186,13 @@ struct {
 	std::shared_ptr<nt::NetworkTable> base_ntable;
 	struct {
 		nt::IntegerEntry
-			views_avail,
+			views_avail,	// the amount of cameras connected
 			view_id,		// active camera id
-			ovl_verbosity,	// overlay verbosity - 0 for off, >0 for increasing verbosity outputs
-			april_mode,		// apriltag detection mode - 0 for off, -1 for all threads, -2 for active thread, >0 for specific thread
-			exposure,
-			downscale
+			ovl_verbosity,	// overlay verbosity - 0 for off, 1+ for increasing verbosity outputs
+			april_mode,		// apriltag detection mode - -2 for off, -1 for active camera, 0+ for specific camera
+			retro_mode,		// retrorefl tape detection mode - -2 for off, -1 for active camera, 0+ for specific camera
+			exposure,		// exposure to apply to all cameras - default 40
+			downscale		// outputs are downscaled by this factor
 		;
 		nt::DoubleArrayEntry
 			poses;
@@ -210,13 +212,13 @@ struct {
 
 } _global;
 
-frc::Pose3d toPose3d(
-	const CThread::ProcBuff::PVec&,
-	const CThread::ProcBuff::PVec&);
-std::span<frc::Pose3d> toPose3d(
-	std::vector<frc::Pose3d>&,
-	const std::vector<CThread::ProcBuff::PVec>&,
-	const std::vector<CThread::ProcBuff::PVec>&);
+// frc::Pose3d toPose3d(
+// 	const CThread::ProcBuff::PVec&,
+// 	const CThread::ProcBuff::PVec&);
+// std::span<frc::Pose3d> toPose3d(
+// 	std::vector<frc::Pose3d>&,
+// 	const std::vector<CThread::ProcBuff::PVec>&,
+// 	const std::vector<CThread::ProcBuff::PVec>&);
 void _ap_detect_aruco(
 	const cv::Mat&,
 	std::vector<std::vector<cv::Point2f>>&,
@@ -239,8 +241,37 @@ int _ap_estimate_aruco(
 // }
 
 
-int main(int argc, char** argv) {
+void neonTest() {
+	std::cout << "NEON Test - 'neon_deinterlace_wst()'\nInput array: [ ";
+	uint8_t c3[48];
+	uint8_t d[16];
+	uint8_t d2[16];
+	for(size_t i = 0; i < 48U; i++) {
+		c3[i] = (i * 9 + 5) / 3;
+		std::cout << (int)c3[i] << ", ";
+	}
+	std::cout << "]" << std::endl;
+	for(size_t i = 0; i < 16U; i++) {
+		int z = i * 3;
+		d2[i] = c3[z + 0] - ((c3[z + 1]) + (c3[z + 2]) + 0);
+	}
+	memcpy_deinterlace_wst_asm(c3, d, 16U, 0U, 0xFF, 0xFF, 0x00);
+	std::cout << "Output Array: [ ";
+	for(size_t i = 0; i < 16U; i++) {
+		int x = d[i];
+		std::cout << x << ", ";
+	}
+	std::cout << "]\nShould Be: [ ";
+	for(size_t i = 0; i < 16U; i++) {
+		int x = d2[i];
+		std::cout << x << ", ";
+	}
+	std::cout << "]\n\n" << std::endl;
+}
 
+
+int main(int argc, char** argv) {
+	neonTest();
 	int status = 0;
 	// setup
 	{
@@ -520,14 +551,16 @@ bool init(const char* fname) {
 	_global.nt.ovl_verbosity = _global.base_ntable->GetIntegerTopic("Overlay Verbosity").GetEntry(0, NT_OPTIONS);
 	_global.nt.exposure = _global.base_ntable->GetIntegerTopic("Camera Exposure").GetEntry(0, NT_OPTIONS);
 	_global.nt.downscale = _global.base_ntable->GetIntegerTopic("Output Downscale").GetEntry(0, NT_OPTIONS);
-	_global.nt.april_mode = _global.base_ntable->GetIntegerTopic("AprilTag Mode").GetEntry(0, NT_OPTIONS);
+	_global.nt.april_mode = _global.base_ntable->GetIntegerTopic("AprilTag Mode").GetEntry(-2, NT_OPTIONS);
+	_global.nt.retro_mode = _global.base_ntable->GetIntegerTopic("RetroRefl Mode").GetEntry(-2, NT_OPTIONS);
 	_global.nt.poses = _global.base_ntable->GetDoubleArrayTopic("Camera Pose Estimations").GetEntry({}, NT_OPTIONS);
 	_global.nt.views_avail.Set(_global.cthreads.size());
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);
 	_global.nt.exposure.Set(DEFAULT_EXPOSURE);
 	_global.nt.downscale.Set(DEFAULT_DOWNSCALE);
-	_global.nt.april_mode.Set(0);
+	_global.nt.april_mode.Set(-1);
+	_global.nt.retro_mode.Set(-2);
 	_global.nt.poses.Set(_global.nt_pose_buffer);
 
 	frc::SmartDashboard::init();
@@ -605,6 +638,23 @@ void _worker(CThread& ctx) {
 		switch(ctx.procm) {
 			case 0:
 			default:{	// none
+				if(verbosity > 3) {
+					if(ctx.vproc_buffer->fbuff.size() != fsz) {
+						ctx.vproc_buffer->fbuff = cv::Mat(fsz, CV_8UC1);
+					}
+					high_resolution_clock::time_point s = high_resolution_clock::now();
+					// neon_deinterlace_wst(
+					// 	ctx.frame, ctx.vproc_buffer->fbuff, vs2::BGR::GREEN
+					// );
+					memcpy_deinterlace_wst_asm(ctx.frame.data, ctx.vproc_buffer->fbuff.data, fsz.area(), 1, 0x7F, 0x7F, 0x00);
+					float dt = duration<float>(high_resolution_clock::now() - s).count();
+					cv::cvtColor(ctx.vproc_buffer->fbuff, ctx.frame, cv::COLOR_GRAY2BGR);
+					cv::putText(
+						ctx.frame, fmt::format("NEON Deinterlace WST: {}ns", dt * 1e6),
+						cv::Point(5, 300), cv::FONT_HERSHEY_DUPLEX,
+						0.5, cv::Scalar(0, 255, 0), 1, cv::LINE_AA
+					);
+				}
 				if(verbosity > 0) {
 					cv::putText(
 						ctx.frame, std::to_string(1.f / ctx.ftime),
@@ -697,46 +747,46 @@ void _shutdown(CThread& ctx) {
 
 
 
-frc::Pose3d toPose3d(
-	const CThread::ProcBuff::PVec& tvec,
-	const CThread::ProcBuff::PVec& rvec
-) {
-	// cv::Mat_<float> R, t;
-	// cv::Rodrigues(rvec, R);
-	// R = R.t();
-	// t = -R * tvec;
+// frc::Pose3d toPose3d(
+// 	const CThread::ProcBuff::PVec& tvec,
+// 	const CThread::ProcBuff::PVec& rvec
+// ) {
+// 	// cv::Mat_<float> R, t;
+// 	// cv::Rodrigues(rvec, R);
+// 	// R = R.t();
+// 	// t = -R * tvec;
 
-	frc::Vectord<3> rv{ +rvec.at<float>(2, 0), -rvec.at<float>(0, 0), -rvec.at<float>(1, 0) };
+// 	frc::Vectord<3> rv{ +rvec.at<float>(2, 0), -rvec.at<float>(0, 0), -rvec.at<float>(1, 0) };
 
-	// return frc::Pose3d(
-	// 	units::inch_t{ +t.at<float>(2, 0) },
-	// 	units::inch_t{ -t.at<float>(0, 0) },
-	// 	units::inch_t{ -t.at<float>(1, 0) },
-	// 	// units::inch_t{ +t.at<float>(0, 0) },
-	// 	// units::inch_t{ +t.at<float>(1, 0) },
-	// 	// units::inch_t{ -t.at<float>(2, 0) },
-	// 	frc::Rotation3d{ rv, units::radian_t{ rv.norm() } }
-	// );
+// 	// return frc::Pose3d(
+// 	// 	units::inch_t{ +t.at<float>(2, 0) },
+// 	// 	units::inch_t{ -t.at<float>(0, 0) },
+// 	// 	units::inch_t{ -t.at<float>(1, 0) },
+// 	// 	// units::inch_t{ +t.at<float>(0, 0) },
+// 	// 	// units::inch_t{ +t.at<float>(1, 0) },
+// 	// 	// units::inch_t{ -t.at<float>(2, 0) },
+// 	// 	frc::Rotation3d{ rv, units::radian_t{ rv.norm() } }
+// 	// );
 
-	frc::Translation3d t3{
-		units::inch_t{ tvec.at<float>(2, 0) },
-		units::inch_t{ -tvec.at<float>(0, 0) },
-		units::inch_t{ -tvec.at<float>(1, 0) } };
-	frc::Rotation3d r3{ rv, units::radian_t{ rv.norm() } };
-	frc::Transform3d t = frc::Transform3d{ t3, r3 }.Inverse();
-	return frc::Pose3d{ t.Translation(), t.Rotation() };
-}
-std::span<frc::Pose3d> toPose3d(
-	std::vector<frc::Pose3d>& poses,
-	const std::vector<CThread::ProcBuff::PVec>& tvecs,
-	const std::vector<CThread::ProcBuff::PVec>& rvecs
-) {
-	size_t beg = poses.size();
-	for(size_t i = 0; i < tvecs.size(); i++) {
-		poses.emplace_back(toPose3d(tvecs[i], rvecs[i]));
-	}
-	return std::span<frc::Pose3d>{ poses.begin() + beg, poses.end() };
-}
+// 	frc::Translation3d t3{
+// 		units::inch_t{ tvec.at<float>(2, 0) },
+// 		units::inch_t{ -tvec.at<float>(0, 0) },
+// 		units::inch_t{ -tvec.at<float>(1, 0) } };
+// 	frc::Rotation3d r3{ rv, units::radian_t{ rv.norm() } };
+// 	frc::Transform3d t = frc::Transform3d{ t3, r3 }.Inverse();
+// 	return frc::Pose3d{ t.Translation(), t.Rotation() };
+// }
+// std::span<frc::Pose3d> toPose3d(
+// 	std::vector<frc::Pose3d>& poses,
+// 	const std::vector<CThread::ProcBuff::PVec>& tvecs,
+// 	const std::vector<CThread::ProcBuff::PVec>& rvecs
+// ) {
+// 	size_t beg = poses.size();
+// 	for(size_t i = 0; i < tvecs.size(); i++) {
+// 		poses.emplace_back(toPose3d(tvecs[i], rvecs[i]));
+// 	}
+// 	return std::span<frc::Pose3d>{ poses.begin() + beg, poses.end() };
+// }
 
 template<typename f>
 cv::Point3_<f> wpiToCv(const cv::Point3_<f>& p) {
@@ -799,8 +849,6 @@ int _ap_estimate_aruco(
 	size_t ndetected = ids.size();
 	if(ndetected == 0) { return 0; }
 	else if(ndetected == 1) {
-		// const cv::Point2f* c1 = corners.getMat(0).ptr<cv::Point2f>();
-		// _img_points.insert(_img_points.begin(), c1, c1 + (4 * sizeof(cv::Point2f)));
 		cv::solvePnPGeneric(
 			GENERIC_TAG_CORNERS, corners.at(0),
 			cmatx, cdist, _rvecs, _tvecs,
@@ -808,13 +856,6 @@ int _ap_estimate_aruco(
 		);
 
 		int id = ids.at(0);
-		// cv::Point3f tag_center = findCenter3D(
-		// 	_global.aprilp_field->objPoints[id] );
-		// for(size_t j = 0; j < _global.aprilp_field->ids.size(); j++) {
-		// 	if(id == _global.aprilp_field->ids[j]) {
-		// 		tag_center = findCenter3D(_global.aprilp_field->objPoints[j]);
-		// 	}
-		// }
 
 		frc::Pose3d tag = _global.aprilp_field_poses.GetTagPose(id).value();
 		for(size_t i = 0; i < _tvecs.size(); i++) {
@@ -838,9 +879,8 @@ int _ap_estimate_aruco(
 		for(size_t j = 0; j < _global.aprilp_field->ids.size(); j++) {
 			if(id == _global.aprilp_field->ids[j]) {
 				_img_points.insert(_img_points.end(), corners.at(i).begin(), corners.at(i).end());
-				for(int p = 0; p < 4; p++) {
+				for(int p = 3; p >= 0; p--) {	// reverse the order such as to flip the points vertically
 					_obj_points.push_back(wpiToCv(_global.aprilp_field->objPoints[j][p]));
-					// _img_points.push_back(corners.getMat(i).ptr<cv::Point2f>(0)[p]);
 				}
 			}
 		}

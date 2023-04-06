@@ -872,15 +872,19 @@ void _april_worker_inst(CThread& target) {
 	_ap_detect_aruco(target.sframe, _buff.tag_corners, _buff.tag_ids);
 	_global.stats.april_profile[0] = duration<double>(high_resolution_clock::now() - p).count();
 
-	_buff.estimations.clear();		// may do something with these later, like seed the new estimations?
-	p = high_resolution_clock::now();
-	_ap_estimate_aruco(
-		_buff.tag_corners, _buff.tag_ids, target.camera_matrix, target.dist_matrix, _buff.estimations,
-		_buff.tvecs, _buff.rvecs, _buff.obj_points, _buff.img_points);
-	_global.stats.april_profile[1] = duration<double>(high_resolution_clock::now() - p).count();
+	if(_buff.tag_ids.size() > 0) {
+		_buff.estimations.clear();		// may do something with these later, like seed the new estimations?
+		p = high_resolution_clock::now();
+		_ap_estimate_aruco(
+			_buff.tag_corners, _buff.tag_ids, target.camera_matrix, target.dist_matrix, _buff.estimations,
+			_buff.tvecs, _buff.rvecs, _buff.obj_points, _buff.img_points);
+		_global.stats.april_profile[1] = duration<double>(high_resolution_clock::now() - p).count();
 
-	double* d = reinterpret_cast<double*>(_buff.estimations.data());
-	_global.nt.poses.Set(std::span<double>(d, d + (_buff.estimations.size() * (sizeof(frc::Pose3d) / sizeof(double)))));
+		double* d = reinterpret_cast<double*>(_buff.estimations.data());
+		_global.nt.poses.Set(std::span<double>(d, d + (_buff.estimations.size() * (sizeof(frc::Pose3d) / sizeof(double)))));
+	} else {
+		_global.stats.april_profile[1] = 0.0;
+	}
 
 	_global.vpp.april_link = 2;
 

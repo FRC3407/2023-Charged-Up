@@ -27,6 +27,7 @@
 #include <frc/apriltag/AprilTagFields.h>
 #include <networktables/NetworkTable.h>
 #include <networktables/IntegerTopic.h>
+#include <networktables/FloatArrayTopic.h>
 #include <networktables/DoubleArrayTopic.h>
 #include <cameraserver/CameraServer.h>
 
@@ -125,14 +126,12 @@ public:
 	virtual void InitSendable(wpi::SendableBuilder& b) override {
 		b.AddFloatProperty("Core temp", [this](){ return this->temp(); }, nullptr);
 		b.AddFloatProperty("Utilization", [this](){ return this->fromLast(); }, nullptr);
-		// b.AddFloatProperty("Avg FTime", [this](){ return (float)this->ftime_avg; }, nullptr);
-		b.AddDoubleArrayProperty("Camera Thread FTimes", [this](){ return this->ftimes; }, nullptr);
-		b.AddDoubleArrayProperty("April VPipe Profiling", [this](){ return this->april_profile; }, nullptr);
-		// b.AddDoubleArrayProperty("Retro VPipe Profiling", [this](){ return this->retro_profile; }, nullptr);
+		b.AddFloatArrayProperty("Camera Thread FTimes", [this](){ return this->ftimes; }, nullptr);
+		b.AddFloatArrayProperty("April VPipe Profiling", [this](){ return this->april_profile; }, nullptr);
+		// b.AddFloatArrayProperty("Retro VPipe Profiling", [this](){ return this->retro_profile; }, nullptr);
 	}
 
-	// std::atomic<float> ftime_avg{};
-	std::vector<double>
+	std::vector<float>
 		ftimes{}, april_profile{}, retro_profile{};
 
 };
@@ -681,9 +680,10 @@ void _worker(CThread& ctx) {
 	int status = 0;
 	cs::SetSinkSource(ctx.fin_h, ctx.camera_h, &status);
 
-	high_resolution_clock::time_point tp = high_resolution_clock::now();
+	high_resolution_clock::time_point s, a, b, tp = high_resolution_clock::now();
 	cv::Size fsz{ctx.vmode.width, ctx.vmode.height};
 	int verbosity, downscale;
+	std::array<float, 8> timing;
 
 	for(;ctx.link_state && _global.state.program_enable;) {
 
@@ -692,60 +692,78 @@ void _worker(CThread& ctx) {
 		ctx.ftime = duration<float>(t - tp).count();
 		tp = t;
 
+s = high_resolution_clock::now();
+
 		verbosity = _global.nt.ovl_verbosity.Get();
 		downscale = _global.nt.downscale.Get();
 
+a = high_resolution_clock::now();
 		if(ctx.vpmode) { ctx.frame.copyTo(ctx.sframe); }
+timing[1] = duration<float>(high_resolution_clock::now() - a).count() * 1000.f;
+b = high_resolution_clock::now();
 		if(ctx.vpmode & 0b01) {		// apriltag
 
+a = high_resolution_clock::now();
 			if(_global.vpp.april_link > 1 && _global.vpp.april_worker.joinable()) {
 				_global.vpp.april_worker.join();
 				_global.vpp.april_link = 0;
 			}
+timing[3] = duration<float>(high_resolution_clock::now() - a).count() * 1000.f;
 			if(_global.vpp.april_link == 0) {	// if the thread is stopped
-				if(verbosity > 1 && _global.vpp.apbuff.tag_ids.size() > 0) {
-					cv::aruco::drawDetectedMarkers(ctx.frame, _global.vpp.apbuff.tag_corners, _global.vpp.apbuff.tag_ids);
+a = high_resolution_clock::now();
+				if(verbosity > 1) {
+					if(_global.vpp.apbuff.tag_ids.size() > 0) {
+						cv::aruco::drawDetectedMarkers(ctx.frame, _global.vpp.apbuff.tag_corners, _global.vpp.apbuff.tag_ids);
+					}
 					cv::putText(ctx.frame,
-						fmt::format("Detection time: {:.3f}ms", _global.stats.april_profile[0]),
-						cv::Point(5, 40), cv::FONT_HERSHEY_DUPLEX,
-						0.5, {0, 255, 0}, 1, cv::LINE_AA
-					);
+								fmt::format("Detection time: {:.3f}ms", _global.stats.april_profile[0] * 1000.f),
+								cv::Point(5, 40), cv::FONT_HERSHEY_DUPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
 					cv::putText(ctx.frame,
-						fmt::format("Estimation time: {:.3f}ms", _global.stats.april_profile[1]),
-						cv::Point(5, 55), cv::FONT_HERSHEY_DUPLEX,
-						0.5, {0, 255, 0}, 1, cv::LINE_AA
-					);
+								fmt::format("Estimation time: {:.3f}ms", _global.stats.april_profile[1] * 1000.f),
+								cv::Point(5, 55), cv::FONT_HERSHEY_DUPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
 					cv::putText(ctx.frame,
-						fmt::format("Total thread time: {:.3f}ms", _global.stats.april_profile[2]),
-						cv::Point(5, 70), cv::FONT_HERSHEY_DUPLEX,
-						0.5, {0, 255, 0}, 1, cv::LINE_AA
-					);
+								fmt::format("Total thread time: {:.3f}ms", _global.stats.april_profile[2] * 1000.f),
+								cv::Point(5, 70), cv::FONT_HERSHEY_DUPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
 				}
+timing[4] = duration<float>(high_resolution_clock::now() - a).count() * 1000.f;
 				_global.vpp.april_worker = std::thread(_april_worker, std::ref(ctx));
-			}
+			} else { timing[3] = 0.0; }
 
 		}
 		if(ctx.vpmode & 0b10) {		// retroreflective
 
 		}
+timing[2] = duration<float>(high_resolution_clock::now() - b).count() * 1000.f;
 
+a = high_resolution_clock::now();
 		if(verbosity > 0) {
-			cv::putText(
-				ctx.frame, fmt::format("{:.1f}", 1.f / ctx.ftime),
-				cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX,
-				0.65, {0, 255, 0}, 1, cv::LINE_AA
-			);
+			cv::putText(ctx.frame,
+						fmt::format("{:.1f}", 1.f / ctx.ftime),
+						cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX, 0.65, {0, 255, 0}, 1, cv::LINE_AA);
 		}
+		if(verbosity > 1) {
+			cv::putText(ctx.frame,
+						fmt::format("CThread: [P:{:.1f}ms, Cp:{:.1f}ms, Vp:{:.1f}ms, ApJt:{:.1f}ms, ApVb:{:.1f}ms, Vb:{:.1f}ms, D:{:.1f}ms, O:{:.1f}ms]",
+							timing[0], timing[1], timing[2], timing[3], timing[4], timing[5], timing[6], timing[7]),
+						cv::Point(5, fsz.height - 20), cv::FONT_HERSHEY_DUPLEX, 0.6, {0, 255, 0}, 1, cv::LINE_AA);
+		}
+timing[5] = duration<float>(high_resolution_clock::now() - a).count() * 1000.f;
+a = high_resolution_clock::now();
 		if(downscale > 1) {
 			cv::Size f = fsz / downscale;
 			if(ctx.dframe.size() != f) {
 				ctx.dframe = cv::Mat(f, CV_8UC3);
 			}
 			cv::resize(ctx.frame, ctx.dframe, f);
+b = high_resolution_clock::now();
 			cs::PutSourceFrame(ctx.fout_h, ctx.dframe, &status);
 		} else {
+b = high_resolution_clock::now();
 			cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);
 		}
+timing[6] = duration<float>(b - a).count() * 1000.f;
+timing[7] = duration<float>(high_resolution_clock::now() - b).count() * 1000.f;
+timing[0] = duration<float>(high_resolution_clock::now() - s).count() * 1000.f;
 
 	}
 
@@ -796,8 +814,6 @@ int _ap_estimate_aruco(
 ) {
 	CV_Assert(corners.size() == ids.size());
 
-	// std::vector<cv::Mat1f> _tvecs, _rvecs;
-
 	size_t ndetected = ids.size();
 	if(ndetected == 0) { return 0; }
 	else if(ndetected == 1) {
@@ -811,17 +827,15 @@ int _ap_estimate_aruco(
 
 		frc::Pose3d tag = _global.aprilp_field_poses.GetTagPose(id).value();
 		for(size_t i = 0; i < _tvecs.size(); i++) {
-			// frc::Transform3d c2tag = cvToWpi(_tvecs[i], _rvecs[i]);
-			// estimations.push_back(tag.TransformBy(c2tag.Inverse()));
-			estimations.emplace_back(tag.TransformBy(util::cvToWpiInv(_tvecs[i], _rvecs[i])));
+			frc::Transform3d c2tag = util::cvToWpi(_tvecs[i], _rvecs[i]);
+			estimations.push_back(tag.TransformBy(c2tag.Inverse()));
+			// estimations.emplace_back(tag.TransformBy(util::cvToWpiInv(_tvecs[i], _rvecs[i])));
 		}
 		return _tvecs.size();
 	}
 
 	CV_Assert(_global.aprilp_field->ids.size() == _global.aprilp_field->objPoints.size());
 
-	// std::vector<cv::Point3f> _obj_points;
-	// std::vector<cv::Point2f> _img_points;
 	_obj_points.clear();
 	_img_points.clear();
 	_obj_points.reserve(ndetected * 4);
@@ -848,9 +862,9 @@ int _ap_estimate_aruco(
 	);
 
 	for(size_t i = 0; i < _tvecs.size(); i++) {
-		// frc::Transform3d f2cam = cvToWpi(_tvecs[i], _rvecs[i]).Inverse();
-		// estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
-		estimations.emplace_back(util::cvToWpiInv_P(_tvecs[i], _rvecs[i]));
+		frc::Transform3d f2cam = util::cvToWpi(_tvecs[i], _rvecs[i]).Inverse();
+		estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
+		// estimations.emplace_back(util::cvToWpiInv_P(_tvecs[i], _rvecs[i]));
 	}
 
 	return _tvecs.size();
@@ -870,7 +884,7 @@ void _april_worker_inst(CThread& target) {
 
 	p = high_resolution_clock::now();
 	_ap_detect_aruco(target.sframe, _buff.tag_corners, _buff.tag_ids);
-	_global.stats.april_profile[0] = duration<double>(high_resolution_clock::now() - p).count();
+	_global.stats.april_profile[0] = duration<float>(high_resolution_clock::now() - p).count();
 
 	if(_buff.tag_ids.size() > 0) {
 		_buff.estimations.clear();		// may do something with these later, like seed the new estimations?
@@ -878,17 +892,17 @@ void _april_worker_inst(CThread& target) {
 		_ap_estimate_aruco(
 			_buff.tag_corners, _buff.tag_ids, target.camera_matrix, target.dist_matrix, _buff.estimations,
 			_buff.tvecs, _buff.rvecs, _buff.obj_points, _buff.img_points);
-		_global.stats.april_profile[1] = duration<double>(high_resolution_clock::now() - p).count();
+		_global.stats.april_profile[1] = duration<float>(high_resolution_clock::now() - p).count();
 
 		double* d = reinterpret_cast<double*>(_buff.estimations.data());
 		_global.nt.poses.Set(std::span<double>(d, d + (_buff.estimations.size() * (sizeof(frc::Pose3d) / sizeof(double)))));
 	} else {
-		_global.stats.april_profile[1] = 0.0;
+		_global.stats.april_profile[1] = 0.f;
 	}
 
 	_global.vpp.april_link = 2;
 
-	_global.stats.april_profile[2] = duration<double>(high_resolution_clock::now() - beg).count();
+	_global.stats.april_profile[2] = duration<float>(high_resolution_clock::now() - beg).count();
 
 }
 void _retro_worker_inst(CThread& target) {}

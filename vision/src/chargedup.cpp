@@ -48,6 +48,7 @@
 #define NT_IDENTITY "Vision RPI"
 #define SIM_ADDR "192.168.0.8"
 #define NT_DEFAULT 0
+#define PATCH_LIFECAM_V4L_PROP_IDS 1
 
 using namespace std::chrono_literals;
 using namespace std::chrono;
@@ -68,7 +69,7 @@ static const std::array<const char*, (size_t)CamID::NUM_CAMERAS>
 static const cs::VideoMode
 	DEFAULT_VMODE{ cs::VideoMode::kMJPEG, 640, 480, 30 };
 static const int
-	DEFAULT_EXPOSURE = 40,
+	DEFAULT_EXPOSURE = (PATCH_LIFECAM_V4L_PROP_IDS > 0 ? 0 : 40),
 	DEFAULT_WBALANCE = -1,
 	DEFAULT_BRIGHTNESS = 50,
 	DEFAULT_DOWNSCALE = 4;
@@ -167,7 +168,7 @@ struct CThread {
 	std::atomic<int> vpmode{0};
 	std::thread vproc;
 
-	cv::Mat frame, dframe, sframe;
+	cv::Mat frame, aframe, dframe;
 	std::atomic<float> ftime{0.f};
 
 };
@@ -309,15 +310,17 @@ struct {
 			std::vector<cv::Mat1f> tvecs, rvecs;
 			std::vector<frc::Pose3d> estimations;
 		} apbuff;
-		// struct {} rtbuff;
+		struct {
+			
+		} rtbuff;
 	} vpp;	// 'Vision Processing Pipeline'
 
 } _global;
 
-void _april_worker_inst(CThread&);
-void _retro_worker_inst(CThread&);
-void _april_worker(CThread&);
-void _retro_worker(CThread&);
+void _april_worker_inst(CThread&, const cv::Mat* = nullptr);
+void _retro_worker_inst(CThread&, const cv::Mat* = nullptr);
+void _april_worker(CThread&, const cv::Mat* = nullptr);
+void _retro_worker(CThread&, const cv::Mat* = nullptr);
 
 bool init(const char* f = FRC_CONFIG);
 
@@ -497,7 +500,12 @@ bool init(const char* fname) {
 			cs::SetSourceConfigJson(cthr.camera_h, camera, &status);	// set to DEFAULT_VMODE if invalid
 			cs::SetSourceConnectionStrategy(cthr.camera_h, CS_CONNECTION_KEEP_OPEN, &status);
 			cthr.vmode = cs::GetSourceVideoMode(cthr.camera_h, &status);
+#if PATCH_LIFECAM_V4L_PROP_IDS > 0
+			cs::SetProperty(cs::GetSourceProperty(cthr.camera_h, "auto_exposure", &status), 1, &status);
+			cs::SetProperty(cs::GetSourceProperty(cthr.camera_h, "exposure_time_absolute", &status), DEFAULT_EXPOSURE, &status);
+#else
 			cs::SetCameraExposureManual(cthr.camera_h, DEFAULT_EXPOSURE, &status);
+#endif
 			cs::SetCameraWhiteBalanceAuto(cthr.camera_h, &status);
 			cs::SetCameraBrightness(cthr.camera_h, DEFAULT_BRIGHTNESS, &status);
 
@@ -568,7 +576,12 @@ bool init(const char* fname) {
 				fmt::format("Camera{}_src", cthr.vid), connections[i].path, &status);
 			cs::SetSourceConnectionStrategy(cthr.camera_h, CS_CONNECTION_KEEP_OPEN, &status);
 			cs::SetSourceVideoMode(cthr.camera_h, (cthr.vmode = DEFAULT_VMODE), &status);
+#if PATCH_LIFECAM_V4L_PROP_IDS > 0
+			cs::SetProperty(cs::GetSourceProperty(cthr.camera_h, "auto_exposure", &status), 1, &status);
+			cs::SetProperty(cs::GetSourceProperty(cthr.camera_h, "exposure_time_absolute", &status), DEFAULT_EXPOSURE, &status);
+#else
 			cs::SetCameraExposureManual(cthr.camera_h, DEFAULT_EXPOSURE, &status);
+#endif
 			cs::SetCameraWhiteBalanceAuto(cthr.camera_h, &status);
 			cs::SetCameraBrightness(cthr.camera_h, DEFAULT_BRIGHTNESS, &status);
 
@@ -660,7 +673,21 @@ void _update(CThread& ctx) {
 		}
 	}
 	if(_global.state.exposure_updated) {
-		cs::SetCameraExposureManual(ctx.camera_h, _global.nt.exposure.Get(), &status);
+		int exp = _global.nt.exposure.Get();
+#if PATCH_LIFECAM_V4L_PROP_IDS > 0
+		if(exp < 0) {
+			cs::SetProperty(cs::GetSourceProperty(ctx.camera_h, "auto_exposure", &status), 3, &status);
+		} else {
+			cs::SetProperty(cs::GetSourceProperty(ctx.camera_h, "auto_exposure", &status), 1, &status);
+			cs::SetProperty(cs::GetSourceProperty(ctx.camera_h, "exposure_time_absolute", &status), exp, &status);
+		}
+#else
+		if(exp < 0) {
+			cs::SetCameraExposureAuto(ctx.camera_h, &status);
+		} else {
+			cs::SetCameraExposureManual(ctx.camera_h, exp, &status);
+		}
+#endif
 	}
 	if(enable) {	// add other states to compute (ex. isproc, isactive) in the future too
 		if(!ctx.vproc.joinable()) {
@@ -698,7 +725,17 @@ s = high_resolution_clock::now();
 		downscale = _global.nt.downscale.Get();
 
 a = high_resolution_clock::now();
-		if(ctx.vpmode) { ctx.frame.copyTo(ctx.sframe); }
+		// if(ctx.vpmode) {
+		// 	if(_global.vpp.apbuff.bframe.type() != CV_8UC1 || _global.vpp.apbuff.bframe.size() != fsz) {
+		// 		_global.vpp.apbuff.bframe = cv::Mat(fsz, CV_8UC1);
+		// 	}
+		// 	// memcpy_deinterlace_togray_asm(ctx.frame.data, _global.vpp.apbuff.bframe.data, fsz.area());
+		// 	neon_deinterlace_cvt2gray(ctx.frame, _global.vpp.apbuff.bframe);
+		// }
+		if(verbosity > 0) {
+			ctx.aframe.release();
+			ctx.aframe = cv::Mat::zeros(fsz, CV_8UC3);
+		}
 timing[1] = duration<float>(high_resolution_clock::now() - a).count() * 1000.f;
 b = high_resolution_clock::now();
 		if(ctx.vpmode & 0b01) {		// apriltag
@@ -713,20 +750,20 @@ timing[3] = duration<float>(high_resolution_clock::now() - a).count() * 1000.f;
 a = high_resolution_clock::now();
 				if(verbosity > 1) {
 					if(_global.vpp.apbuff.tag_ids.size() > 0) {
-						cv::aruco::drawDetectedMarkers(ctx.frame, _global.vpp.apbuff.tag_corners, _global.vpp.apbuff.tag_ids);
+						cv::aruco::drawDetectedMarkers(ctx.aframe, _global.vpp.apbuff.tag_corners, _global.vpp.apbuff.tag_ids);
 					}
-					cv::putText(ctx.frame,
+					cv::putText(ctx.aframe,
 								fmt::format("Detection time: {:.3f}ms", _global.stats.april_profile[0] * 1000.f),
 								cv::Point(5, 40), cv::FONT_HERSHEY_DUPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
-					cv::putText(ctx.frame,
+					cv::putText(ctx.aframe,
 								fmt::format("Estimation time: {:.3f}ms", _global.stats.april_profile[1] * 1000.f),
 								cv::Point(5, 55), cv::FONT_HERSHEY_DUPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
-					cv::putText(ctx.frame,
+					cv::putText(ctx.aframe,
 								fmt::format("Total thread time: {:.3f}ms", _global.stats.april_profile[2] * 1000.f),
 								cv::Point(5, 70), cv::FONT_HERSHEY_DUPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
 				}
 timing[4] = duration<float>(high_resolution_clock::now() - a).count() * 1000.f;
-				_global.vpp.april_worker = std::thread(_april_worker, std::ref(ctx));
+				_global.vpp.april_worker = std::thread(_april_worker, std::ref(ctx), &ctx.frame);
 			} else { timing[3] = 0.0; }
 
 		}
@@ -736,16 +773,20 @@ timing[4] = duration<float>(high_resolution_clock::now() - a).count() * 1000.f;
 timing[2] = duration<float>(high_resolution_clock::now() - b).count() * 1000.f;
 
 a = high_resolution_clock::now();
-		if(verbosity > 0) {
-			cv::putText(ctx.frame,
-						fmt::format("{:.1f}", 1.f / ctx.ftime),
-						cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX, 0.65, {0, 255, 0}, 1, cv::LINE_AA);
-		}
 		if(verbosity > 1) {
-			cv::putText(ctx.frame,
+			cv::putText(ctx.aframe,
 						fmt::format("CThread: [P:{:.1f}ms, Cp:{:.1f}ms, Vp:{:.1f}ms, ApJt:{:.1f}ms, ApVb:{:.1f}ms, Vb:{:.1f}ms, D:{:.1f}ms, O:{:.1f}ms]",
 							timing[0], timing[1], timing[2], timing[3], timing[4], timing[5], timing[6], timing[7]),
 						cv::Point(5, fsz.height - 20), cv::FONT_HERSHEY_DUPLEX, 0.6, {0, 255, 0}, 1, cv::LINE_AA);
+		}
+		if(verbosity > 0) {
+			cv::putText(ctx.aframe,
+						fmt::format("{:.1f}", 1.f / ctx.ftime),
+						cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX, 0.65, {0, 255, 0}, 1, cv::LINE_AA);
+			cv::add(ctx.frame, ctx.aframe, ctx.aframe);
+			// neon_bitwise_or(ctx.aframe, ctx.frame, ctx.aframe);
+		} else {
+			ctx.aframe = ctx.frame;
 		}
 timing[5] = duration<float>(high_resolution_clock::now() - a).count() * 1000.f;
 a = high_resolution_clock::now();
@@ -754,12 +795,12 @@ a = high_resolution_clock::now();
 			if(ctx.dframe.size() != f) {
 				ctx.dframe = cv::Mat(f, CV_8UC3);
 			}
-			cv::resize(ctx.frame, ctx.dframe, f);
+			cv::resize(ctx.aframe, ctx.dframe, f, 0, 0, cv::INTER_AREA);
 b = high_resolution_clock::now();
 			cs::PutSourceFrame(ctx.fout_h, ctx.dframe, &status);
 		} else {
 b = high_resolution_clock::now();
-			cs::PutSourceFrame(ctx.fout_h, ctx.frame, &status);
+			cs::PutSourceFrame(ctx.fout_h, ctx.aframe, &status);
 		}
 timing[6] = duration<float>(b - a).count() * 1000.f;
 timing[7] = duration<float>(high_resolution_clock::now() - b).count() * 1000.f;
@@ -825,7 +866,18 @@ int _ap_estimate_aruco(
 
 		int id = ids.at(0);
 
-		frc::Pose3d tag = _global.aprilp_field_poses.GetTagPose(id).value();
+		auto opt = _global.aprilp_field_poses.GetTagPose(id);
+		frc::Pose3d tag;
+		if(opt.has_value()) {
+			tag = std::move(opt.value());
+		} else {
+			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id);
+			cv::Point3d tx = findCenter3D<double>(x);
+			tag = frc::Pose3d(
+				*reinterpret_cast<frc::Translation3d*>(&tx),
+				frc::Rotation3d()	// put something here
+			);
+		}
 		for(size_t i = 0; i < _tvecs.size(); i++) {
 			frc::Transform3d c2tag = util::cvToWpi(_tvecs[i], _rvecs[i]);
 			estimations.push_back(tag.TransformBy(c2tag.Inverse()));
@@ -851,6 +903,31 @@ int _ap_estimate_aruco(
 				}
 			}
 		}
+
+		// solve all individual poses
+		cv::solvePnPGeneric(
+			GENERIC_TAG_CORNERS, corners.at(0),
+			cmatx, cdist, _rvecs, _tvecs,
+			false, cv::SOLVEPNP_IPPE_SQUARE
+		);
+		auto opt = _global.aprilp_field_poses.GetTagPose(id);
+		frc::Pose3d tag;
+		if(opt.has_value()) {
+			tag = std::move(opt.value());
+		} else {
+			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id);
+			cv::Point3d tx = findCenter3D<double>(x);
+			tag = frc::Pose3d(
+				*reinterpret_cast<frc::Translation3d*>(&tx),
+				frc::Rotation3d()	// put something here
+			);
+		}
+		for(size_t i = 0; i < _tvecs.size(); i++) {
+			frc::Transform3d c2tag = util::cvToWpi(_tvecs[i], _rvecs[i]);
+			estimations.push_back(tag.TransformBy(c2tag.Inverse()));
+			// estimations.emplace_back(tag.TransformBy(util::cvToWpiInv(_tvecs[i], _rvecs[i])));
+		}
+
 	}
 
 	CV_Assert(_img_points.size() == _obj_points.size());
@@ -872,7 +949,7 @@ int _ap_estimate_aruco(
 }
 
 
-void _april_worker_inst(CThread& target) {
+void _april_worker_inst(CThread& target, const cv::Mat* f) {
 
 	decltype(_global.vpp.apbuff)& _buff = _global.vpp.apbuff;
 
@@ -883,7 +960,7 @@ void _april_worker_inst(CThread& target) {
 	_buff.tag_ids.clear();
 
 	p = high_resolution_clock::now();
-	_ap_detect_aruco(target.sframe, _buff.tag_corners, _buff.tag_ids);
+	_ap_detect_aruco((f ? *f : target.frame), _buff.tag_corners, _buff.tag_ids);
 	_global.stats.april_profile[0] = duration<float>(high_resolution_clock::now() - p).count();
 
 	if(_buff.tag_ids.size() > 0) {
@@ -905,15 +982,19 @@ void _april_worker_inst(CThread& target) {
 	_global.stats.april_profile[2] = duration<float>(high_resolution_clock::now() - beg).count();
 
 }
-void _retro_worker_inst(CThread& target) {}
+void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 
-void _april_worker(CThread& target) {
-
-	_april_worker_inst(target);		// may convert this into a loop with state checking later
+	decltype(_global.vpp.rtbuff)& _buff = _global.vpp.rtbuff;
 
 }
-void _retro_worker(CThread& target) {
 
-	_retro_worker_inst(target);		// '''
+void _april_worker(CThread& target, const cv::Mat* f) {
+
+	_april_worker_inst(target, f);		// may convert this into a loop with state checking later
+
+}
+void _retro_worker(CThread& target, const cv::Mat* f) {
+
+	_retro_worker_inst(target, f);		// '''
 
 }

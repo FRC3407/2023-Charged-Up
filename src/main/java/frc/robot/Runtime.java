@@ -162,7 +162,8 @@ public final class Runtime extends TimedRobot {
 			//Auto.setGrabber(this.robot.manipulator, Manipulator.Grabber.WRIST_MAX_ANGLE, 5.0).schedule();
 			if(this.auto_select.getAsBoolean() && this.auto_balance != null) {
 				// this.auto_balance.until(AutonomousTrigger.Get().negate()).schedule();
-				Auto.driveStraight(this.robot.drivebase, -2.0, -1.2).andThen(Auto.driveStraight(this.robot.drivebase, -2.0, 0.7)).andThen(send(this.auto_balance, "Climb Charging Pad")).schedule();
+				// Auto.driveStraight(this.robot.drivebase, -2.0, -1.2).andThen(Auto.driveStraight(this.robot.drivebase, -2.0, 0.7)).andThen(
+				send(this.auto_balance, "Climb Charging Pad").schedule();
 				System.out.println("Balance Auto Started!");
 			} else if(this.auto_driveforward != null) {
 				// this.auto_driveforward.until(AutonomousTrigger.Get().negate()).schedule();
@@ -273,7 +274,7 @@ public final class Runtime extends TimedRobot {
 					Attack3.Analog.Y.getDriveInputSupplier(rstick,
 						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Attack3.Analog.X.getDriveInputSupplier(lstick,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, -Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Attack3.Digital.TRI.getSupplier(rstick),
 					Attack3.Digital.TRI.getSupplier(lstick),
 					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE

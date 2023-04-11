@@ -284,7 +284,8 @@ public final class Manipulator implements Sendable {
 			arm_percent,
 			grab_percent,
 			wrist_set;
-		private double wristPosition = 0.5; 
+		// Pos range should be between 0.51 and 2.49. Look at slack prog. chat 4 more
+		private double wristPosition = 0.51; 
 
 		public TestManipulator(Manipulator m, DoubleSupplier a, DoubleSupplier g, DoubleSupplier w) {
 			this.manipulator = m;
@@ -295,28 +296,28 @@ public final class Manipulator implements Sendable {
 
 		private double calcWristPos()
 		{
-			if(this.wrist_set.getAsDouble() > 0 && wristPosition < 1.0)
+			if(this.wrist_set.getAsDouble() > 0.51 && wristPosition < 2.49)
 			{
-				if(wristPosition + 0.001 < 0.95)
-				{
+				//if(wristPosition + 0.001 < 0.95)
+				//{
 					return wristPosition += 0.001;
-				}
-				else
-				{
-					return this.WRIST_UPPER_LIMIT_PERCENT - 0.1;
-				}
+				//}
+				//else
+				//{
+					//return this.WRIST_UPPER_LIMIT_PERCENT - 0.1;
+				//}
 				
 			}
 			else if(this.wrist_set.getAsDouble() < 0 && wristPosition > 0.0)
 			{
-				if(wristPosition- 0.001 > 0.05)
-				{
-					return wristPosition -= 0.001;
-				}
-				else 
-				{
-					return this.WRIST_UPPER_LIMIT_PERCENT + 0.1;
-				}
+				// if(wristPosition- 0.001 > 0.05)
+				// {
+				  	return wristPosition -= 0.001;
+				// }
+				// else 
+				// {
+					//return this.WRIST_UPPER_LIMIT_PERCENT + 0.1;
+				// }
 				
 			}
 			else 

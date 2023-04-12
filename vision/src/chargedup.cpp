@@ -639,7 +639,7 @@ bool init(const char* fname) {
 	_global.nt.april_mode = _global.base_ntable->GetIntegerTopic("AprilTag Mode").GetEntry(-2, NT_OPTIONS);
 	_global.nt.retro_mode = _global.base_ntable->GetIntegerTopic("RetroRefl Mode").GetEntry(-2, NT_OPTIONS);
 	_global.nt.poses = _global.base_ntable->GetDoubleArrayTopic("Camera Pose Estimations").GetEntry({}, NT_OPTIONS);
-	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("Tape Relative Positions").GetEntry({}, NT_OPTIONS);
+	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("Retro Tape Detections").GetEntry({}, NT_OPTIONS);
 	_global.nt.views_avail.Set(_global.cthreads.size());
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);

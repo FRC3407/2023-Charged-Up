@@ -20,6 +20,7 @@ import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.*;
 import edu.wpi.first.wpilibj.util.WPILibVersion;
 
+import com.pathplanner.lib.commands.PPRamseteCommand;
 import com.pathplanner.lib.server.PathPlannerServer;
 
 import frc.robot.Constants.ButtonBox;
@@ -87,13 +88,12 @@ public final class Runtime extends TimedRobot {
 	@Override
 	public void robotInit() {
 		System.out.println("Using Wpilib Version " + WPILibVersion.Version);
-		PortForwarder.add(1180, "10.34.7.12", 80);
-		PortForwarder.add(1181, "10.34.7.12", 1181);
 		Vision.init();
 		if(isReal()) { DataLogManager.start(); }
 		else { DataLogManager.start("logs/sim"); }
 		DriverStation.startDataLog(DataLogManager.getLog());
 		PathPlannerServer.startServer(5811);
+		//PPRamseteCommand.setLoggingCallbacks(null, null, null, null);	// <-- finish this so we can log the trajectories
 		this.robot.startLogging();
 		(new Vision.PoseUpdater(this.field_logger.getRobotObject())).schedule();
 		SmartDashboard.putData("Robot/FieldPosition", this.field_logger);
@@ -102,8 +102,8 @@ public final class Runtime extends TimedRobot {
 		this.controls.addScheme("Dual Xbox Testing", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
 		this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
 		this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Competition Controls (AD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardAD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.setDefault("Competition Controls (TD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
+		this.controls.setDefault("Competition Controls (AD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardAD, CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Competition Controls (TD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
 		this.controls.setAmbiguousSolution(ControlSchemeManager.AmbiguousSolution.PREFER_COMPLEX);
 		this.controls.publishSelector();
 		this.controls.runContinuous();
@@ -274,7 +274,7 @@ public final class Runtime extends TimedRobot {
 					Attack3.Analog.Y.getDriveInputSupplier(rstick,
 						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Attack3.Analog.X.getDriveInputSupplier(lstick,
-						Constants.DRIVE_INPUT_DEADZONE, -Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, -1.0 * Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Attack3.Digital.TRI.getSupplier(rstick),
 					Attack3.Digital.TRI.getSupplier(lstick),
 					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE

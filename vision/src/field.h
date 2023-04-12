@@ -1,9 +1,21 @@
 #pragma once
 
+#include <array>
+
 #include <core/aprilpose.h>
 
 
 // https://firstfrc.blob.core.windows.net/frc2023/FieldAssets/2023LayoutMarkingDiagram.pdf (page 4)
+
+static inline constexpr float
+	TAG_SIDE_INCHES = 6.f;
+static inline const std::array<cv::Point3f, 4>
+	GENERIC_TAG_CORNERS{	// in camera coord system
+		cv::Point3f{ -TAG_SIDE_INCHES / 2.f, TAG_SIDE_INCHES / 2.f, 0.f },
+		cv::Point3f{ TAG_SIDE_INCHES / 2.f, TAG_SIDE_INCHES / 2.f, 0.f },
+		cv::Point3f{ TAG_SIDE_INCHES / 2.f, -TAG_SIDE_INCHES / 2.f, 0.f },
+		cv::Point3f{ -TAG_SIDE_INCHES / 2.f, -TAG_SIDE_INCHES / 2.f, 0.f }
+	};
 
 static inline const cv::Ptr<cv::aruco::Board>	// the frc 2023 field has 8 markers - source is linked above
 	FIELD_2023{ cv::aruco::Board::create(

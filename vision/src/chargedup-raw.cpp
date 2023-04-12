@@ -17,12 +17,12 @@
 #include <wpi/raw_ostream.h>
 #include <wpi/raw_istream.h>
 #include <wpi/StringExtras.h>
-#include <networktables/NetworkTable.h>
-#include <networktables/IntegerTopic.h>
-#include <networktables/FloatArrayTopic.h>
 #include <wpi/sendable/Sendable.h>
 #include <wpi/sendable/SendableBuilder.h>
 #include <frc/smartdashboard/SmartDashboard.h>
+#include <networktables/NetworkTable.h>
+#include <networktables/IntegerTopic.h>
+#include <networktables/FloatArrayTopic.h>
 #include <cameraserver/CameraServer.h>
 
 #include <cpp-tools/src/sighandle.h>
@@ -45,12 +45,12 @@ enum CamID {
 	FWD_CAMERA,
 	ARM_CAMERA,
 	TOP_CAMERA,
-	// PIXY2,
-	START_ADDITIONAL
+
+	NUM_CAMERAS
 };
 static const nt::PubSubOptions
 	NT_OPTIONS = { .periodic = 1.0 / 30.0 };
-static const std::array<const char*, (size_t)CamID::START_ADDITIONAL>
+static const std::array<const char*, (size_t)CamID::NUM_CAMERAS>
 	CAMERA_TAGS{ "forward", "arm", "top" };
 static const cs::VideoMode
 	DEFAULT_VMODE{ cs::VideoMode::kMJPEG, 640, 480, 30 };
@@ -58,7 +58,7 @@ static const int
 	DEFAULT_EXPOSURE = 40,
 	DEFAULT_WBALANCE = -1,
 	DEFAULT_BRIGHTNESS = 50,
-	DEFAULT_DSCALE = 4;
+	DEFAULT_DOWNSCALE = 4;
 
 
 class Stats : public wpi::Sendable, public CoreStats {
@@ -137,7 +137,6 @@ struct {
 	int next_stream_port = 1181;
 	std::vector<CThread> cthreads;
 	cv::Mat disconnect_frame;
-	// Pixy2 pixycam;
 	CS_Source discon_frame_h;
 	CS_Sink stream_h;
 
@@ -216,7 +215,6 @@ int main(int argc, char** argv) {
 		cs::ReleaseSink(_global.stream_h, &status);
 		cs::ReleaseSource(_global.discon_frame_h, &status);
 		cs::Shutdown();
-		// _global.pixycam.m_link.close();
 		std::cout << "Shutdown complete. Exitting..." << std::endl;
 	}
 
@@ -307,7 +305,7 @@ bool init(const char* fname) {
 
 	std::vector<cs::UsbCameraInfo> connections = cs::EnumerateUsbCameras(&status);
 
-	int vid_additions = CamID::START_ADDITIONAL;
+	int vid_additions = CamID::NUM_CAMERAS;
 	try {
 		for(const wpi::json& camera : j.at("cameras")) {
 			CThread& cthr = _global.cthreads.emplace_back();
@@ -391,7 +389,7 @@ bool init(const char* fname) {
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);
 	_global.nt.exposure.Set(DEFAULT_EXPOSURE);
-	_global.nt.downscale.Set(DEFAULT_DSCALE);
+	_global.nt.downscale.Set(DEFAULT_DOWNSCALE);
 
 	frc::SmartDashboard::init();
 	frc::SmartDashboard::PutData("Vision/Stats", &_global.stats);
@@ -410,20 +408,6 @@ void _update(CThread& ctx) {
 	bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
 	bool enable = connected && ((overlay && outputting) || downscale);
 
-	// if(outputting && (_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated)) {
-	// 	if(connected) {
-	// 		if(overlay || downscale) {
-	// 			cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);
-	// 			cs::SetSinkSource(ctx.view_h, ctx.fout_h, &status);
-	// 		} else {
-	// 			cs::SetSinkSource(_global.stream_h, ctx.camera_h, &status);
-	// 			cs::SetSinkSource(ctx.view_h, ctx.camera_h, &status);
-	// 		}
-	// 	} else {
-	// 		cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
-	// 		cs::SetSinkSource(ctx.view_h, _global.discon_frame_h, &status);
-	// 	}
-	// }
 	if(_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated) {
 		if(connected) {
 			if(overlay || downscale) {
@@ -460,7 +444,7 @@ void _worker(CThread& ctx) {
 	cs::SetSinkSource(ctx.fin_h, ctx.camera_h, &status);
 
 	high_resolution_clock::time_point tp = high_resolution_clock::now();
-	int verbosity, dscale;
+	int verbosity, downscale;
 	cv::Size fsz{ctx.vmode.width, ctx.vmode.height};
 
 	for(;ctx.link_state && _global.state.program_enable;) {
@@ -470,7 +454,7 @@ void _worker(CThread& ctx) {
 		ctx.ftime = duration<float>(t - tp).count();
 		tp = t;
 		verbosity = _global.nt.ovl_verbosity.Get();
-		dscale = _global.nt.downscale.Get();
+		downscale = _global.nt.downscale.Get();
 		if(verbosity > 0) {
 			cv::putText(
 				ctx.frame, std::to_string(1.f / ctx.ftime),
@@ -478,8 +462,8 @@ void _worker(CThread& ctx) {
 				0.65, cv::Scalar(0, 255, 0), 1, cv::LINE_AA
 			);
 		}
-		if(dscale > 1) {
-			cv::Size f = fsz / dscale;
+		if(downscale > 1) {
+			cv::Size f = fsz / downscale;
 			if(ctx.buff.size() != f) {
 				ctx.buff = cv::Mat(f, CV_8UC3);
 			}

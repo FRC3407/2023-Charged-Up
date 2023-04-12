@@ -1,10 +1,12 @@
 package frc.robot;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.networktables.*;
+import edu.wpi.first.wpilibj.smartdashboard.FieldObject2d;
 import edu.wpi.first.wpilibj2.command.CommandBase;
 
 import org.photonvision.PhotonCamera;
@@ -24,6 +26,14 @@ public class Vision {
 				0, Vision.NT_ENTRY_DEFAULT);
 			this.overlay_verbosity = this.vbase.getIntegerTopic("Overlay Verbosity").getEntry(
 				0, Vision.NT_ENTRY_DEFAULT);
+			this.cam_exposure = this.vbase.getIntegerTopic("Camera Exposure").getEntry(
+				0, Vision.NT_ENTRY_DEFAULT);
+			this.downscaling = this.vbase.getIntegerTopic("Output Downscale").getEntry(
+				0, Vision.NT_ENTRY_DEFAULT);
+			this.aprilp_mode = this.vbase.getIntegerTopic("AprilTag Mode").getEntry(
+				0, Vision.NT_ENTRY_DEFAULT);
+			this.pose_estimations = this.vbase.getDoubleArrayTopic("Camera Pose Estimations").subscribe(
+				new double[]{}, Vision.NT_ENTRY_DEFAULT);
 		}
 		private static NT global;
 		public static NT get() {
@@ -34,9 +44,14 @@ public class Vision {
 		}
 
 		public final NetworkTable vbase;
-		public final IntegerEntry avail_cams;
-		public final IntegerEntry active_cam;
-		public final IntegerEntry overlay_verbosity;
+		public final IntegerEntry
+			avail_cams,
+			active_cam,
+			overlay_verbosity,
+			cam_exposure,
+			downscaling,
+			aprilp_mode;
+		public final DoubleArraySubscriber pose_estimations;
 	}
 
 	public static NT nt = null;
@@ -48,8 +63,7 @@ public class Vision {
 	public static enum CameraSelect {
 		FORWARD		(0, "Forward Facing Camera"),
 		ARM			(1, "Arm Camera"),
-		TOP			(2, "Top Camera")/*,
-		PIXY2		(3, "PixyCam")*/;
+		TOP			(2, "Top Camera");
 
 		public final int id;
 		public final String name;
@@ -96,6 +110,66 @@ public class Vision {
 	public static int getVerbosity() {
 		return (int)nt.overlay_verbosity.get();
 	}
+
+	public static Pose3d[] getRawEstimations(Pose3d[] p) {
+		double[] d = nt.pose_estimations.get();
+		int len = d.length / 7;
+		if(p == null || p.length != len) {
+			p = new Pose3d[len];
+		}
+		for(int i = 0; i / 7 < p.length;) {
+			p[i / 7] = new Pose3d(
+				new Translation3d(
+					d[i++],
+					d[i++],
+					d[i++]
+				),
+				new Rotation3d(
+					new Quaternion(
+						d[i++],
+						d[i++],
+						d[i++],
+						d[i++]
+					))
+			);
+		}
+		return p;
+	}
+	public static Pose3d[] getRawEstimations() {
+		return getRawEstimations(null);
+	}
+
+
+	public static class PoseUpdater extends CommandBase {
+
+		private final FieldObject2d obj;
+		private ArrayList<Pose2d> poses = new ArrayList<>();
+		private Pose3d[] raw = null;
+
+		public PoseUpdater(FieldObject2d o) {
+			this.obj = o;
+		}
+
+		@Override
+		public void initialize() {
+			this.obj.setPose(new Pose2d(1, 1, new Rotation2d(1)));
+		}
+		@Override
+		public void execute() {
+			this.raw = Vision.getRawEstimations(this.raw);
+			if(this.raw.length > 0) {
+				this.poses.clear();
+				for(int i = 0; i < raw.length; i++) {
+					this.poses.add(this.raw[i].toPose2d());
+				}
+				this.obj.setPoses(this.poses);
+			}
+		}
+		@Override
+		public boolean runsWhenDisabled() { return true; }
+
+	}
+
 
 
 	public static class CameraControl extends CommandBase {

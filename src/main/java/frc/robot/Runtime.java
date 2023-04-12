@@ -14,10 +14,13 @@ import edu.wpi.first.wpilibj.PWM;
 import edu.wpi.first.wpilibj.PowerDistribution;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.*;
+import edu.wpi.first.wpilibj.util.WPILibVersion;
 
+import com.pathplanner.lib.commands.PPRamseteCommand;
 import com.pathplanner.lib.server.PathPlannerServer;
 
 import frc.robot.Constants.ButtonBox;
@@ -70,6 +73,7 @@ public final class Runtime extends TimedRobot {
 		}
 	}
 	private final Robot robot = new Robot();
+	private final Field2d field_logger = new Field2d();
 	// private final LEDTest leds = new LEDTest(2, 3, 4);
 	private final ControlSchemeManager controls = new ControlSchemeManager();
 	// private final SendableChooser<Command> auto = new SendableChooser<>();
@@ -83,21 +87,24 @@ public final class Runtime extends TimedRobot {
 
 	@Override
 	public void robotInit() {
-		PortForwarder.add(1180, "10.34.7.12", 80);
-		PortForwarder.add(1181, "10.34.7.12", 1181);
+		System.out.println("Using Wpilib Version " + WPILibVersion.Version);
+		CommandScheduler.getInstance().registerSubsystem(this.robot.drivebase);
 		Vision.init();
 		if(isReal()) { DataLogManager.start(); }
 		else { DataLogManager.start("logs/sim"); }
 		DriverStation.startDataLog(DataLogManager.getLog());
 		PathPlannerServer.startServer(5811);
+		//PPRamseteCommand.setLoggingCallbacks(null, null, null, null);	// <-- finish this so we can log the trajectories
 		this.robot.startLogging();
+		(new Vision.PoseUpdater(this.field_logger.getRobotObject())).schedule();
+		SmartDashboard.putData("Robot/FieldPosition", this.field_logger);
 
 		this.controls.addScheme("Single Xbox Testing", new AutomatedTester(Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
 		this.controls.addScheme("Dual Xbox Testing", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
 		this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
 		this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Competition Controls (AD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardAD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.setDefault("Competition Controls (TD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
+		this.controls.setDefault("Competition Controls (AD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardAD, CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Competition Controls (TD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
 		this.controls.setAmbiguousSolution(ControlSchemeManager.AmbiguousSolution.PREFER_COMPLEX);
 		this.controls.publishSelector();
 		this.controls.runContinuous();
@@ -156,7 +163,8 @@ public final class Runtime extends TimedRobot {
 			//Auto.setGrabber(this.robot.manipulator, Manipulator.Grabber.WRIST_MAX_ANGLE, 5.0).schedule();
 			if(this.auto_select.getAsBoolean() && this.auto_balance != null) {
 				// this.auto_balance.until(AutonomousTrigger.Get().negate()).schedule();
-				Auto.driveStraight(this.robot.drivebase, -2.0, -1.2).andThen(Auto.driveStraight(this.robot.drivebase, -2.0, 0.7)).andThen(send(this.auto_balance, "Climb Charging Pad")).schedule();
+				// Auto.driveStraight(this.robot.drivebase, -2.0, -1.2).andThen(Auto.driveStraight(this.robot.drivebase, -2.0, 0.7)).andThen(
+				send(this.auto_balance, "Climb Charging Pad").schedule();
 				System.out.println("Balance Auto Started!");
 			} else if(this.auto_driveforward != null) {
 				// this.auto_driveforward.until(AutonomousTrigger.Get().negate()).schedule();
@@ -267,7 +275,7 @@ public final class Runtime extends TimedRobot {
 					Attack3.Analog.Y.getDriveInputSupplier(rstick,
 						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Attack3.Analog.X.getDriveInputSupplier(lstick,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, -1.0 * Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Attack3.Digital.TRI.getSupplier(rstick),
 					Attack3.Digital.TRI.getSupplier(lstick),
 					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE

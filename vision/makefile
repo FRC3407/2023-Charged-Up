@@ -21,7 +21,7 @@ VISIONSERVER := $(VS_DIR)/out/libvs3407.so
 PACKAGE_DEPS := $(VS_DIR)/lib/libtensorflowlite.so $(VS_DIR)/lib/libedgetpu.so $(VISIONSERVER)
 
 # SRCS := $(call rwildcard,$(SRC_DIR)/,*.cpp *.c *.S *.s)
-SRCS := src/chargedup-raw.cpp
+SRCS := src/chargedup.cpp
 OBJS := $(SRCS:$(SRC_DIR)/%=$(OBJ_DIR)/%.o)
 #SRCS_VS1 := main.cpp $(call rwildcard,$(SRC_DIR)/additions-compile/,*.cpp *.c) $(call rwildcard,$(VS_DIR)/src/vs1-legacy/,*.cpp *.c *.S *.s)
 #SRCS_VS1 := $(SRCS:%=$(OBJ_DIR)/%.o)
@@ -55,7 +55,7 @@ LDFLAGS := -pthread -Wall -L$(VS_DIR)/out -L$(VS_DIR)/lib -L$(SRC_DIR)/libpixy/o
 # 	-lopencv_imgproc -lopencv_core -lvs3407 -lcameraserver \
 # 	-lntcore -lcscore -lwpiutil -lwpimath -lwpilibc -lopencv_aruco -lpigpio
 LDLIBS := -lcscore -lntcore -lwpiutil -lwpilibc -lcameraserver -lopencv_core -lopencv_imgproc \
-# -lapriltag -lwpimath -lopencv_aruco -lopencv_calib3d
+ -lapriltag -lwpimath -lopencv_aruco -lopencv_calib3d -lvs3407
 
 
 ifeq ($(OS),Windows_NT)

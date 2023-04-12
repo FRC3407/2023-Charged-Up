@@ -88,6 +88,7 @@ public final class Runtime extends TimedRobot {
 	@Override
 	public void robotInit() {
 		System.out.println("Using Wpilib Version " + WPILibVersion.Version);
+		CommandScheduler.getInstance().registerSubsystem(this.robot.drivebase);
 		Vision.init();
 		if(isReal()) { DataLogManager.start(); }
 		else { DataLogManager.start("logs/sim"); }

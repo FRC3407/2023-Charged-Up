@@ -3,6 +3,10 @@ package frc.robot;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.AddressableLED;
@@ -20,6 +24,8 @@ import edu.wpi.first.wpilibj2.command.*;
 import edu.wpi.first.wpilibj.util.WPILibVersion;
 
 import com.pathplanner.lib.server.PathPlannerServer;
+import com.pathplanner.lib.PathPlannerTrajectory;
+import com.pathplanner.lib.commands.PPRamseteCommand;
 
 import frc.robot.Constants.ButtonBox;
 import frc.robot.team3407.controls.Input.*;
@@ -92,17 +98,32 @@ public final class Runtime extends TimedRobot {
 		if(isReal()) { DataLogManager.start(); } else { DataLogManager.start("logs/sim"); }
 		DriverStation.startDataLog(DataLogManager.getLog());
 		PathPlannerServer.startServer(5811);
-		//PPRamseteCommand.setLoggingCallbacks(null, null, null, null);	// <-- finish this so we can log the trajectories
+		PPRamseteCommand.setLoggingCallbacks(null,
+			// (PathPlannerTrajectory ppt)->{},
+			(Pose2d target)->{ SmartDashboard.putNumberArray("Active Trajectory/Target Pose",
+				new double[]{
+					target.getX(), target.getY(),
+					target.getRotation().getDegrees()
+				}); },
+			(ChassisSpeeds setpoint)->{
+				SmartDashboard.putNumber("Active Trajectory/Setpoint Vx MpS", setpoint.vxMetersPerSecond);
+				SmartDashboard.putNumber("Active Trajectory/Setpoint Vy MpS", setpoint.vyMetersPerSecond);
+				SmartDashboard.putNumber("Active Trajectory/Setpoint Omega RadpS", setpoint.omegaRadiansPerSecond); },
+			(Translation2d tx, Rotation2d rx)->{
+				SmartDashboard.putNumber("Active Trajectory/X Error", tx.getX()); 
+				SmartDashboard.putNumber("Active Trajectory/Y Error", tx.getY()); 
+				SmartDashboard.putNumber("Active Trajectory/Rotation Error", rx.getDegrees()); }
+		);
 		this.robot.startLogging();
 
 		// (new Vision.PoseUpdater(this.field_logger.getRobotObject())).schedule();
 		// SmartDashboard.putData("Robot/FieldPosition", this.field_logger);
 
 		this.controls.addScheme("Single Xbox Testing",			new AutomatedTester(Xbox.Map),											this::setupXbox,			CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Dual Xbox Testing",				new AutomatedTester(Xbox.Map, Xbox.Map),								this::setupXbox,			CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Arcade Board Controls",			new AutomatedTester(Attack3.Map, Attack3.Map),							this::setupControlBoardTD,	CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Dual Xbox Testing",			new AutomatedTester(Xbox.Map, Xbox.Map),								this::setupXbox,			CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Arcade Board Controls",		new AutomatedTester(Attack3.Map, Attack3.Map),							this::setupControlBoardTD,	CommandScheduler.getInstance()::cancelAll);
 		this.controls.addScheme("Control Board Controls",		new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map),			this::setupControlBoardTD,	CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Competition Controls (TD)",		new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map),	this::setupControlBoardTD,	CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Competition Controls (TD)",	new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map),	this::setupControlBoardTD,	CommandScheduler.getInstance()::cancelAll);
 		this.controls.setDefault("Competition Controls (AD)",	new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map),	this::setupControlBoardAD,	CommandScheduler.getInstance()::cancelAll);
 		this.controls.setAmbiguousSolution(ControlSchemeManager.AmbiguousSolution.PREFER_COMPLEX);
 		this.controls.publishSelector();

@@ -1,8 +1,7 @@
 package frc.robot;
 
-import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.function.DoubleSupplier;
 
 import edu.wpi.first.math.trajectory.constraint.DifferentialDriveVoltageConstraint;
@@ -14,18 +13,16 @@ import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.MotorSafety;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
-import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.FieldObject2d;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.*;
 
 import com.ctre.phoenix.motorcontrol.*;
 import com.ctre.phoenix.motorcontrol.can.*;
 
 import com.pathplanner.lib.*;
-import com.pathplanner.lib.PathPlannerTrajectory.PathPlannerState;
 import com.pathplanner.lib.auto.PIDConstants;
 import com.pathplanner.lib.auto.RamseteAutoBuilder;
+import com.pathplanner.lib.commands.FollowPathWithEvents;
 import com.pathplanner.lib.commands.PPRamseteCommand;
 
 import frc.robot.team3407.drive.Types.*;
@@ -120,23 +117,21 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		}
 	}
 
-	private final Gyro 
-		gyro;
-	private final WPI_TalonSRX
-		left, left2,
-		right, right2;
-	public final ClosedLoopParams
-		parameters;
 
-	public final SimpleMotorFeedforward feedforward;
-	private final DifferentialDriveOdometry odometry;
 	private final DifferentialDriveKinematics kinematics;
+	private final DifferentialDriveOdometry odometry;
+	public final SimpleMotorFeedforward feedforward;
+	public final ClosedLoopParams parameters;
 
-	private RamseteAutoBuilder autobuilder = null;
+	private final WPI_TalonSRX left, left2, right, right2;
+	private final Gyro gyro;
 
 	private Transform2d last_total_odometry = new Transform2d();
 
-	public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params) {
+
+	public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params)
+		{ this(map, gy, params, Constants.DRIVEBASE_NEUTRAL_MODE); }
+	public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params, NeutralMode nmode) {
 		this.parameters = params;
 		this.gyro = gy;
 		this.left = map.front_left;
@@ -152,7 +147,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		this.right.configFactoryDefault();
 		this.left2.configFactoryDefault();
 		this.right2.configFactoryDefault();
-		this.setNeutralMode(Constants.DRIVEBASE_NEUTRAL_MODE);
+		this.setNeutralMode(nmode);
 		this.left2.follow(this.left);
 		this.right2.follow(this.right);
 		this.left2.setInverted(InvertType.FollowMaster);
@@ -235,7 +230,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	}
 	@Override
 	public String getDescription() {
-		return "DriveBase [2023]";
+		return "4xTalonSRX Differential Drivebase";
 	}
 
 	public void setTotalFieldPose(FieldObject2d fo) {
@@ -255,29 +250,65 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	 * @param ds a drive supplier that supplies percentages in the range [-1, 1]
 	 * @return A command for driving the drivebase using tankdrive
 	 */
-	public CommandBase tankDrivePercent(TDriveSupplier ds) {
+	public CommandBase tankDrivePercent(DifferentialDriveSupplier ds) {
 		return new TankDrivePercent(this, ds);
 	}
 	/** Get a tankdrive command, controlled by inputs that return voltages for each side
 	 * @param ds a drive supplier that supplies voltages in the range [-12, 12]
 	 * @return A command for driving the drivebase using tankdrive
 	 */
-	public CommandBase tankDriveVoltage(TDriveSupplier ds) {
+	public CommandBase tankDriveVoltage(DifferentialDriveSupplier ds) {
 		return new TankDriveVoltage(this, ds);
 	}
 	/** Get a tankdrive command, controlled by inputs that provide target velocities for each side
 	 * @param ds a drive supplier that supplies velocities in METERS PER SECOND
 	 * @return A command for driving the drivebase using tankdrive
 	 */
-	public CommandBase tankDriveVelocity(TDriveSupplier ds) {
+	public CommandBase tankDriveVelocity(DifferentialDriveSupplier ds) {
 		return new TankDriveVelocity(this, ds);
 	}
 	/** Get a tankdrive command, controlled by inputs that provide target velocities for each side -- transitions are limited by a trapazoid profile generator
 	 * @param ds a drive supplier that supplies velocities in METERS PER SECOND
 	 * @return A command for driving the drivebase using tankdrive
 	 */
-	public CommandBase tankDriveVelocityProfiled(TDriveSupplier ds) {
+	public CommandBase tankDriveVelocityProfiled(DifferentialDriveSupplier ds) {
 		return new TankDriveVelocityProfiled(this, ds);
+	}
+	/** Follow a generic trajectory using WPILib's RamseteCommand ("basic following") */
+	public PathFollower followTrajectory(Trajectory t) {
+		return new PathFollower(this, t);
+	}
+	/** Follow a path planner trajectory using the target's filename and executed by a PPRamseteCommand */
+	public PathFollower followPPTrajectory(String ppfile) {
+		return new PathFollower(this, ppfile);
+	}
+	/** Follow a path planner trajectory, executed by a PPRamseteCommand */
+	public PathFollower followPPTrajectory(PathPlannerTrajectory t) {
+		return new PathFollower(this, t);
+	}
+	/** Follow a path planner trajectory using the target's filename and executed by a PPRamseteCommand */
+	public PathFollower followPPTrajectory(String ppfile, boolean allianceTransform) {
+		return new PathFollower(this, ppfile, allianceTransform);
+	}
+	/** Follow a path planner trajectory, executed by a PPRamseteCommand */
+	public PathFollower followPPTrajectory(PathPlannerTrajectory t, boolean allianceTransform) {
+		return new PathFollower(this, t, allianceTransform);
+	}
+	/** Follow a path planner trajectory with events using the target's filename -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
+	public PathFollower followEventTrajectory(String ppfile, Map<String, Command> events) {
+		return new PathFollower(this, ppfile, events);
+	}
+	/** Follow a path planner trajectory with events -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
+	public PathFollower followEventTrajectory(PathPlannerTrajectory t, Map<String, Command> events) {
+		return new PathFollower(this, t, events);
+	}
+	/** Follow a path planner trajectory with events using the target's filename -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
+	public PathFollower followEventTrajectory(String ppfile, Map<String, Command> events, boolean allianceTransform) {
+		return new PathFollower(this, ppfile, events, allianceTransform);
+	}
+	/** Follow a path planner trajectory with events -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
+	public PathFollower followEventTrajectory(PathPlannerTrajectory t, Map<String, Command> events, boolean allianceTransform) {
+		return new PathFollower(this, t, events, allianceTransform);
 	}
 
 
@@ -397,9 +428,11 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			this.getVoltageConstraint()
 		);
 	}
+	public PathPlannerTrajectory loadConstrainedPPTrajectory(String ppfile) {
+		return PathPlanner.loadPath(ppfile, this.parameters.getPathConstraints());
+	}
 
-	// making the entire class extend 'BaseAutoBuilder' would make this much simpler
-	public RamseteAutoBuilder generateAutoBuilder(HashMap<String, Command> events) {
+	public RamseteAutoBuilder makeAutoBuilder(HashMap<String, Command> events) {
 		return new RamseteAutoBuilder(
 			this::getDeltaPose,
 			this::resetOdometry,
@@ -412,12 +445,6 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			events,
 			this
 		);
-	}
-	public RamseteAutoBuilder getAutoBuilder(HashMap<String, Command> events) {
-		if(this.autobuilder == null) {  // or if new event map
-			this.autobuilder = this.generateAutoBuilder(events);
-		}
-		return this.autobuilder;
 	}
 
 
@@ -433,11 +460,11 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	public static class TankDriveVoltage extends CommandBase {
 		
 		private final DriveBase drivebase;
-		private final TDriveSupplier driver;
+		private final DifferentialDriveSupplier driver;
 
 		public TankDriveVoltage(DriveBase db, DoubleSupplier l, DoubleSupplier r)
 			{ this(db, new TankSupplier(l, r)); }
-		public TankDriveVoltage(DriveBase db, TDriveSupplier ds) {
+		public TankDriveVoltage(DriveBase db, DifferentialDriveSupplier ds) {
 			this.drivebase = db;
 			this.driver = ds;
 			super.addRequirements(db);
@@ -471,7 +498,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	public static class TankDrivePercent extends TankDriveVoltage {
 
 		public TankDrivePercent(DriveBase db, DoubleSupplier l, DoubleSupplier r) { super(db, l, r); }
-		public TankDrivePercent(DriveBase db, TDriveSupplier ds) { super(db, ds); }
+		public TankDrivePercent(DriveBase db, DifferentialDriveSupplier ds) { super(db, ds); }
 
 		@Override
 		public void execute() {
@@ -491,15 +518,15 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	public static class TankDriveVelocity extends CommandBase {
 
 		private final DriveBase drivebase;
-		private final TDriveSupplier driver;
+		private final DifferentialDriveSupplier driver;
 		private final PIDController leftfb, rightfb;
 
-		private TDriveSupplier.CombinedOutput
-			outputs = new TDriveSupplier.CombinedOutput();
+		private DifferentialDriveSupplier.CombinedOutput
+			outputs = new DifferentialDriveSupplier.CombinedOutput();
 		private double la, ra;
 
 		public TankDriveVelocity(
-			DriveBase db, TDriveSupplier ds
+			DriveBase db, DifferentialDriveSupplier ds
 		) {
 			this.drivebase = db;
 			this.driver = ds;
@@ -557,15 +584,15 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	public static class TankDriveVelocityProfiled extends CommandBase {
 
 		private final DriveBase drivebase;
-		private final TDriveSupplier driver;
+		private final DifferentialDriveSupplier driver;
 		private final ProfiledPIDController leftfb, rightfb;
 
-		private TDriveSupplier.CombinedOutput
-			outputs = new TDriveSupplier.CombinedOutput();
+		private DifferentialDriveSupplier.CombinedOutput
+			outputs = new DifferentialDriveSupplier.CombinedOutput();
 		private double la, ra;
 
 		public TankDriveVelocityProfiled(
-			DriveBase db, TDriveSupplier ds
+			DriveBase db, DifferentialDriveSupplier ds
 		) {
 			this.drivebase = db;
 			this.driver = ds;
@@ -624,8 +651,9 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 
 	/* TRAJECTORY */
+	public static final boolean DEFAULT_TRANSFORM_ALLIANCE_TRAJ = true;
 
-	public RamseteCommand generateFollowCommand(Trajectory t) {
+	public RamseteCommand followTrajectoryBase(Trajectory t) {
 		return new RamseteCommand(
 			t,
 			this::getDeltaPose,
@@ -635,21 +663,11 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			this::getWheelSpeeds,
 			this.parameters.getFeedbackController(),
 			this.parameters.getFeedbackController(),
-			this::setDriveVoltage
+			this::setDriveVoltage,
+			this
 		);
 	}
-	public PPRamseteCommand generatePPFollowCommand(String ppfile) {
-		return this.generatePPFollowCommand(
-			PathPlanner.loadPath(ppfile, this.parameters.getPathConstraints()));
-	}
-	public PPRamseteCommand generatePPFollowCommand(PathPlannerTrajectory t) {
-		return this.generatePPFollowCommand(t, true);	// make a constant default for this
-	}
-	public PPRamseteCommand generatePPFollowCommand(String ppfile, boolean allianceTransform) {
-		return this.generatePPFollowCommand(
-			PathPlanner.loadPath(ppfile, this.parameters.getPathConstraints()), allianceTransform);
-	}
-	public PPRamseteCommand generatePPFollowCommand(PathPlannerTrajectory t, boolean allianceTransform) {
+	public PPRamseteCommand followPPTrajectoryBase(PathPlannerTrajectory t, boolean allianceTransform) {
 		return new PPRamseteCommand(
 			t,
 			this::getDeltaPose,
@@ -664,229 +682,114 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			this
 		);
 	}
-
-	public CommandBase followAutoBuilderPath(String ppfile) {
-		return this.getAutoBuilder(Constants.AUTO_EVENTS).followPath(
-			PathPlanner.loadPath(ppfile, this.parameters.getPathConstraints()));
-	}
-	public CommandBase followAutoBuilderPathRelative(String ppfile) {
-		return runRelativeTrajectory(this,
-			PathPlanner.loadPath(ppfile, this.parameters.getPathConstraints()),
-			(PathPlannerTrajectory p)->{ return this.getAutoBuilder(Constants.AUTO_EVENTS).followPath(p); }
+	public FollowPathWithEvents followEventTrajectoryBase(PathPlannerTrajectory t, Map<String, Command> events, boolean allianceTransform) {
+		return new FollowPathWithEvents(
+			this.followPPTrajectoryBase(t, allianceTransform),
+			t.getMarkers(),
+			events
 		);
 	}
 
-	public static interface TrajectoryRunnerGenerator<R extends CommandBase, T extends Trajectory> {
-		public R genRunner(T trajectory);
+	/** This class acts as an abstraction layer; combining basic, pathplanner,
+	 * and pathplanner w/ event based trajectory following methods into a single class.
+	 * The class also provides a simple way to set whether or not the trajectory should
+	 * be run 'relatively', and if the drivebase should be manually stopped when the
+	 * trajectory finishes. */
+	public static class PathFollower extends CommandBase {
+
+		public static final boolean
+			DEFAULT_FOLLOW_RELATIVE = true,
+			DEFAULT_STOP_ON_FINISH = true;
+
+		protected final CommandBase follower;
+		protected final DriveBase drivebase;
+		protected final Pose2d initial;
+		protected boolean
+			relative = DEFAULT_FOLLOW_RELATIVE,
+			stop_finish = DEFAULT_STOP_ON_FINISH;
+
+
+		/** Follow a generic trajectory using WPILib's RamseteCommand ("basic following") */
+		public PathFollower(DriveBase db, Trajectory t) {
+			this.follower = db.followTrajectoryBase(t);
+			this.drivebase = db;
+			this.initial = t.getInitialPose();
+		}
+		/** Follow a path planner trajectory using the target's filename and executed by a PPRamseteCommand */
+		public PathFollower(DriveBase db, String ppfile)
+			{ this(db, db.loadConstrainedPPTrajectory(ppfile)); }
+		/** Follow a path planner trajectory, executed by a PPRamseteCommand */
+		public PathFollower(DriveBase db, PathPlannerTrajectory t)
+			{ this(db, t, DEFAULT_TRANSFORM_ALLIANCE_TRAJ); }
+		/** Follow a path planner trajectory using the target's filename and executed by a PPRamseteCommand */
+		public PathFollower(DriveBase db, String ppfile, boolean alliance_transform)
+			{ this(db, db.loadConstrainedPPTrajectory(ppfile), alliance_transform); }
+		/** Follow a path planner trajectory, executed by a PPRamseteCommand */
+		public PathFollower(DriveBase db, PathPlannerTrajectory t, boolean alliance_transform) {
+			this.follower = db.followPPTrajectoryBase(t, alliance_transform);
+			this.drivebase = db;
+			this.initial = t.getInitialPose();
+		}
+		/** Follow a path planner trajectory with events using the target's filename -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
+		public PathFollower(DriveBase db, String ppfile, Map<String, Command> e)
+			{ this(db, db.loadConstrainedPPTrajectory(ppfile), e); }
+		/** Follow a path planner trajectory with events -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
+		public PathFollower(DriveBase db, PathPlannerTrajectory t, Map<String, Command> e)
+			{ this(db, t, e, DEFAULT_TRANSFORM_ALLIANCE_TRAJ); }
+		/** Follow a path planner trajectory with events using the target's filename -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
+		public PathFollower(DriveBase db, String ppfile, Map<String, Command> e, boolean alliance_transform)
+			{ this(db, db.loadConstrainedPPTrajectory(ppfile), e, alliance_transform); }
+		/** Follow a path planner trajectory with events -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
+		public PathFollower(DriveBase db, PathPlannerTrajectory t, Map<String, Command> e, boolean alliance_transform) {
+			this.follower = db.followEventTrajectoryBase(t, e, alliance_transform);
+			this.drivebase = db;
+			this.initial = t.getInitialPose();
+		}
+
+
+		/** Whether or not the command should reset the drivebase pose on initialize */
+		public PathFollower runRelative(boolean relative) {
+			this.relative = relative;
+			return this;
+		}
+		/** Whether or not the command should manually stop the drivebase when finished */
+		public PathFollower stopOnEnd(boolean stop) {
+			this.stop_finish = stop;
+			return this;
+		}
+
+
+		@Override
+		public void initialize() {
+			if(this.relative) {
+				this.drivebase.resetOdometry(this.initial);
+			}
+			this.follower.initialize();
+		}
+		@Override
+		public void execute() {
+			this.follower.execute();
+		}
+		@Override
+		public boolean isFinished() {
+			return this.follower.isFinished();
+		}
+		@Override
+		public void end(boolean i) {
+			this.follower.end(i);
+			if(this.stop_finish) {
+				this.drivebase.stopMotor();
+			}
+		}
+
+		@Override
+		public void initSendable(SendableBuilder b) {
+			follower.initSendable(b);
+			b.addBooleanProperty("Relative Start", ()->this.relative, this::runRelative);
+			b.addBooleanProperty("Stop On Finish", ()->this.stop_finish, this::stopOnEnd);
+		}
+
 	}
-	public static<R extends CommandBase, T extends Trajectory>
-		SequentialCommandGroup runRelativeTrajectory(DriveBase db, T traj, TrajectoryRunnerGenerator<R, T> gen)
-	{
-		return new SequentialCommandGroup(
-			new PrintCommand("Beginning Relative Trajectory (resetting pose)..."),
-			new InstantCommand(()->db.resetOdometry(traj.getInitialPose())),
-			gen.genRunner(traj)
-		);
-	}
-
-
-	// public FollowTrajectory followTrajectory(Trajectory t) {
-	// 	return new FollowTrajectory(this, t);
-	// }
-
-	// public static class FollowTrajectory extends CommandBase {
-	// 	private final DriveBase drivebase; 
-	// 	private final Trajectory trajectory;
-	// 	private final RamseteCommand controller;
-	// 	private final boolean stop;
-
-	// 	private final PPRamseteCommand pcontroller;
-	// 	private final PathPlannerTrajectory ptrajectory;
-	// 	private final String path;
-
-    //     @Override public void initialize()
-    //     {
-    //         drivebase.resetOdometry(this.ptrajectory.getInitialPose());
-	// 		this.pcontroller.initialize();
-	// 		System.out.println("FollowTrajectory: Running...");
-    //     }
-    //     @Override public void execute()
-    //     {
-    //         this.pcontroller.execute();
-    //     }
-    //     @Override public void end(boolean interrupted)
-    //     {
-    //         this.pcontroller.end(interrupted);
-	// 		if(this.stop) {
-	// 			drivebase.setDriveVoltage(0, 0);
-	// 		}
-    //     }
-    //     @Override public boolean isFinished()
-    //     {
-    //         return this.pcontroller.isFinished();
-    //     }
-
-
-	// 	FollowTrajectory(DriveBase db, Trajectory t)
-	// 	{
-	// 		this(db, t, true);
-	// 	}
-
-	// 	FollowTrajectory(DriveBase db, Path json_path)
-	// 	{
-	// 		this(db, json_path, true);
-	// 		// calciumatator
-	// 	}
-
-	// 	FollowTrajectory(DriveBase db, Trajectory t, boolean s)
-	// 	{
-	// 		super();
-	// 		this.trajectory = t;
-	// 		this.stop = s;
-	// 		this.drivebase = db;
-
-			
-	// 		this.pcontroller = null;
-	// 		this.path = null;
-	// 		this.ptrajectory = null;
-
-	// 		this.controller = new RamseteCommand
-	// 			(
-	// 			this.trajectory, 
-	// 			this.drivebase::getDeltaPose, 
-	// 			/* recives a function, and keeps getting new info */
-	// 			this.drivebase.parameters.getRamseteController(),
-	// 			this.drivebase.feedforward, 
-	// 			this.drivebase.kinematics,  
-	// 			this.drivebase::getWheelSpeeds, 
-	// 			this.drivebase.parameters.getFeedbackController(), 
-	// 			this.drivebase.parameters.getFeedbackController(), 
-	// 			this.drivebase::setDriveVoltage
-	// 			);
-	// 	}
-
-	// 	FollowTrajectory(DriveBase db, Path json_path, boolean s)
-	// 	{
-	// 		super();
-	// 		this.drivebase = db;
-	// 		this.stop = s;
-	// 		this.pcontroller = null;
-	// 		this.path = null;
-	// 		this.ptrajectory = null;
-	// 		Trajectory temp;
-	// 		try {
-	// 			temp = TrajectoryUtil.fromPathweaverJson(json_path);
-	// 		} catch(Exception e) {
-	// 			System.err.println("FAILED TO READ TRAJECTORY: " + json_path.toString() + " -> " + e.getMessage());
-	// 			temp = new Trajectory(Arrays.asList(new Trajectory.State()));	// do-nothing trajectory as placeholder
-	// 		}
-	// 		this.trajectory = temp;
-	// 		this.controller = new RamseteCommand
-	// 		(
-	// 			this.trajectory,
-	// 			this.drivebase::getDeltaPose,
-	// 			this.drivebase.parameters.getRamseteController(),
-	// 			this.drivebase.feedforward,
-	// 			this.drivebase.kinematics,
-	// 			this.drivebase::getWheelSpeeds,
-	// 			this.drivebase.parameters.getFeedbackController(), 
-	// 			this.drivebase.parameters.getFeedbackController(),
-	// 			this.drivebase::setDriveVoltage
-	// 		);
-	// 	}
-
-	// ////////////////////////////////////////////////////////////////////////////////
-
-	// 	FollowTrajectory(DriveBase db, PathPlannerTrajectory ppt)
-	// 	{
-	// 		this(db, ppt, true);
-	// 	}
-
-	// 	FollowTrajectory(DriveBase db, String path)
-	// 	{
-	// 		this(db, path, true);
-	// 	}
-
-	// 	FollowTrajectory(DriveBase db, PathPlannerTrajectory ppt, boolean s)
-	// 	{
-	// 		super();
-	// 		this.ptrajectory = ppt;
-	// 		this.stop = s;
-	// 		this.drivebase = db;
-	// 		this.path = null;
-	// 		this.controller = null;
-	// 		this.trajectory = null;
-
-    //         this.pcontroller = new PPRamseteCommand(
-    //             ptrajectory, 
-    //             this.drivebase::getDeltaPose,
-    //             new RamseteController(),
-    //             this.drivebase.feedforward,
-    //             this.drivebase.kinematics, // DifferentialDriveKinematics
-    //             this.drivebase::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
-    //             new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
-    //             new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
-    //             // vvv this is supposed to be type BiConsumer<Double, Double>
-    //             this.drivebase::setDriveVoltage, // Voltage biconsumer
-    //             true, // Sh(ould the path be automatically mirrored depending on alliance color. Optional, defaults to true
-    //             this.drivebase // Requires this drive subsystem
-    //         );
-
-    //     }
-
-    //     // public PPRamseteCommand rCommand(PathPlannerTrajectory path)
-    //     // {
-    //     //     PPRamseteCommand command = new PPRamseteCommand(
-    //     //         path, 
-    //     //         this.drivebase::getDeltaPose,
-    //     //         new RamseteController(),
-    //     //         this.drivebase.feedforward,
-    //     //         this.drivebase.kinematics, // DifferentialDriveKinematics
-    //     //         this.drivebase::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
-    //     //         new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
-    //     //         new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
-    //     //         // vvv this is supposed to be type BiConsumer<Double, Double>
-    //     //         this.drivebase::setDriveVoltage, // Voltage biconsumer
-    //     //         true, // Sh(ould the path be automatically mirrored depending on alliance color. Optional, defaults to true
-    //     //         this.drivebase // Requires this drive subsystem
-    //     //     );
-
-    //     //     return command;
-    //     // }
-
-    //     FollowTrajectory(DriveBase db, String apath, boolean s)
-    //     {
-    //         super();
-    //         this.path = apath;
-    //         this.stop = s;
-    //         this.drivebase = db;
-    //         this.ptrajectory = PathPlanner.loadPath(this.path, new PathConstraints(4, 3));
-    //         this.pcontroller = new PPRamseteCommand(
-    //             ptrajectory, 
-    //             this.drivebase::getDeltaPose,
-    //             new RamseteController(),
-    //             this.drivebase.feedforward,
-    //             this.drivebase.kinematics, // DifferentialDriveKinematics
-    //             this.drivebase::getWheelSpeeds, // DifferentialDriveWheelSpeeds supplier
-    //             new PIDController(0, 0, 0), // Left controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
-    //             new PIDController(0, 0, 0), // Right controller (usually the same values as left controller)
-    //             // vvv this is supposed to be type BiConsumer<Double, Double>
-    //             this.drivebase::setDriveVoltage, // Voltage biconsumer
-    //             true, // Sh(ould the path be automatically mirrored depending on alliance color. Optional, defaults to true
-    //             this.drivebase // Requires this drive subsystem
-    //         );
-    //         this.controller = null;
-    //         this.trajectory = null;
-    //     }
-
-    //     public static PathPlannerTrajectory createPath(String name)
-    //     {
-    //         PathPlannerTrajectory examplePath = PathPlanner.loadPath(name, new PathConstraints(4, 3));
-    //         return examplePath;
-    //     }
-
-	// }
-
 
 
 

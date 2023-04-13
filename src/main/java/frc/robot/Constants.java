@@ -48,8 +48,8 @@ public final class Constants {
 	public static final int
 		PDH_CAN_ID =				1,
 		ARM_WINCH_CAN_ID =			10,
-		ARM_EXTENDER_CAN_ID =		12,
 		GRABBER_CAN_ID =			11,
+		ARM_EXTENDER_CAN_ID =		12,
 
 		GRABBER_WRIST_PWM_PORT =	0
 	;

@@ -915,7 +915,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
             this.path = apath;
             this.stop = s;
             this.drivebase = db;
-            this.ptrajectory = PathPlanner.loadPath(this.path, new PathConstraints(4, 3));
+            this.ptrajectory = PathPlanner.loadPath(this.path, new PathConstraints(1.5, 1.5));
             this.pcontroller = new PPRamseteCommand(
                 ptrajectory, 
                 this.drivebase::getDeltaPose,

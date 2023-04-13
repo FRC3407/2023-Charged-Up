@@ -29,7 +29,7 @@
 #include <networktables/IntegerTopic.h>
 #include <networktables/FloatArrayTopic.h>
 #include <networktables/DoubleArrayTopic.h>
-#include <cameraserver/CameraServer.h>
+// #include <cameraserver/CameraServer.h>
 
 #include <core/neon.h>
 #include <core/calib.h>
@@ -49,6 +49,7 @@
 #define NT_IDENTITY "Vision RPI"
 #define SIM_ADDR "192.168.0.8"
 #define NT_DEFAULT 0
+#define ENABLE_CAMERASERVER 0
 #define PATCH_LIFECAM_V4L_PROP_IDS 1
 
 using namespace std::chrono_literals;
@@ -116,10 +117,12 @@ static const cv::Mat_<float>
 
 
 
+#if ENABLE_CAMERASERVER > 0
 class VideoSinkImpl : public cs::VideoSink {
 public:
 	inline VideoSinkImpl(CS_Sink h) : VideoSink(h) {}	// this constructor is protected so we have to subclass to use it publicly
 };
+#endif
 
 class Stats : public wpi::Sendable, public CoreStats {
 public:
@@ -498,7 +501,9 @@ bool init(const char* fname) {
 
 	_global.discon_frame_h = cs::CreateCvSource("Disconnected Frame Source", DEFAULT_VMODE, &status);
 	_global.stream_h = cs::CreateMjpegServer("Viewport Stream", "", _global.next_stream_port++, &status);
+#if ENABLE_CAMERASERVER > 0
 	frc::CameraServer::AddServer(VideoSinkImpl(_global.stream_h));
+#endif
 #if DEBUG > 0
 	std::cout << fmt::format("Created main stream with port {}.", _global.next_stream_port - 1) << std::endl;
 #endif
@@ -531,7 +536,9 @@ bool init(const char* fname) {
 				fmt::format("{}_cv_out", name), cthr.vmode, &status);
 			cthr.view_h = cs::CreateMjpegServer(
 				fmt::format("{}_view_stream", name), "", _global.next_stream_port++, &status);
+#if ENABLE_CAMERASERVER > 0
 			frc::CameraServer::AddServer(VideoSinkImpl(cthr.view_h));
+#endif
 #if DEBUG > 0
 			std::cout << fmt::format("Created {} camera view stream with port {}.", name, _global.next_stream_port - 1) << std::endl;
 #endif
@@ -607,7 +614,9 @@ bool init(const char* fname) {
 				fmt::format("Camera{}_cv_out", cthr.vid), cthr.vmode, &status);
 			cthr.view_h = cs::CreateMjpegServer(
 				fmt::format("Camera{}_view_stream", cthr.vid), "", _global.next_stream_port++, &status);
+#if ENABLE_CAMERASERVER > 0
 			frc::CameraServer::AddServer(VideoSinkImpl(cthr.view_h));
+#endif
 #if DEBUG > 0
 			std::cout << fmt::format("Created Camera{} view stream with port {}.", cthr.vid, _global.next_stream_port - 1) << std::endl;
 #endif
@@ -835,8 +844,8 @@ a = high_resolution_clock::now();
 			cv::putText(ctx.aframe,
 						fmt::format("{:.1f}", 1.f / ctx.ftime),
 						cv::Point(5, 20), cv::FONT_HERSHEY_DUPLEX, 0.65, {0, 255, 0}, 1, cv::LINE_AA);
-			cv::add(ctx.frame, ctx.aframe, ctx.aframe);
-			// neon_bitwise_or(ctx.aframe, ctx.frame, ctx.aframe);
+			// cv::add(ctx.frame, ctx.aframe, ctx.aframe);
+			neon_bitwise_or(ctx.aframe, ctx.frame, ctx.aframe);
 		} else {
 			ctx.aframe = ctx.frame;
 		}

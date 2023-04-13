@@ -54,8 +54,8 @@ LDFLAGS := -pthread -Wall -L$(VS_DIR)/out -L$(VS_DIR)/lib -L$(SRC_DIR)/libpixy/o
 # 	-lopencv_flann -lopencv_videoio -lopencv_imgcodecs \
 # 	-lopencv_imgproc -lopencv_core -lvs3407 -lcameraserver \
 # 	-lntcore -lcscore -lwpiutil -lwpimath -lwpilibc -lopencv_aruco -lpigpio
-LDLIBS := -lcscore -lntcore -lwpiutil -lwpilibc -lcameraserver -lopencv_core -lopencv_imgproc \
- -lapriltag -lwpimath -lopencv_aruco -lopencv_calib3d -lvs3407
+LDLIBS := -lcscore -lntcore -lwpiutil -lwpilibc -lopencv_core -lopencv_imgproc \
+ -lapriltag -lwpimath -lopencv_aruco -lopencv_calib3d -lvs3407 #-lcameraserver
 
 
 ifeq ($(OS),Windows_NT)

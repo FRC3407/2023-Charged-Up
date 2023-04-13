@@ -3,7 +3,6 @@ package frc.robot;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
-import edu.wpi.first.net.PortForwarder;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.AddressableLED;
@@ -20,7 +19,6 @@ import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.*;
 import edu.wpi.first.wpilibj.util.WPILibVersion;
 
-import com.pathplanner.lib.commands.PPRamseteCommand;
 import com.pathplanner.lib.server.PathPlannerServer;
 
 import frc.robot.Constants.ButtonBox;
@@ -46,7 +44,8 @@ public final class Runtime extends TimedRobot {
 		private final DriveBase drivebase = new DriveBase(
 			Constants.DRIVEBASE_LAYOUT,
 			this.imu_3x.getGyroAxis(Constants.IMU_YAW_AXIS),
-			Constants.DRIVEBASE_PARAMS
+			Constants.DRIVEBASE_PARAMS,
+			Constants.DRIVEBASE_NEUTRAL_MODE
 		);
 		private final Manipulator manipulator = new Manipulator(
 			new Manipulator.Arm(
@@ -73,10 +72,9 @@ public final class Runtime extends TimedRobot {
 		}
 	}
 	private final Robot robot = new Robot();
-	private final Field2d field_logger = new Field2d();
-	// private final LEDTest leds = new LEDTest(2, 3, 4);
+	// private final Field2d field_logger = new Field2d();
 	private final ControlSchemeManager controls = new ControlSchemeManager();
-	// private final SendableChooser<Command> auto = new SendableChooser<>();
+	private final SendableChooser<Command> auto = new SendableChooser<>();
 	private BooleanSupplier auto_enable = ()->false, auto_select = ()->false;
 	private CommandBase auto_driveforward, auto_balance;
 
@@ -87,24 +85,25 @@ public final class Runtime extends TimedRobot {
 
 	@Override
 	public void robotInit() {
+
 		System.out.println("Using Wpilib Version " + WPILibVersion.Version);
 		CommandScheduler.getInstance().registerSubsystem(this.robot.drivebase);
 		Vision.init();
-		if(isReal()) { DataLogManager.start(); }
-		else { DataLogManager.start("logs/sim"); }
+		if(isReal()) { DataLogManager.start(); } else { DataLogManager.start("logs/sim"); }
 		DriverStation.startDataLog(DataLogManager.getLog());
 		PathPlannerServer.startServer(5811);
 		//PPRamseteCommand.setLoggingCallbacks(null, null, null, null);	// <-- finish this so we can log the trajectories
 		this.robot.startLogging();
-		(new Vision.PoseUpdater(this.field_logger.getRobotObject())).schedule();
-		SmartDashboard.putData("Robot/FieldPosition", this.field_logger);
 
-		this.controls.addScheme("Single Xbox Testing", new AutomatedTester(Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Dual Xbox Testing", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.setDefault("Competition Controls (AD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardAD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Competition Controls (TD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
+		// (new Vision.PoseUpdater(this.field_logger.getRobotObject())).schedule();
+		// SmartDashboard.putData("Robot/FieldPosition", this.field_logger);
+
+		this.controls.addScheme("Single Xbox Testing",			new AutomatedTester(Xbox.Map),											this::setupXbox,			CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Dual Xbox Testing",				new AutomatedTester(Xbox.Map, Xbox.Map),								this::setupXbox,			CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Arcade Board Controls",			new AutomatedTester(Attack3.Map, Attack3.Map),							this::setupControlBoardTD,	CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Control Board Controls",		new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map),			this::setupControlBoardTD,	CommandScheduler.getInstance()::cancelAll);
+		this.controls.addScheme("Competition Controls (TD)",		new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map),	this::setupControlBoardTD,	CommandScheduler.getInstance()::cancelAll);
+		this.controls.setDefault("Competition Controls (AD)",	new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map),	this::setupControlBoardAD,	CommandScheduler.getInstance()::cancelAll);
 		this.controls.setAmbiguousSolution(ControlSchemeManager.AmbiguousSolution.PREFER_COMPLEX);
 		this.controls.publishSelector();
 		this.controls.runContinuous();
@@ -113,31 +112,36 @@ public final class Runtime extends TimedRobot {
 
 		// this.auto.addOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
 		// this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
-		// for(String t : Constants.TRAJECTORIES) {
-		// 	this.auto.addOption(
-		// 		t + " [Trajectory]",
-		// 		this.robot.drivebase.followAutoBuilderPathRelative(t)
-		// 	);
-		// }
-		// this.auto.addOption("Drive Forward", Auto.driveStraight(this.robot.drivebase, 3.0, 1.5));
 		// this.auto.setDefaultOption("Climb Charging Pad",
 		// 	send(Auto.climbPad(this.robot.drivebase, pitch,
 		// 		Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
-		// SmartDashboard.putData("Autonomous", this.auto);
+		this.auto.setDefaultOption("No Auto", null);
+		for(String t : Constants.TRAJECTORIES) {
+			String n = t + " [Trajectory]";
+			this.auto.addOption(n, send(
+				this.robot.drivebase.followEventTrajectory(t, Constants.AUTO_EVENTS),
+				"Commands/Auto Trajectories/" + n
+			));
+		}
+		SmartDashboard.putData("Autonomous Selector", this.auto);
 
-		// CommandBase drivedump = send(Auto.driveStraight(this.robot.drivebase, -0.2, 0.8), "Commands/Auto/Dump Scube").andThen(
-		// 	send(Auto.driveStraight(this.robot.drivebase, 0.2, 0.4), "Commands/Auto/Push Scube"));
-		// .andThen(drivedump)
-
-		//this.auto_driveforward = (new WaitCommand(1.5)).andThen(send(Auto.driveStraight(this.robot.drivebase, -4.0, -1.2), "Commands/Auto/Taxi"));
-		this.auto_driveforward = new SequentialCommandGroup(Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),new WaitCommand(0.3),Auto.driveStraight(this.robot.drivebase, 0.5, 0.6),new WaitCommand(0.5),Auto.driveStraight(this.robot.drivebase, -4.0, -1.2));
-		this.auto_balance = Auto.climbPad(this.robot.drivebase, pitch,
-			Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY);
-
-		// this.leds.setRGB(0.5, 0.5, 0.5);
-		// SmartDashboard.putData("Robot/LEDS", this.leds);
+		this.auto_driveforward = new SequentialCommandGroup(
+			Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),
+			new WaitCommand(0.3),
+			Auto.driveStraight(this.robot.drivebase, 0.5, 0.6),
+			new WaitCommand(0.5),
+			Auto.driveStraight(this.robot.drivebase, -4.0, -1.2)
+		);
+		this.auto_balance = send(
+			Auto.climbPad(
+				this.robot.drivebase, pitch,
+				Constants.AUTO_PAD_ENGAGE_VELOCITY,
+				Constants.AUTO_PAD_INCLINE_VELOCITY
+			), "Commands/Climb Charging Pad"
+		);
 
 		this.robot.manipulator.grabber.setWristAngle(Manipulator.Grabber.WRIST_MAX_ANGLE);
+
 	}
 	@Override
 	public void robotPeriodic() {
@@ -153,26 +157,23 @@ public final class Runtime extends TimedRobot {
 
 	@Override
 	public void autonomousInit() {
-		// Command a = this.auto.getSelected();
-		// if(a != null && this.auto_enable.getAsBoolean()) {
-		// 	AutonomousTrigger.WhileTrue(a);		// start now, end when auto ends
-		// } else {
-		// 	System.out.println("No auto command selected!");
-		// }
 		if(this.auto_enable.getAsBoolean()) {
-			//Auto.setGrabber(this.robot.manipulator, Manipulator.Grabber.WRIST_MAX_ANGLE, 5.0).schedule();
+			System.out.println("Running Physically Selected Auto...");
 			if(this.auto_select.getAsBoolean() && this.auto_balance != null) {
-				// this.auto_balance.until(AutonomousTrigger.Get().negate()).schedule();
-				// Auto.driveStraight(this.robot.drivebase, -2.0, -1.2).andThen(Auto.driveStraight(this.robot.drivebase, -2.0, 0.7)).andThen(
-				send(this.auto_balance, "Climb Charging Pad").schedule();
+				this.auto_balance.schedule();
 				System.out.println("Balance Auto Started!");
 			} else if(this.auto_driveforward != null) {
-				// this.auto_driveforward.until(AutonomousTrigger.Get().negate()).schedule();
 				this.auto_driveforward.schedule();
 				System.out.println("Drive Forward Auto Started!");
 			}
 		} else {
-			System.out.println("Auto Disabled!");
+			System.out.println("Running NT Selected Auto...");
+			Command a = this.auto.getSelected();
+			if(a != null) {
+				a.schedule();
+			} else {
+				System.out.println("No auto command selected!");
+			}
 		}
 	}
 	@Override
@@ -378,96 +379,82 @@ public final class Runtime extends TimedRobot {
 
 
 
-	// private AddressableLED ledTester(AddressableLED addrl, AddressableLEDBuffer buff, int pwmp, int len) {
-	// 	addrl = new AddressableLED(pwmp);
-	// 	buff = new AddressableLEDBuffer(len);
-	// 	addrl.setLength(len);
+	// public static class LEDTest implements Sendable {
 
-	// 	for(int i = 0; i < len; i++) {
-	// 		buff.setRGB(i, 0, 255, 0);
+	// 	private final static double
+	// 		MIN_OUTPUT_uS = 0.005,
+	// 		MAX_OUTPUT_uS = 5.005
+	// 	;
+	// 	private final static boolean
+	// 		INVERT_RANGE = false
+	// 	;
+	// 	private final PWM r, g, b;
+	// 	private double rs, gs, bs;
+
+	// 	public LEDTest(int rp, int gp, int bp) {
+	// 		this.r = new PWM(rp);
+	// 		this.g = new PWM(gp);
+	// 		this.b = new PWM(bp);
+	// 		this.r.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
+	// 		this.g.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
+	// 		this.b.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
+	// 		this.r.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
+	// 		this.g.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
+	// 		this.b.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
 	// 	}
-	// 	addrl.setData(buff);
-	// 	addrl.start();
-	// 	return addrl;
+
+	// 	public void setRGB(double r, double g, double b) {
+	// 		if(INVERT_RANGE) {
+	// 			this.r.setPosition(1.0 - r);
+	// 			this.g.setPosition(1.0 - g);
+	// 			this.b.setPosition(1.0 - b);
+	// 		} else {
+	// 			this.r.setPosition(r);
+	// 			this.g.setPosition(g);
+	// 			this.b.setPosition(b);
+	// 		}
+	// 		this.rs = r;
+	// 		this.gs = g;
+	// 		this.bs = b;
+	// 	}
+	// 	public void setR(double r) {
+	// 		if(INVERT_RANGE) {
+	// 			this.r.setPosition(1.0 - r);
+	// 		} else {
+	// 			this.r.setPosition(r);
+	// 		}
+	// 		this.rs = r;
+	// 	}
+	// 	public void setG(double g) {
+	// 		if(INVERT_RANGE) {
+	// 			this.g.setPosition(1.0 - g);
+	// 		} else {
+	// 			this.g.setPosition(g);
+	// 		}
+	// 		this.gs = g;
+	// 	}
+	// 	public void setB(double b) {
+	// 		if(INVERT_RANGE) {
+	// 			this.b.setPosition(1.0 - b);
+	// 		} else {
+	// 			this.b.setPosition(b);
+	// 		}
+	// 		this.bs = b;
+	// 	}
+	// 	public void stop() {
+	// 		this.r.setDisabled();
+	// 		this.g.setDisabled();
+	// 		this.b.setDisabled();
+	// 	}
+
+	// 	@Override
+	// 	public void initSendable(SendableBuilder b) {
+	// 		b.addDoubleProperty("Red channel setpoint", ()->this.rs, this::setR);
+	// 		b.addDoubleProperty("Green channel setpoint", ()->this.gs, this::setG);
+	// 		b.addDoubleProperty("Blue channel setpoint", ()->this.bs, this::setB);
+	// 	}
+
 	// }
-
-
-	public static class LEDTest implements Sendable {
-
-		private final static double
-			MIN_OUTPUT_uS = 0.005,
-			MAX_OUTPUT_uS = 5.005
-		;
-		private final static boolean
-			INVERT_RANGE = false
-		;
-		private final PWM r, g, b;
-		private double rs, gs, bs;
-
-		public LEDTest(int rp, int gp, int bp) {
-			this.r = new PWM(rp);
-			this.g = new PWM(gp);
-			this.b = new PWM(bp);
-			this.r.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
-			this.g.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
-			this.b.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
-			this.r.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
-			this.g.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
-			this.b.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
-		}
-
-		public void setRGB(double r, double g, double b) {
-			if(INVERT_RANGE) {
-				this.r.setPosition(1.0 - r);
-				this.g.setPosition(1.0 - g);
-				this.b.setPosition(1.0 - b);
-			} else {
-				this.r.setPosition(r);
-				this.g.setPosition(g);
-				this.b.setPosition(b);
-			}
-			this.rs = r;
-			this.gs = g;
-			this.bs = b;
-		}
-		public void setR(double r) {
-			if(INVERT_RANGE) {
-				this.r.setPosition(1.0 - r);
-			} else {
-				this.r.setPosition(r);
-			}
-			this.rs = r;
-		}
-		public void setG(double g) {
-			if(INVERT_RANGE) {
-				this.g.setPosition(1.0 - g);
-			} else {
-				this.g.setPosition(g);
-			}
-			this.gs = g;
-		}
-		public void setB(double b) {
-			if(INVERT_RANGE) {
-				this.b.setPosition(1.0 - b);
-			} else {
-				this.b.setPosition(b);
-			}
-			this.bs = b;
-		}
-		public void stop() {
-			this.r.setDisabled();
-			this.g.setDisabled();
-			this.b.setDisabled();
-		}
-
-		@Override
-		public void initSendable(SendableBuilder b) {
-			b.addDoubleProperty("Red channel setpoint", ()->this.rs, this::setR);
-			b.addDoubleProperty("Green channel setpoint", ()->this.gs, this::setG);
-			b.addDoubleProperty("Blue channel setpoint", ()->this.bs, this::setB);
-		}
-
-	}
 
 
 }

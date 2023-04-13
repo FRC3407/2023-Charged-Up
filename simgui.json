@@ -69,6 +69,10 @@
       "/LiveWindow/Ungrouped/Talon SRX [4]": "Motor Controller",
       "/LiveWindow/Ungrouped/Talon SRX [5]": "Motor Controller",
       "/SmartDashboard/Autonomous": "String Chooser",
+      "/SmartDashboard/Autonomous Selector": "String Chooser",
+      "/SmartDashboard/Commands/Auto Trajectories/Test Auto [Trajectory]": "Command",
+      "/SmartDashboard/Commands/Auto Trajectories/Test Follow [Trajectory]": "Command",
+      "/SmartDashboard/Commands/Climb Charging Pad": "Command",
       "/SmartDashboard/Commands/Climb Pad": "Command",
       "/SmartDashboard/Commands/Manipulator Control": "Command",
       "/SmartDashboard/Commands/Velocity Drive": "Command",
@@ -107,7 +111,13 @@
         "Autonomous": {
           "open": true
         },
+        "Autonomous Selector": {
+          "open": true
+        },
         "Commands": {
+          "Auto Trajectories": {
+            "open": true
+          },
           "Manipulator Control": {
             "open": true
           },

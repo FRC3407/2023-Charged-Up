@@ -45,8 +45,8 @@
       }
     }
   ],
-  "maxVelocity": 2.0,
-  "maxAcceleration": 10.0,
+  "maxVelocity": 0.5,
+  "maxAcceleration": 1.0,
   "isReversed": false,
   "markers": []
 }

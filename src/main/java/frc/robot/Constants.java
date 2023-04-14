@@ -111,7 +111,7 @@ public final class Constants {
 		TEST_FOLLOW = "Test Follow";
 	public static final String[]		// make a list so we can automate adding all the trajectories as selectable auto options
 		TRAJECTORIES = new String[]{
-			TEST_AUTO, TEST_FOLLOW, "T1", "T2", "T3"
+			TEST_AUTO, TEST_FOLLOW, "T1", "T2", "T3", "Lines"
 		};
 	public static final HashMap<String, Command> AUTO_EVENTS = new HashMap<>();
 

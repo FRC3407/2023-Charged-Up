@@ -778,7 +778,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		public void end(boolean i) {
 			this.follower.end(i);
 			if(this.stop_finish) {
-				this.drivebase.stopMotor();
+				this.drivebase.setDriveVoltage(0.0, 0.0);
 			}
 		}
 

@@ -70,6 +70,7 @@
       "/LiveWindow/Ungrouped/Talon SRX [5]": "Motor Controller",
       "/SmartDashboard/Autonomous": "String Chooser",
       "/SmartDashboard/Autonomous Selector": "String Chooser",
+      "/SmartDashboard/Commands/Auto Trajectories/Lines [Trajectory]": "Command",
       "/SmartDashboard/Commands/Auto Trajectories/T1 [Trajectory]": "Command",
       "/SmartDashboard/Commands/Auto Trajectories/T2 [Trajectory]": "Command",
       "/SmartDashboard/Commands/Auto Trajectories/T3 [Trajectory]": "Command",
@@ -157,6 +158,21 @@
         },
         "Vision": {
           "Stats": {
+            "Threads": {
+              "open": true
+            },
+            "open": true
+          },
+          "open": true
+        },
+        "open": true
+      },
+      "Smartdashboard": {
+        "Vision": {
+          "Stats": {
+            "Threads": {
+              "open": true
+            },
             "open": true
           },
           "open": true
@@ -164,6 +180,9 @@
         "open": true
       },
       "Vision": {
+        "Threads": {
+          "open": true
+        },
         "open": true
       }
     }

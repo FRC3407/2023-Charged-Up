@@ -6,6 +6,7 @@
 #include <chrono>
 #include <vector>
 #include <array>
+#include <tuple>
 #include <span>
 #include <string.h>
 
@@ -127,22 +128,22 @@ public:
 class Stats : public wpi::Sendable, public CoreStats {
 public:
 	inline Stats(bool all_cores = false) : CoreStats(all_cores) {
-		this->april_profile.resize(3);
-		this->retro_profile.resize(4);
+		// this->april_profile.resize(3);
+		// this->retro_profile.resize(4);
 	}
 
 	virtual void InitSendable(wpi::SendableBuilder& b) override {
 		b.AddFloatProperty("Core temp", [this](){ return this->temp(); }, nullptr);
 		b.AddFloatProperty("Utilization", [this](){ return this->fromLast(); }, nullptr);
 		b.AddFloatProperty("Main UpTime", [this](){ return this->mtime; }, nullptr);
-		b.AddFloatArrayProperty("Camera Thread FTimes", [this](){ return this->ftimes; }, nullptr);
-		b.AddFloatArrayProperty("April VPipe Profiling", [this](){ return this->april_profile; }, nullptr);
-		b.AddFloatArrayProperty("Retro VPipe Profiling", [this](){ return this->retro_profile; }, nullptr);
+		// b.AddFloatArrayProperty("Camera Thread FTimes", [this](){ return this->ftimes; }, nullptr);
+		// b.AddFloatArrayProperty("April VPipe Profiling", [this](){ return this->april_profile; }, nullptr);
+		// b.AddFloatArrayProperty("Retro VPipe Profiling", [this](){ return this->retro_profile; }, nullptr);
 	}
 
 	float mtime{0.f};
-	std::vector<float>
-		ftimes{}, april_profile{}, retro_profile{};
+	// std::vector<float>
+	// 	ftimes{}, april_profile{}, retro_profile{};
 
 };
 
@@ -160,8 +161,7 @@ struct CThread {
 		link_state(t.link_state.load()),
 		vpmode(t.vpmode.load()),
 		vproc(std::move(t.vproc)),
-		vpipe(std::move(t.vpipe)),
-		ftime(t.ftime.load()) {}
+		vpipe(std::move(t.vpipe)) {}
 
 	cv::Mat1f
 		camera_matrix{ DEFAULT_CAM_MATX },
@@ -177,10 +177,9 @@ struct CThread {
 	std::thread vproc;
 	struct {
 		cv::Mat frame, aframe, dframe;
-		std::array<float, 10> timings;
+		std::array<float, 11> timings;
 		nt::FloatArrayEntry nt_timings;
 	} vpipe;
-	std::atomic<float> ftime{0.f};
 
 };
 void _update(CThread&);	// these are like instance methods
@@ -300,6 +299,9 @@ struct {
 		nt::DoubleArrayEntry
 			poses,
 			nodes;
+		nt::FloatArrayEntry
+			april_timings,
+			retro_timings;
 	} nt;
 
 	int next_stream_port = 1181;
@@ -315,6 +317,8 @@ struct {
 	struct {
 		std::thread april_worker, retro_worker;
 		std::atomic<int> april_link{0}, retro_link{0};
+		std::array<float, 3> april_profiling;
+		std::array<float, 4> retro_profiling;
 		struct {
 			std::vector<std::vector<cv::Point2f>> tag_corners;
 			std::vector<int32_t> tag_ids;
@@ -396,11 +400,8 @@ int main(int argc, char** argv) {
 		if(_global.state.dscale_updated) { std::cout << "MAINLOOP: Downscale updated." << std::endl; }
 #endif
 
-		size_t i = 0;
 		for(CThread& t : _global.cthreads) {
 			_update(t);
-			_global.stats.ftimes[i] = t.ftime;
-			i++;
 		}
 		frc::SmartDashboard::UpdateValues();
 
@@ -504,6 +505,9 @@ bool init(const char* fname) {
 	_global.nt.retro_mode = _global.base_ntable->GetIntegerTopic("RetroRefl Mode").GetEntry(-2, NT_OPTIONS);
 	_global.nt.poses = _global.base_ntable->GetDoubleArrayTopic("Camera Pose Estimations").GetEntry({}, NT_OPTIONS);
 	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("Retro Tape Detections").GetEntry({}, NT_OPTIONS);
+	std::shared_ptr<nt::NetworkTable> thread_stats_nt = _global.base_ntable->GetSubTable("Threads");
+	_global.nt.april_timings = thread_stats_nt->GetFloatArrayTopic("AprilTag Pipeline").GetEntry({}, NT_OPTIONS);
+	_global.nt.retro_timings = thread_stats_nt->GetFloatArrayTopic("RetroRef Pipeline").GetEntry({}, NT_OPTIONS);
 
 	_global.disconnect_frame = cv::Mat::zeros({DEFAULT_VMODE.width, DEFAULT_VMODE.height}, CV_8UC3);
 	cv::putText(
@@ -542,8 +546,7 @@ bool init(const char* fname) {
 			cs::SetCameraWhiteBalanceAuto(cthr.camera_h, &status);
 			cs::SetCameraBrightness(cthr.camera_h, DEFAULT_BRIGHTNESS, &status);
 
-			cthr.vpipe.nt_timings = _global.base_ntable->GetFloatArrayTopic(
-				fmt::format("{} thread", name)).GetEntry({}, NT_OPTIONS);
+			cthr.vpipe.nt_timings = thread_stats_nt->GetFloatArrayTopic(fmt::format("{} camera", name)).GetEntry({}, NT_OPTIONS);
 			cthr.vpipe.nt_timings.Set({});
 
 			cthr.fin_h = cs::CreateCvSink(
@@ -624,8 +627,7 @@ bool init(const char* fname) {
 			cs::SetCameraWhiteBalanceAuto(cthr.camera_h, &status);
 			cs::SetCameraBrightness(cthr.camera_h, DEFAULT_BRIGHTNESS, &status);
 
-			cthr.vpipe.nt_timings = nt::NetworkTableInstance::GetDefault().GetFloatArrayTopic(
-				fmt::format("SmartDashboard/Vision/Stats/Threads/Camera{}", cthr.vid)).GetEntry({}, NT_OPTIONS);
+			cthr.vpipe.nt_timings = thread_stats_nt->GetFloatArrayTopic(fmt::format("Camera{}", cthr.vid)).GetEntry({}, NT_OPTIONS);
 			cthr.vpipe.nt_timings.Set({});
 
 			cthr.fin_h = cs::CreateCvSink(
@@ -656,7 +658,6 @@ bool init(const char* fname) {
 		}
 	}
 
-	_global.stats.ftimes.resize(_global.cthreads.size());
 	std::cout << fmt::format("Cameras Available: {}", _global.cthreads.size()) << std::endl;
 
 	_global.nt.views_avail.Set(_global.cthreads.size());
@@ -748,13 +749,20 @@ void _update(CThread& ctx) {
 		cs::PutSourceFrame(_global.discon_frame_h, _global.disconnect_frame, &status);
 	}
 }
-void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds,
-	float* apt = nullptr, float* rtt = nullptr) {
+using AnnotationBuffer =
+	std::tuple<
+		float*, float*,
+		std::vector<std::vector<cv::Point2i>>,
+		std::vector<std::vector<cv::Point2f>>,
+		std::vector<int32_t>,
+		std::mutex
+	>;
+void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds, AnnotationBuffer* anno) {
 
 	link = 1;
 
 	high_resolution_clock::time_point ta, tb, tp = high_resolution_clock::now();
-	std::array<float, 10>& timing = ctx.vpipe.timings;
+	decltype(ctx.vpipe.timings)& timing = ctx.vpipe.timings;
 	const cv::Size2i fsz = ctx.vpipe.frame.size() / (ds < 1 ? 1 : ds);
 	int status{0};
 
@@ -763,7 +771,7 @@ void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds,
 	}
 	cv::resize(ctx.vpipe.frame, ctx.vpipe.dframe, fsz, 0, 0, cv::INTER_AREA);
 																				ta = high_resolution_clock::now();
-																				timing[4] = duration<float>(ta - tp).count() * 1000.f;
+																				timing[5] = duration<float>(ta - tp).count() * 1000.f;
 	if(vb > 0) {
 		ctx.vpipe.aframe = cv::Mat::zeros(fsz, CV_8UC3);
 		const double
@@ -774,54 +782,60 @@ void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds,
 			fnthz2 = fsz.height / 48;
 
 		cv::putText(ctx.vpipe.aframe,
-					fmt::format("{:.1f}", 1.f / ctx.ftime),
+					fmt::format("{:.1f}", 1000.f / timing[0]),
 					cv::Point(5, fnthz1), cv::FONT_HERSHEY_DUPLEX, fntscale1, {0, 255, 0}, 1, cv::LINE_AA);
 		int vl = 2 * fnthz1;
 
 		if(vb > 1) {
-			// if(_global.vpp.apbuff.tag_ids.size() > 0) {
-			// 	cv::aruco::drawDetectedMarkers(ctx.vpipe.aframe, _global.vpp.apbuff.tag_corners, _global.vpp.apbuff.tag_ids);
-			// }
-			// if(_global.vpp.rtbuff.contours.size() > 0) {
-			// 	cv::drawContours(ctx.vpipe.aframe, _global.vpp.rtbuff.contours, -1, {0, 255, 0});
-			// }
-			if(apt) {
-				cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Detection time: {:.3f}ms", apt[0] * 1000.f),
-							cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-				cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Estimation time: {:.3f}ms", apt[1] * 1000.f),
-							cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-				cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Total thread time: {:.3f}ms", apt[2] * 1000.f),
-							cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-				delete[] apt;
-			}
-			if(rtt) {
-				cv::putText(ctx.vpipe.aframe, fmt::format("[RT] (NEON) WSTB time: {:.3f}ms", rtt[0] * 1000.f),
-							cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-				cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Find Contours: {:.3f}ms", rtt[1] * 1000.f),
-							cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-				cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Filtering: {:.3f}ms", rtt[2] * 1000.f),
-							cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-				cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Total thread time: {:.3f}ms", rtt[3] * 1000.f),
-							cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-				delete[] rtt;
+			if(anno) {
+				if(std::get<4>(*anno).size() > 0 && std::get<5>(*anno).try_lock()) {
+					if(ds > 1) { ::rescale(std::get<3>(*anno), 1.0 / ds); }
+					cv::aruco::drawDetectedMarkers(ctx.vpipe.aframe, std::get<3>(*anno), std::get<4>(*anno));
+					std::get<5>(*anno).unlock();
+				}
+				if(std::get<2>(*anno).size() > 0 && std::get<5>(*anno).try_lock()) {
+					if(ds > 1) { ::rescale(std::get<2>(*anno), 1.0 / ds); }
+					cv::drawContours(ctx.vpipe.aframe, std::get<2>(*anno), -1, {0, 255, 0});
+					std::get<5>(*anno).unlock();
+				}
+				float* apt = std::get<0>(*anno);
+				if(apt) {
+					cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Detection time: {:.3f}ms", apt[0] * 1000.f),
+								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+					cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Estimation time: {:.3f}ms", apt[1] * 1000.f),
+								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+					cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Total thread time: {:.3f}ms", apt[2] * 1000.f),
+								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+				}
+				float* rtt = std::get<1>(*anno);
+				if(rtt) {
+					cv::putText(ctx.vpipe.aframe, fmt::format("[RT] (NEON) WSTB time: {:.3f}ms", rtt[0] * 1000.f),
+								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+					cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Find Contours: {:.3f}ms", rtt[1] * 1000.f),
+								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+					cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Filtering: {:.3f}ms", rtt[2] * 1000.f),
+								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+					cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Total thread time: {:.3f}ms", rtt[3] * 1000.f),
+								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+				}
 			}
 
 			cv::putText(ctx.vpipe.aframe,
 						fmt::format("CThread: [Pm:{:.1f}ms, APt:{:.1f}ms, RTt:{:.1f}ms, AOt:{:.1f}ms, AOi:{:.1f}ms, AOa:{:.1f}ms, AOc:{:.1f}ms, AOo:{:.1f}ms, AO:{:.1f}ms]",
-							timing[0], timing[1], timing[2], timing[3], timing[4], timing[5], timing[6], timing[7], timing[8]),
+							timing[1], timing[2], timing[3], timing[4], timing[5], timing[6], timing[7], timing[8], timing[9]),
 						cv::Point(5, fsz.height - fnthz1), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
 		}
 																				tb = high_resolution_clock::now();
-																				timing[5] = duration<float>(tb - ta).count() * 1000.f;
+																				timing[6] = duration<float>(tb - ta).count() * 1000.f;
 		neon_bitwise_or(ctx.vpipe.aframe, ctx.vpipe.dframe, ctx.vpipe.dframe);
-																				timing[6] = duration<float>(high_resolution_clock::now() - tb).count() * 1000.f;
+																				timing[7] = duration<float>(high_resolution_clock::now() - tb).count() * 1000.f;
 	} else { timing[5] = timing[6] = 0.f; }
 																				ta = high_resolution_clock::now();
 	cs::PutSourceFrame(ctx.fout_h, ctx.vpipe.dframe, &status);
 																				tb = high_resolution_clock::now();
-																				timing[7] = duration<float>(tb - ta).count() * 1000.f;
-																				timing[8] = duration<float>(tb - tp).count() * 1000.f;
-																				timing[9] = timing[2] + timing[8];
+																				timing[8] = duration<float>(tb - ta).count() * 1000.f;
+																				timing[9] = duration<float>(tb - tp).count() * 1000.f;
+																				timing[10] = timing[2] + timing[3] + timing[9];
 	ctx.vpipe.nt_timings.Set(std::span<float>(timing.begin(), timing.end()));
 
 	link = 2;
@@ -833,7 +847,8 @@ void _worker(CThread& ctx) {
 	int status{0}, verbosity, downscale;
 	std::atomic<int> output_link{0};
 	std::thread output_worker;
-	std::array<float, 10>& timing = ctx.vpipe.timings;
+	decltype(ctx.vpipe.timings)& timing = ctx.vpipe.timings;
+	AnnotationBuffer* annobuff{nullptr};
 
 	cs::SetSinkSource(ctx.fin_h, ctx.camera_h, &status);
 
@@ -841,12 +856,10 @@ void _worker(CThread& ctx) {
 
 		cs::GrabSinkFrame(ctx.fin_h, ctx.vpipe.frame, &status);
 																				ta = high_resolution_clock::now();
-																				ctx.ftime = duration<float>(ta - tf).count();
+																				timing[0] = duration<float>(ta - tf).count() * 1000.f;
 																				tf = ta;
 		verbosity = _global.nt.ovl_verbosity.Get();
 		downscale = _global.nt.downscale.Get();
-
-		float *aptiming{nullptr}, *rttiming{nullptr};
 
 		if(ctx.vpmode & 0b01) {		// apriltag
 																				ta = high_resolution_clock::now();
@@ -856,15 +869,24 @@ void _worker(CThread& ctx) {
 			}
 			if(_global.vpp.april_link == 0) {	// if the thread is stopped
 				if(verbosity > 1) {
-					size_t len = _global.stats.april_profile.size();
-					aptiming = new float[len];
-					memcpy(aptiming, _global.stats.april_profile.data(), len * sizeof(float));
-					// copy markers and ids to some buffer that can be accessed by the annotation thread
+					if(!annobuff) { annobuff = new AnnotationBuffer; }
+					if(!std::get<0>(*annobuff)) { std::get<0>(*annobuff) = new float[_global.vpp.april_profiling.size()]; }
+					memcpy(std::get<0>(*annobuff), _global.vpp.april_profiling.data(), _global.vpp.april_profiling.size() * sizeof(float));
+					if(std::get<5>(*annobuff).try_lock()) {
+						if(_global.vpp.apbuff.tag_corners.size() > 0) {
+							std::get<3>(*annobuff) = _global.vpp.apbuff.tag_corners;
+							std::get<4>(*annobuff) = _global.vpp.apbuff.tag_ids;
+						} else {
+							std::get<3>(*annobuff).clear();
+							std::get<4>(*annobuff).clear();
+						}
+						std::get<5>(*annobuff).unlock();
+					}
 				}
 				_global.vpp.april_worker = std::thread(_april_worker, std::ref(ctx), &ctx.vpipe.frame);
 			}
-																				timing[1] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
-		} else { timing[1] = 0.f; }
+																				timing[2] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
+		} else { timing[2] = 0.f; }
 		if(ctx.vpmode & 0b10) {		// retroreflective
 																				ta = high_resolution_clock::now();
 			if(_global.vpp.retro_link > 1 && _global.vpp.retro_worker.joinable()) {
@@ -873,15 +895,22 @@ void _worker(CThread& ctx) {
 			}
 			if(_global.vpp.retro_link == 0) {	// if the thread is stopped
 				if(verbosity > 1) {
-					size_t len = _global.stats.retro_profile.size();
-					rttiming = new float[len];
-					memcpy(rttiming, _global.stats.retro_profile.data(), len * sizeof(float));
-					// copy contours to some buffer that can be accessed by the annotation thread
+					if(!annobuff) { annobuff = new AnnotationBuffer; }
+					if(!std::get<1>(*annobuff)) { std::get<1>(*annobuff) = new float[_global.vpp.retro_profiling.size()]; }
+					memcpy(std::get<1>(*annobuff), _global.vpp.retro_profiling.data(), _global.vpp.retro_profiling.size() * sizeof(float));
+					if(std::get<5>(*annobuff).try_lock()) {
+						if(_global.vpp.rtbuff.contours.size() > 0) {
+							std::get<2>(*annobuff) = _global.vpp.rtbuff.contours;
+						} else {
+							std::get<2>(*annobuff).clear();
+						}
+						std::get<5>(*annobuff).unlock();
+					}
 				}
 				_global.vpp.retro_worker = std::thread(_retro_worker, std::ref(ctx), &ctx.vpipe.frame);
 			}
-																				timing[2] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
-		} else { timing[2] = 0.f; }
+																				timing[3] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
+		} else { timing[3] = 0.f; }
 																				ta = high_resolution_clock::now();
 		{	// annotation and output
 			if(output_link > 1 && output_worker.joinable()) {
@@ -890,17 +919,18 @@ void _worker(CThread& ctx) {
 			}
 			if(output_link == 0) {
 				output_worker = std::thread(_annotate_output, std::ref(ctx), std::ref(output_link),
-					verbosity, downscale, aptiming, rttiming);
+											verbosity, downscale, annobuff);
 			}
 		}
-																				timing[3] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
-																				timing[0] = duration<float>(high_resolution_clock::now() - tf).count() * 1000.f;
+																				timing[4] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
+																				timing[1] = duration<float>(high_resolution_clock::now() - tf).count() * 1000.f;
 
 	}
 
 	if(output_worker.joinable()) {
 		output_worker.join();
 	}
+	if(annobuff) { delete annobuff; }
 
 }
 void _shutdown(CThread& ctx) {
@@ -964,13 +994,14 @@ int _ap_estimate_aruco(
 		);
 
 		int id = ids.at(0);
+		if(id > _global.aprilp_field->ids.size()) { return 0; }
 
 		auto opt = _global.aprilp_field_poses.GetTagPose(id);
 		frc::Pose3d tag;
 		if(opt.has_value()) {
 			tag = std::move(opt.value());
 		} else {
-			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id);
+			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id - 1);
 			cv::Point3d tx = findCenter3D<double>(x);
 			tag = frc::Pose3d(
 				*reinterpret_cast<frc::Translation3d*>(&tx),
@@ -994,6 +1025,7 @@ int _ap_estimate_aruco(
 	
 	for(size_t i = 0; i < ndetected; i++) {
 		int id = ids.at(i);
+		if(id > _global.aprilp_field->ids.size()) { continue; }
 		for(size_t j = 0; j < _global.aprilp_field->ids.size(); j++) {
 			if(id == _global.aprilp_field->ids[j]) {
 				_img_points.insert(_img_points.end(), corners.at(i).begin(), corners.at(i).end());
@@ -1014,7 +1046,7 @@ int _ap_estimate_aruco(
 		if(opt.has_value()) {
 			tag = std::move(opt.value());
 		} else {
-			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id);
+			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id - 1);
 			cv::Point3d tx = findCenter3D<double>(x);
 			tag = frc::Pose3d(
 				*reinterpret_cast<frc::Translation3d*>(&tx),
@@ -1063,7 +1095,7 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 
 	p = high_resolution_clock::now();
 	_ap_detect_aruco((f ? *f : target.vpipe.frame), _buff.tag_corners, _buff.tag_ids);
-	_global.stats.april_profile[0] = duration<float>(high_resolution_clock::now() - p).count();
+	_global.vpp.april_profiling[0] = duration<float>(high_resolution_clock::now() - p).count();
 
 	if(_buff.tag_ids.size() > 0) {
 		_buff.estimations.clear();		// may do something with these later, like seed the new estimations?
@@ -1071,17 +1103,18 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 		_ap_estimate_aruco(
 			_buff.tag_corners, _buff.tag_ids, target.camera_matrix, target.dist_matrix, _buff.estimations,
 			_buff.tvecs, _buff.rvecs, _buff.obj_points, _buff.img_points);
-		_global.stats.april_profile[1] = duration<float>(high_resolution_clock::now() - p).count();
+		_global.vpp.april_profiling[1] = duration<float>(high_resolution_clock::now() - p).count();
 
 		double* d = reinterpret_cast<double*>(_buff.estimations.data());
 		_global.nt.poses.Set(std::span<double>(d, d + (_buff.estimations.size() * (sizeof(frc::Pose3d) / sizeof(double)))));
 	} else {
-		_global.stats.april_profile[1] = 0.f;
+		_global.vpp.april_profiling[1] = 0.f;
 	}
 
-	_global.vpp.april_link = 2;
+	_global.vpp.april_profiling[2] = duration<float>(high_resolution_clock::now() - beg).count();
+	_global.nt.april_timings.Set(std::span<float>(_global.vpp.april_profiling.begin(), _global.vpp.april_profiling.end()));
 
-	_global.stats.april_profile[2] = duration<float>(high_resolution_clock::now() - beg).count();
+	_global.vpp.april_link = 2;
 
 }
 void _retro_worker_inst(CThread& target, const cv::Mat* f) {
@@ -1116,11 +1149,11 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 
 	p = high_resolution_clock::now();
 	neon_deinterlace_wstb(_f, _buff.binary, DETECTION_BASE, WST_ALPHA, WST_BETA, WST_GAMMA, WST_THRESH);
-	_global.stats.retro_profile[0] = duration<float>(high_resolution_clock::now() - p).count();
+	_global.vpp.retro_profiling[0] = duration<float>(high_resolution_clock::now() - p).count();
 
 	p = high_resolution_clock::now();
 	cv::findContours(_buff.binary, _buff.contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-	_global.stats.retro_profile[1] = duration<float>(high_resolution_clock::now() - p).count();
+	_global.vpp.retro_profiling[1] = duration<float>(high_resolution_clock::now() - p).count();
 
 	p = high_resolution_clock::now();
 	for(size_t i = 0; i < _buff.contours.size(); i++) {
@@ -1142,15 +1175,16 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 			_buff.centers.back().y /= _buff.binary.size().height;
 		}
 	}
-	_global.stats.retro_profile[2] = duration<float>(high_resolution_clock::now() - p).count();
+	_global.vpp.retro_profiling[2] = duration<float>(high_resolution_clock::now() - p).count();
 	if(_buff.centers.size() > 0) {
 		double* d = reinterpret_cast<double*>(_buff.centers.data());
 		_global.nt.nodes.Set(std::span<double>(d, d + (_buff.centers.size() * sizeof(cv::Point2d) / sizeof(double))));
 	}
-	
-	_global.vpp.retro_link = 2;
 
-	_global.stats.retro_profile[3] = duration<float>(high_resolution_clock::now() - beg).count();
+	_global.vpp.retro_profiling[3] = duration<float>(high_resolution_clock::now() - beg).count();
+	_global.nt.retro_timings.Set(std::span<float>(_global.vpp.retro_profiling.begin(), _global.vpp.retro_profiling.end()));
+
+	_global.vpp.retro_link = 2;
 
 }
 

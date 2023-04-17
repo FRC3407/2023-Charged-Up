@@ -30,7 +30,6 @@
 #include <networktables/IntegerTopic.h>
 #include <networktables/FloatArrayTopic.h>
 #include <networktables/DoubleArrayTopic.h>
-// #include <cameraserver/CameraServer.h>
 
 #include <core/neon.h>
 #include <core/calib.h>
@@ -43,15 +42,35 @@
 #include "field.h"
 
 
-#define DLOG(x) std::cout << (x) << std::endl;
-#define DEBUG 2
+/* Overclocking: https://www.raspberrypi.com/documentation/computers/config_txt.html#overclocking-options */
 
+#define DLOG(x) std::cout << (x) << std::endl;
+#ifndef DEBUG
+#define DEBUG 2
+#endif
+
+#ifndef FRC_CONFIG
 #define FRC_CONFIG "/boot/frc.json"
+#endif
+#ifndef NT_IDENTITY
 #define NT_IDENTITY "Vision RPI"
+#endif
+#ifndef SIM_ADDR
 #define SIM_ADDR "192.168.0.8"
+#endif
+#ifndef NT_DEFAULT
 #define NT_DEFAULT 0
+#endif
+#ifndef ENABLE_CAMERASERVER
 #define ENABLE_CAMERASERVER 0
+#endif
+#ifndef PATCH_LIFECAM_V4L_PROP_IDS
 #define PATCH_LIFECAM_V4L_PROP_IDS 1
+#endif
+
+#if ENABLE_CAMERASERVER > 0
+#include <cameraserver/CameraServer.h>
+#endif
 
 using namespace std::chrono_literals;
 using namespace std::chrono;
@@ -127,23 +146,18 @@ public:
 
 class Stats : public wpi::Sendable, public CoreStats {
 public:
-	inline Stats(bool all_cores = false) : CoreStats(all_cores) {
-		// this->april_profile.resize(3);
-		// this->retro_profile.resize(4);
-	}
+	inline Stats(bool all_cores = false) : CoreStats(all_cores) {}
 
 	virtual void InitSendable(wpi::SendableBuilder& b) override {
-		b.AddFloatProperty("Core temp", [this](){ return this->temp(); }, nullptr);
-		b.AddFloatProperty("Utilization", [this](){ return this->fromLast(); }, nullptr);
+		b.AddFloatProperty("Core temp (C)", [this](){ return this->temp(); }, nullptr);
+		b.AddFloatProperty("Core freq (Mhz)", [this](){ return this->freq_vcmd() / 1e6f; }, nullptr);
+		b.AddFloatProperty("Core volts (V)", [this](){ return this->volts(); }, nullptr);
+		b.AddIntegerProperty("Throttle State", [this](){ return this->throttlebits(); }, nullptr);
+		b.AddFloatProperty("Utilization (%)", [this](){ return this->fromLast(); }, nullptr);
 		b.AddFloatProperty("Main UpTime", [this](){ return this->mtime; }, nullptr);
-		// b.AddFloatArrayProperty("Camera Thread FTimes", [this](){ return this->ftimes; }, nullptr);
-		// b.AddFloatArrayProperty("April VPipe Profiling", [this](){ return this->april_profile; }, nullptr);
-		// b.AddFloatArrayProperty("Retro VPipe Profiling", [this](){ return this->retro_profile; }, nullptr);
 	}
 
 	float mtime{0.f};
-	// std::vector<float>
-	// 	ftimes{}, april_profile{}, retro_profile{};
 
 };
 

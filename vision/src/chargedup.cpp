@@ -332,7 +332,7 @@ struct {
 		std::thread april_worker, retro_worker;
 		std::atomic<int> april_link{0}, retro_link{0};
 		std::array<float, 3> april_profiling;
-		std::array<float, 4> retro_profiling;
+		std::array<float, 5> retro_profiling;
 		struct {
 			std::vector<std::vector<cv::Point2f>> tag_corners;
 			std::vector<int32_t> tag_ids;
@@ -342,9 +342,10 @@ struct {
 			std::vector<frc::Pose3d> estimations;
 		} apbuff;
 		struct {
-			cv::Mat binary;
+			cv::Mat decimate, binary;
 			std::vector<std::vector<cv::Point2i>> contours;
 			std::vector<cv::Point2d> centers;
+			std::vector<cv::Rect2i> bboxes;
 		} rtbuff;
 	} vpp;	// 'Vision Processing Pipeline'
 
@@ -717,7 +718,7 @@ void _update(CThread& ctx) {
 		((int)(((apmode == -1) && outputting) || apmode == ctx.vid) << 0) |		// first bit is apmode, second is reflmode
 		((int)(((rflmode == -1) && outputting) || rflmode == ctx.vid) << 1)
 	);
-	bool enable = connected && ((overlay && outputting) || downscale || ctx.vpmode);
+	bool enable = connected && ((overlay && outputting) || downscale || ctx.vpmode);	// change to connect direct piping if no frame proc is needed
 
 	if(_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated) {
 		if(connected) {
@@ -766,9 +767,10 @@ void _update(CThread& ctx) {
 using AnnotationBuffer =
 	std::tuple<
 		float*, float*,
-		std::vector<std::vector<cv::Point2i>>,
 		std::vector<std::vector<cv::Point2f>>,
 		std::vector<int32_t>,
+		std::vector<std::vector<cv::Point2i>>,
+		std::vector<cv::Rect2i>,
 		std::mutex
 	>;
 void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds, AnnotationBuffer* anno) {
@@ -801,36 +803,50 @@ void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds, Anno
 		int vl = 2 * fnthz1;
 
 		if(vb > 1) {
-			if(anno) {
-				if(std::get<4>(*anno).size() > 0 && std::get<5>(*anno).try_lock()) {
-					if(ds > 1) { ::rescale(std::get<3>(*anno), 1.0 / ds); }
-					cv::aruco::drawDetectedMarkers(ctx.vpipe.aframe, std::get<3>(*anno), std::get<4>(*anno));
-					std::get<5>(*anno).unlock();
+			if(ctx.vpmode && anno) {
+				if(ctx.vpmode & 0b01) {
+					if(std::get<3>(*anno).size() > 0 && std::get<6>(*anno).try_lock()) {
+						if(ds > 1) {
+							::rescale(std::get<2>(*anno), 1.0 / ds);
+						}
+						cv::aruco::drawDetectedMarkers(ctx.vpipe.aframe, std::get<2>(*anno), std::get<3>(*anno));
+						std::get<6>(*anno).unlock();
+					}
+					float* apt = std::get<0>(*anno);
+					if(apt) {
+						cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Detection time: {:.3f}ms", apt[0] * 1000.f),
+									cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+						cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Estimation time: {:.3f}ms", apt[1] * 1000.f),
+									cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+						cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Total thread time: {:.3f}ms", apt[2] * 1000.f),
+									cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+					}
 				}
-				if(std::get<2>(*anno).size() > 0 && std::get<5>(*anno).try_lock()) {
-					if(ds > 1) { ::rescale(std::get<2>(*anno), 1.0 / ds); }
-					cv::drawContours(ctx.vpipe.aframe, std::get<2>(*anno), -1, {0, 255, 0});
-					std::get<5>(*anno).unlock();
-				}
-				float* apt = std::get<0>(*anno);
-				if(apt) {
-					cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Detection time: {:.3f}ms", apt[0] * 1000.f),
-								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-					cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Estimation time: {:.3f}ms", apt[1] * 1000.f),
-								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-					cv::putText(ctx.vpipe.aframe, fmt::format("[AP] Total thread time: {:.3f}ms", apt[2] * 1000.f),
-								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-				}
-				float* rtt = std::get<1>(*anno);
-				if(rtt) {
-					cv::putText(ctx.vpipe.aframe, fmt::format("[RT] (NEON) WSTB time: {:.3f}ms", rtt[0] * 1000.f),
-								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-					cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Find Contours: {:.3f}ms", rtt[1] * 1000.f),
-								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-					cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Filtering: {:.3f}ms", rtt[2] * 1000.f),
-								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
-					cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Total thread time: {:.3f}ms", rtt[3] * 1000.f),
-								cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+				if(ctx.vpmode & 0b10) {
+					if(std::get<4>(*anno).size() > 0 && std::get<6>(*anno).try_lock()) {
+						if(ds > 1) {
+							::rescale(std::get<4>(*anno), 4.0 / ds);	// the 4 is the amount that the wstb pipeline downscales --> create a global for this
+							::rescale(std::get<5>(*anno), 4.0 / ds);
+						}
+						cv::drawContours(ctx.vpipe.aframe, std::get<4>(*anno), -1, {0, 255, 0});
+						for(const cv::Rect& r : std::get<5>(*anno)) {
+							cv::rectangle(ctx.vpipe.aframe, r, {0, 255, 0}, 1, cv::LINE_AA);
+						}
+						std::get<6>(*anno).unlock();
+					}
+					float* rtt = std::get<1>(*anno);
+					if(rtt) {
+						cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Init & rescale: {:.3f}ms", rtt[0] * 1000.f),
+									cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+						cv::putText(ctx.vpipe.aframe, fmt::format("[RT] (NEON) WSTB time: {:.3f}ms", rtt[1] * 1000.f),
+									cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+						cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Find Contours: {:.3f}ms", rtt[2] * 1000.f),
+									cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+						cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Filtering: {:.3f}ms", rtt[3] * 1000.f),
+									cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+						cv::putText(ctx.vpipe.aframe, fmt::format("[RT] Total thread time: {:.3f}ms", rtt[4] * 1000.f),
+									cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
+					}
 				}
 			}
 
@@ -886,15 +902,15 @@ void _worker(CThread& ctx) {
 					if(!annobuff) { annobuff = new AnnotationBuffer; }
 					if(!std::get<0>(*annobuff)) { std::get<0>(*annobuff) = new float[_global.vpp.april_profiling.size()]; }
 					memcpy(std::get<0>(*annobuff), _global.vpp.april_profiling.data(), _global.vpp.april_profiling.size() * sizeof(float));
-					if(std::get<5>(*annobuff).try_lock()) {
+					if(std::get<6>(*annobuff).try_lock()) {
 						if(_global.vpp.apbuff.tag_corners.size() > 0) {
-							std::get<3>(*annobuff) = _global.vpp.apbuff.tag_corners;
-							std::get<4>(*annobuff) = _global.vpp.apbuff.tag_ids;
+							std::get<2>(*annobuff) = _global.vpp.apbuff.tag_corners;
+							std::get<3>(*annobuff) = _global.vpp.apbuff.tag_ids;
 						} else {
+							std::get<2>(*annobuff).clear();
 							std::get<3>(*annobuff).clear();
-							std::get<4>(*annobuff).clear();
 						}
-						std::get<5>(*annobuff).unlock();
+						std::get<6>(*annobuff).unlock();
 					}
 				}
 				_global.vpp.april_worker = std::thread(_april_worker, std::ref(ctx), &ctx.vpipe.frame);
@@ -912,13 +928,15 @@ void _worker(CThread& ctx) {
 					if(!annobuff) { annobuff = new AnnotationBuffer; }
 					if(!std::get<1>(*annobuff)) { std::get<1>(*annobuff) = new float[_global.vpp.retro_profiling.size()]; }
 					memcpy(std::get<1>(*annobuff), _global.vpp.retro_profiling.data(), _global.vpp.retro_profiling.size() * sizeof(float));
-					if(std::get<5>(*annobuff).try_lock()) {
+					if(std::get<6>(*annobuff).try_lock()) {
 						if(_global.vpp.rtbuff.contours.size() > 0) {
-							std::get<2>(*annobuff) = _global.vpp.rtbuff.contours;
+							std::get<4>(*annobuff) = _global.vpp.rtbuff.contours;
+							std::get<5>(*annobuff) = _global.vpp.rtbuff.bboxes;
 						} else {
-							std::get<2>(*annobuff).clear();
+							std::get<4>(*annobuff).clear();
+							std::get<5>(*annobuff).clear();
 						}
-						std::get<5>(*annobuff).unlock();
+						std::get<6>(*annobuff).unlock();
 					}
 				}
 				_global.vpp.retro_worker = std::thread(_retro_worker, std::ref(ctx), &ctx.vpipe.frame);
@@ -1137,14 +1155,15 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 		DETECTION_BASE = vs2::BGR::GREEN;
 	static constexpr uint8_t
 		WST_ALPHA = 0b01111111,
-		WST_BETA = 0b01111111,
+		WST_BETA = 0b00111111,
 		WST_GAMMA = 0U,
-		WST_THRESH = 50U,
+		WST_THRESH = 75U,
 		TAPE_PIXEL_COUNT_THRESH = 60U;
 	static constexpr bool
 		FILTER_UPRIGHT = true;		// only look for upright rectangles -- use unless the camera is intentionally tilted
 	static constexpr float			// the tape *should* be 1.66in wide x 4in tall -- ratio: 0.4125
-		TAPE_LOWER_WH_RATIO = 0.40f,
+		DECIMATE_FACTOR = 4.f,		// downscale the source frame
+		TAPE_LOWER_WH_RATIO = 0.20f,
 		TAPE_UPPER_WH_RATIO = 0.45f,
 		TAPE_RECT_FILL_THRESH = 0.75f;	// the contour area must be at least this proportion of the bounding rect's area
 
@@ -1155,47 +1174,74 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 	decltype(_global.vpp.rtbuff)& _buff = _global.vpp.rtbuff;
 	_buff.contours.clear();
 	_buff.centers.clear();
+	_buff.bboxes.clear();
 
 	const cv::Mat& _f = (f ? *f : target.vpipe.frame);
-	if(_buff.binary.size() != _f.size()) {
-		_buff.binary = cv::Mat(_f.size(), CV_8UC1);
+	const cv::Mat* src = nullptr;
+	if constexpr(DECIMATE_FACTOR > 1.f) {
+		const cv::Size2i dfsz = _f.size() / DECIMATE_FACTOR;
+		if(_buff.binary.size() != dfsz) {
+			_buff.binary = cv::Mat(dfsz, CV_8UC1);
+		}
+		if(_buff.decimate.size() != dfsz) {
+			_buff.decimate = cv::Mat(dfsz, CV_8UC3);
+		}
+		cv::resize(_f, _buff.decimate, dfsz, 0.0, 0.0, cv::INTER_AREA);
+		src = &_buff.decimate;
+	} else {
+		if(_buff.binary.size() != _f.size()) {
+			_buff.binary = cv::Mat(_f.size(), CV_8UC1);
+		}
+		src = &_f;
 	}
+	_global.vpp.retro_profiling[0] = duration<float>(high_resolution_clock::now() - beg).count();
 
 	p = high_resolution_clock::now();
-	neon_deinterlace_wstb(_f, _buff.binary, DETECTION_BASE, WST_ALPHA, WST_BETA, WST_GAMMA, WST_THRESH);
-	_global.vpp.retro_profiling[0] = duration<float>(high_resolution_clock::now() - p).count();
+	neon_deinterlace_wstb(*src, _buff.binary, DETECTION_BASE, WST_ALPHA, WST_BETA, WST_GAMMA, WST_THRESH);
+	_global.vpp.retro_profiling[1] = duration<float>(high_resolution_clock::now() - p).count();
 
 	p = high_resolution_clock::now();
 	cv::findContours(_buff.binary, _buff.contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-	_global.vpp.retro_profiling[1] = duration<float>(high_resolution_clock::now() - p).count();
+	_global.vpp.retro_profiling[2] = duration<float>(high_resolution_clock::now() - p).count();
 
 	p = high_resolution_clock::now();
 	for(size_t i = 0; i < _buff.contours.size(); i++) {
 		std::vector<cv::Point2i>& contour = _buff.contours[i];
-		double src_area = cv::contourArea(contour);
+		double src_area = cv::contourArea(contour), bbox_area = 0.0;
 		bool ratio{false}, fill{false}, area{src_area > TAPE_PIXEL_COUNT_THRESH};
+		cv::Rect2i bbox;
 		if constexpr(FILTER_UPRIGHT) {
-			cv::Rect2i outline = cv::boundingRect(contour);
-			ratio = ::inRange((float)outline.width / (float)outline.height, TAPE_LOWER_WH_RATIO, TAPE_UPPER_WH_RATIO);
-			fill = (src_area / outline.area()) >= TAPE_RECT_FILL_THRESH;
+			bbox = cv::boundingRect(contour);
+			ratio = ::inRange((float)bbox.width / (float)bbox.height, TAPE_LOWER_WH_RATIO, TAPE_UPPER_WH_RATIO);
+			bbox_area = bbox.area();
 		} else {
 			cv::RotatedRect outline = cv::minAreaRect(contour);
 			ratio = ::inRange<double>(outline.size.aspectRatio(), TAPE_LOWER_WH_RATIO, TAPE_UPPER_WH_RATIO);
-			fill = (src_area / outline.size.area()) >= TAPE_RECT_FILL_THRESH;
+			bbox_area = outline.size.area();
+			bbox = outline.boundingRect();
 		}
+		fill = (src_area / bbox_area) >= TAPE_RECT_FILL_THRESH;
 		if(ratio && fill && area) {
-			_buff.centers.emplace_back(findCenter<double>(contour));		// need to sort the detections by outline area/size
-			_buff.centers.back().x /= _buff.binary.size().width;
-			_buff.centers.back().y /= _buff.binary.size().height;
+			size_t insert = _buff.bboxes.size();
+			for(size_t x = 0; x < _buff.bboxes.size(); x++) {
+				if(bbox_area > _buff.bboxes[x].area()) {
+					insert = x;
+					break;
+				}
+			}
+			_buff.bboxes.insert(_buff.bboxes.begin() + insert, bbox);
+			_buff.centers.insert(_buff.centers.begin() + insert, findCenter<double>(contour));
+			_buff.centers.at(insert).x /= _buff.binary.size().width;
+			_buff.centers.at(insert).y /= _buff.binary.size().height;
 		}
 	}
-	_global.vpp.retro_profiling[2] = duration<float>(high_resolution_clock::now() - p).count();
+	_global.vpp.retro_profiling[3] = duration<float>(high_resolution_clock::now() - p).count();
 	if(_buff.centers.size() > 0) {
 		double* d = reinterpret_cast<double*>(_buff.centers.data());
 		_global.nt.nodes.Set(std::span<double>(d, d + (_buff.centers.size() * sizeof(cv::Point2d) / sizeof(double))));
 	}
 
-	_global.vpp.retro_profiling[3] = duration<float>(high_resolution_clock::now() - beg).count();
+	_global.vpp.retro_profiling[4] = duration<float>(high_resolution_clock::now() - beg).count();
 	_global.nt.retro_timings.Set(std::span<float>(_global.vpp.retro_profiling.begin(), _global.vpp.retro_profiling.end()));
 
 	_global.vpp.retro_link = 2;

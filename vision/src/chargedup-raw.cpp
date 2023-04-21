@@ -23,7 +23,6 @@
 #include <networktables/NetworkTable.h>
 #include <networktables/IntegerTopic.h>
 #include <networktables/FloatArrayTopic.h>
-#include <cameraserver/CameraServer.h>
 
 #include <cpp-tools/src/sighandle.h>
 #include <cpp-tools/src/unix/stats2.h>
@@ -31,15 +30,35 @@
 
 
 #define DLOG(x) std::cout << (x) << std::endl;
+#ifndef DEBUG
 #define DEBUG 2
+#endif
 
+#ifndef FRC_CONFIG
 #define FRC_CONFIG "/boot/frc.json"
+#endif
+#ifndef NT_IDENTITY
 #define NT_IDENTITY "Vision RPI"
+#endif
+#ifndef SIM_ADDR
 #define SIM_ADDR "192.168.0.8"
+#endif
+#ifndef NT_DEFAULT
 #define NT_DEFAULT 0
+#endif
+#ifndef ENABLE_CAMERASERVER
+#define ENABLE_CAMERASERVER 0
+#endif
+
+#if ENABLE_CAMERASERVER > 0
+#include <cameraserver/CameraServer.h>
+#endif
 
 using namespace std::chrono_literals;
 using namespace std::chrono;
+
+
+
 
 enum CamID {
 	FWD_CAMERA,
@@ -76,10 +95,12 @@ public:
 };
 
 
+#if ENABLE_CAMERASERVER > 0
 class VideoSinkImpl : public cs::VideoSink {
 public:
 	inline VideoSinkImpl(CS_Sink h) : VideoSink(h) {}	// this constructor is protected so we have to subclass to use it publicly
 };
+#endif
 struct CThread {
 	CThread() = default;
 	CThread(CThread&& t) :
@@ -298,7 +319,9 @@ bool init(const char* fname) {
 
 	_global.discon_frame_h = cs::CreateCvSource("Disconnected Frame Source", DEFAULT_VMODE, &status);
 	_global.stream_h = cs::CreateMjpegServer("Viewport Stream", "", _global.next_stream_port++, &status);
+#if ENABLE_CAMERASERVER > 0
 	frc::CameraServer::AddServer(VideoSinkImpl(_global.stream_h));
+#endif
 #if DEBUG > 0
 	std::cout << fmt::format("Created main stream with port {}.", _global.next_stream_port - 1) << std::endl;
 #endif
@@ -326,7 +349,9 @@ bool init(const char* fname) {
 				fmt::format("{}_cv_out", name), cthr.vmode, &status);
 			cthr.view_h = cs::CreateMjpegServer(
 				fmt::format("{}_view_stream", name), "", _global.next_stream_port++, &status);
+#if ENABLE_CAMERASERVER > 0
 			frc::CameraServer::AddServer(VideoSinkImpl(cthr.view_h));
+#endif
 #if DEBUG > 0
 			std::cout << fmt::format("Created {} camera view stream with port {}.", name, _global.next_stream_port - 1) << std::endl;
 #endif
@@ -368,7 +393,9 @@ bool init(const char* fname) {
 				fmt::format("Camera{}_cv_out", cthr.vid), cthr.vmode, &status);
 			cthr.view_h = cs::CreateMjpegServer(
 				fmt::format("Camera{}_view_stream", cthr.vid), "", _global.next_stream_port++, &status);
+#if ENABLE_CAMERASERVER > 0
 			frc::CameraServer::AddServer(VideoSinkImpl(cthr.view_h));
+#endif
 #if DEBUG > 0
 			std::cout << fmt::format("Created Camera{} view stream with port {}.", cthr.vid, _global.next_stream_port - 1) << std::endl;
 #endif

@@ -70,6 +70,10 @@
       "/LiveWindow/Ungrouped/Talon SRX [5]": "Motor Controller",
       "/SmartDashboard/Autonomous": "String Chooser",
       "/SmartDashboard/Autonomous Selector": "String Chooser",
+      "/SmartDashboard/Commands/Auto Trajectories/Lines [Trajectory]": "Command",
+      "/SmartDashboard/Commands/Auto Trajectories/T1 [Trajectory]": "Command",
+      "/SmartDashboard/Commands/Auto Trajectories/T2 [Trajectory]": "Command",
+      "/SmartDashboard/Commands/Auto Trajectories/T3 [Trajectory]": "Command",
       "/SmartDashboard/Commands/Auto Trajectories/Test Auto [Trajectory]": "Command",
       "/SmartDashboard/Commands/Auto Trajectories/Test Follow [Trajectory]": "Command",
       "/SmartDashboard/Commands/Climb Charging Pad": "Command",
@@ -82,6 +86,11 @@
       "/SmartDashboard/Robot/FieldPosition": "Field2d"
     },
     "windows": {
+      "/SmartDashboard/Autonomous Selector": {
+        "window": {
+          "visible": true
+        }
+      },
       "/SmartDashboard/Control Scheme/Selector": {
         "window": {
           "visible": true
@@ -142,13 +151,27 @@
             },
             "Grabber": {
               "open": true
-            },
-            "open": true
+            }
           },
           "open": true
         },
         "Vision": {
           "Stats": {
+            "Threads": {
+              "open": true
+            },
+            "open": true
+          },
+          "open": true
+        },
+        "open": true
+      },
+      "Smartdashboard": {
+        "Vision": {
+          "Stats": {
+            "Threads": {
+              "open": true
+            },
             "open": true
           },
           "open": true
@@ -156,6 +179,9 @@
         "open": true
       },
       "Vision": {
+        "Threads": {
+          "open": true
+        },
         "open": true
       }
     }

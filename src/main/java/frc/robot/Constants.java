@@ -69,6 +69,9 @@ public final class Constants {
 		DRIVE_BOOST_SCALE = 1.5,
 		DRIVE_FINE_SCALE = 0.5,
 
+		TRAJECTORY_MAX_VEL = 1.5,
+		TRAJECTORY_MAX_ACC = 2.0,
+
 		IMU_RATE_FILTER = 0.40,
 
 		ACTIVE_PARK_VOLTS_PER_METER = 100.0,
@@ -111,7 +114,7 @@ public final class Constants {
 		TEST_FOLLOW = "Test Follow";
 	public static final String[]		// make a list so we can automate adding all the trajectories as selectable auto options
 		TRAJECTORIES = new String[]{
-			TEST_AUTO, TEST_FOLLOW
+			TEST_AUTO, TEST_FOLLOW, "T1", "T2", "T3", "Lines"
 		};
 	public static final HashMap<String, Command> AUTO_EVENTS = new HashMap<>();
 

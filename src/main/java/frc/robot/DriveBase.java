@@ -112,7 +112,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 				this.ramsete_B, this.ramsete_Z
 			);
 		}
-		public PathConstraints getPathConstraints() {
+		public PathConstraints getMaxConstraints() {	// not recommended for use w/ paths
 			return new PathConstraints(this.max_velocity, this.max_acceleration);
 		}
 	}
@@ -428,9 +428,6 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			this.getVoltageConstraint()
 		);
 	}
-	public PathPlannerTrajectory loadConstrainedPPTrajectory(String ppfile) {
-		return PathPlanner.loadPath(ppfile, this.parameters.getPathConstraints());
-	}
 
 	public RamseteAutoBuilder makeAutoBuilder(HashMap<String, Command> events) {
 		return new RamseteAutoBuilder(
@@ -652,6 +649,16 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 	/* TRAJECTORY */
 	public static final boolean DEFAULT_TRANSFORM_ALLIANCE_TRAJ = true;
+	public static final PathConstraints DEFAULT_FOLLOW_CONSTRAINTS =
+		new PathConstraints(Constants.TRAJECTORY_MAX_VEL, Constants.TRAJECTORY_MAX_ACC);
+
+	public static PathPlannerTrajectory loadFileConstrainedTrajectory(String ppfile, PathConstraints dfault) {
+		PathConstraints p = PathPlanner.getConstraintsFromPath(ppfile);
+		return PathPlanner.loadPath(ppfile, (p == null ? dfault : p));
+	}
+	public static PathPlannerTrajectory loadFileConstrainedTrajectory(String ppfile) {
+		return loadFileConstrainedTrajectory(ppfile, DEFAULT_FOLLOW_CONSTRAINTS);
+	}
 
 	public RamseteCommand followTrajectoryBase(Trajectory t) {
 		return new RamseteCommand(
@@ -717,13 +724,13 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		}
 		/** Follow a path planner trajectory using the target's filename and executed by a PPRamseteCommand */
 		public PathFollower(DriveBase db, String ppfile)
-			{ this(db, db.loadConstrainedPPTrajectory(ppfile)); }
+			{ this(db, loadFileConstrainedTrajectory(ppfile)); }
 		/** Follow a path planner trajectory, executed by a PPRamseteCommand */
 		public PathFollower(DriveBase db, PathPlannerTrajectory t)
 			{ this(db, t, DEFAULT_TRANSFORM_ALLIANCE_TRAJ); }
 		/** Follow a path planner trajectory using the target's filename and executed by a PPRamseteCommand */
 		public PathFollower(DriveBase db, String ppfile, boolean alliance_transform)
-			{ this(db, db.loadConstrainedPPTrajectory(ppfile), alliance_transform); }
+			{ this(db, loadFileConstrainedTrajectory(ppfile), alliance_transform); }
 		/** Follow a path planner trajectory, executed by a PPRamseteCommand */
 		public PathFollower(DriveBase db, PathPlannerTrajectory t, boolean alliance_transform) {
 			this.follower = db.followPPTrajectoryBase(t, alliance_transform);
@@ -732,13 +739,13 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		}
 		/** Follow a path planner trajectory with events using the target's filename -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
 		public PathFollower(DriveBase db, String ppfile, Map<String, Command> e)
-			{ this(db, db.loadConstrainedPPTrajectory(ppfile), e); }
+			{ this(db, loadFileConstrainedTrajectory(ppfile), e); }
 		/** Follow a path planner trajectory with events -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
 		public PathFollower(DriveBase db, PathPlannerTrajectory t, Map<String, Command> e)
 			{ this(db, t, e, DEFAULT_TRANSFORM_ALLIANCE_TRAJ); }
 		/** Follow a path planner trajectory with events using the target's filename -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
 		public PathFollower(DriveBase db, String ppfile, Map<String, Command> e, boolean alliance_transform)
-			{ this(db, db.loadConstrainedPPTrajectory(ppfile), e, alliance_transform); }
+			{ this(db, loadFileConstrainedTrajectory(ppfile), e, alliance_transform); }
 		/** Follow a path planner trajectory with events -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
 		public PathFollower(DriveBase db, PathPlannerTrajectory t, Map<String, Command> e, boolean alliance_transform) {
 			this.follower = db.followEventTrajectoryBase(t, e, alliance_transform);

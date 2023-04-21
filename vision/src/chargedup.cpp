@@ -425,6 +425,7 @@ int main(int argc, char** argv) {
 		sigaction((unsigned int)SigHandle::Sigs::INT, &_action, nullptr);
 		sigaction((unsigned int)SigHandle::Sigs::QUIT, &_action, nullptr);
 		sigaction((unsigned int)SigHandle::Sigs::ILL, &_action, nullptr);
+		sigaction((unsigned int)SigHandle::Sigs::ABRT, &_action, nullptr);
 		sigaction((unsigned int)SigHandle::Sigs::SEGV, &_action, nullptr);
 	}
 
@@ -1010,7 +1011,7 @@ void _worker(CThread& ctx) {
 																				timing[3] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
 		} else { timing[3] = 0.f; }
 																				ta = high_resolution_clock::now();
-		{	// annotation and output
+		if(verbosity | downscale) {	// annotation and output
 			if(output_link > 1 && output_worker.joinable()) {
 				output_worker.join();
 				output_link = 0;

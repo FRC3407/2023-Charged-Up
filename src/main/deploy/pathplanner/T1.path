@@ -12,7 +12,7 @@
       },
       "holonomicAngle": 0,
       "isReversal": false,
-      "velOverride": null,
+      "velOverride": 0.5,
       "isLocked": true,
       "isStopPoint": false,
       "stopEvent": {
@@ -34,7 +34,7 @@
       "nextControl": null,
       "holonomicAngle": 0,
       "isReversal": false,
-      "velOverride": null,
+      "velOverride": 0.5,
       "isLocked": true,
       "isStopPoint": false,
       "stopEvent": {

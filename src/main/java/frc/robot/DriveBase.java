@@ -11,6 +11,7 @@ import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.kinematics.*;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.MotorSafety;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.wpilibj.smartdashboard.FieldObject2d;
@@ -126,7 +127,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	private final WPI_TalonSRX left, left2, right, right2;
 	private final Gyro gyro;
 
-	private Transform2d last_total_odometry = new Transform2d();
+	private Pose2d last_total_odometry = new Pose2d();
 
 
 	public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params)
@@ -287,12 +288,12 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		return new PathFollower(this, t);
 	}
 	/** Follow a path planner trajectory using the target's filename and executed by a PPRamseteCommand */
-	public PathFollower followPPTrajectory(String ppfile, boolean allianceTransform) {
-		return new PathFollower(this, ppfile, allianceTransform);
+	public PathFollower followPPTrajectory(String ppfile, DriverStation.Alliance alliance_transform) {
+		return new PathFollower(this, ppfile, alliance_transform);
 	}
 	/** Follow a path planner trajectory, executed by a PPRamseteCommand */
-	public PathFollower followPPTrajectory(PathPlannerTrajectory t, boolean allianceTransform) {
-		return new PathFollower(this, t, allianceTransform);
+	public PathFollower followPPTrajectory(PathPlannerTrajectory t, DriverStation.Alliance alliance_transform) {
+		return new PathFollower(this, t, alliance_transform);
 	}
 	/** Follow a path planner trajectory with events using the target's filename -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
 	public PathFollower followEventTrajectory(String ppfile, Map<String, Command> events) {
@@ -303,12 +304,12 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		return new PathFollower(this, t, events);
 	}
 	/** Follow a path planner trajectory with events using the target's filename -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
-	public PathFollower followEventTrajectory(String ppfile, Map<String, Command> events, boolean allianceTransform) {
-		return new PathFollower(this, ppfile, events, allianceTransform);
+	public PathFollower followEventTrajectory(String ppfile, Map<String, Command> events, DriverStation.Alliance alliance_transform) {
+		return new PathFollower(this, ppfile, events, alliance_transform);
 	}
 	/** Follow a path planner trajectory with events -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
-	public PathFollower followEventTrajectory(PathPlannerTrajectory t, Map<String, Command> events, boolean allianceTransform) {
-		return new PathFollower(this, t, events, allianceTransform);
+	public PathFollower followEventTrajectory(PathPlannerTrajectory t, Map<String, Command> events, DriverStation.Alliance alliance_transform) {
+		return new PathFollower(this, t, events, alliance_transform);
 	}
 
 
@@ -331,8 +332,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	}
 	public void resetOdometry(Pose2d p) {
 		this.resetEncoders();
-		Pose2d last = this.getTotalPose();
-		this.last_total_odometry = new Transform2d(last.getTranslation(), last.getRotation());
+		this.last_total_odometry = this.getTotalPose();
 		this.odometry.resetPosition(
 			this.getRotation(), 0.0, 0.0, p);
 	}
@@ -410,7 +410,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		return this.odometry.getPoseMeters();
 	}
 	public Pose2d getTotalPose() {
-		return this.getDeltaPose().plus(this.last_total_odometry);	// this might need to be reversed
+		Pose2d n = this.getDeltaPose();
+		return this.last_total_odometry.plus(new Transform2d(n.getTranslation(), n.getRotation()));
 	}
 
 	public DifferentialDriveVoltageConstraint getVoltageConstraint() {
@@ -648,7 +649,6 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 
 	/* TRAJECTORY */
-	public static final boolean DEFAULT_TRANSFORM_ALLIANCE_TRAJ = true;
 	public static final PathConstraints DEFAULT_FOLLOW_CONSTRAINTS =
 		new PathConstraints(Constants.TRAJECTORY_MAX_VEL, Constants.TRAJECTORY_MAX_ACC);
 
@@ -658,6 +658,9 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	}
 	public static PathPlannerTrajectory loadFileConstrainedTrajectory(String ppfile) {
 		return loadFileConstrainedTrajectory(ppfile, DEFAULT_FOLLOW_CONSTRAINTS);
+	}
+	public static PathPlannerTrajectory transformForActiveAlliance(PathPlannerTrajectory t) {
+		return PathPlannerTrajectory.transformTrajectoryForAlliance(t, DriverStation.getAlliance());
 	}
 
 	public RamseteCommand followTrajectoryBase(Trajectory t) {
@@ -674,7 +677,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			this
 		);
 	}
-	public PPRamseteCommand followPPTrajectoryBase(PathPlannerTrajectory t, boolean allianceTransform) {
+	public PPRamseteCommand followPPTrajectoryBase(PathPlannerTrajectory t, boolean alliance_transform) {
 		return new PPRamseteCommand(
 			t,
 			this::getDeltaPose,
@@ -685,13 +688,13 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			this.parameters.getFeedbackController(),
 			this.parameters.getFeedbackController(),
 			this::setDriveVoltage,
-			allianceTransform,
+			alliance_transform,
 			this
 		);
 	}
-	public FollowPathWithEvents followEventTrajectoryBase(PathPlannerTrajectory t, Map<String, Command> events, boolean allianceTransform) {
+	public FollowPathWithEvents followEventTrajectoryBase(PathPlannerTrajectory t, Map<String, Command> events, boolean alliance_transform) {
 		return new FollowPathWithEvents(
-			this.followPPTrajectoryBase(t, allianceTransform),
+			this.followPPTrajectoryBase(t, alliance_transform),
 			t.getMarkers(),
 			events
 		);
@@ -704,6 +707,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	 * trajectory finishes. */
 	public static class PathFollower extends CommandBase {
 
+		public static final DriverStation.Alliance
+			DEFAULT_TRAJECTORY_ALLIANCE = DriverStation.Alliance.Invalid;	// use DriverStation.getAlliance() for active
 		public static final boolean
 			DEFAULT_FOLLOW_RELATIVE = true,
 			DEFAULT_STOP_ON_FINISH = true;
@@ -727,13 +732,16 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			{ this(db, loadFileConstrainedTrajectory(ppfile)); }
 		/** Follow a path planner trajectory, executed by a PPRamseteCommand */
 		public PathFollower(DriveBase db, PathPlannerTrajectory t)
-			{ this(db, t, DEFAULT_TRANSFORM_ALLIANCE_TRAJ); }
+			{ this(db, t, DEFAULT_TRAJECTORY_ALLIANCE); }
 		/** Follow a path planner trajectory using the target's filename and executed by a PPRamseteCommand */
-		public PathFollower(DriveBase db, String ppfile, boolean alliance_transform)
+		public PathFollower(DriveBase db, String ppfile, DriverStation.Alliance alliance_transform)
 			{ this(db, loadFileConstrainedTrajectory(ppfile), alliance_transform); }
 		/** Follow a path planner trajectory, executed by a PPRamseteCommand */
-		public PathFollower(DriveBase db, PathPlannerTrajectory t, boolean alliance_transform) {
-			this.follower = db.followPPTrajectoryBase(t, alliance_transform);
+		public PathFollower(DriveBase db, PathPlannerTrajectory t, DriverStation.Alliance alliance_transform) {
+			if(alliance_transform != null && alliance_transform != DriverStation.Alliance.Invalid) {
+				t = PathPlannerTrajectory.transformTrajectoryForAlliance(t, alliance_transform);
+			}
+			this.follower = db.followPPTrajectoryBase(t, false);
 			this.drivebase = db;
 			this.initial = t.getInitialPose();
 		}
@@ -742,13 +750,16 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			{ this(db, loadFileConstrainedTrajectory(ppfile), e); }
 		/** Follow a path planner trajectory with events -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
 		public PathFollower(DriveBase db, PathPlannerTrajectory t, Map<String, Command> e)
-			{ this(db, t, e, DEFAULT_TRANSFORM_ALLIANCE_TRAJ); }
+			{ this(db, t, e, DEFAULT_TRAJECTORY_ALLIANCE); }
 		/** Follow a path planner trajectory with events using the target's filename -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
-		public PathFollower(DriveBase db, String ppfile, Map<String, Command> e, boolean alliance_transform)
+		public PathFollower(DriveBase db, String ppfile, Map<String, Command> e, DriverStation.Alliance alliance_transform)
 			{ this(db, loadFileConstrainedTrajectory(ppfile), e, alliance_transform); }
 		/** Follow a path planner trajectory with events -- executed using PathPlanner's 'FollowPathWithEvents' command (PPRamseteCommand controller) */
-		public PathFollower(DriveBase db, PathPlannerTrajectory t, Map<String, Command> e, boolean alliance_transform) {
-			this.follower = db.followEventTrajectoryBase(t, e, alliance_transform);
+		public PathFollower(DriveBase db, PathPlannerTrajectory t, Map<String, Command> e, DriverStation.Alliance alliance_transform) {
+			if(alliance_transform != null && alliance_transform != DriverStation.Alliance.Invalid) {
+				t = PathPlannerTrajectory.transformTrajectoryForAlliance(t, alliance_transform);
+			}
+			this.follower = db.followEventTrajectoryBase(t, e, false);
 			this.drivebase = db;
 			this.initial = t.getInitialPose();
 		}

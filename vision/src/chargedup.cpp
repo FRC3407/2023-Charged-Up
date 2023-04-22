@@ -150,7 +150,6 @@ namespace Constant {
 		static constexpr uint8_t
 			WST_ALPHA = 0b01111111,
 			WST_BETA = 0b00111111,
-			WST_GAMMA = 0U,
 			WST_THRESH = 25U;
 		static constexpr bool
 			FILTER_UPRIGHT = true;			// only look for upright rectangles -- use unless the camera is intentionally tilted
@@ -382,7 +381,6 @@ static struct {
 			nt::IntegerEntry
 				nt_wst_alpha,
 				nt_wst_beta,
-				nt_wst_gamma,
 				nt_wst_thresh;
 			nt::FloatEntry
 				nt_tape_lower_wh,
@@ -736,7 +734,6 @@ bool init(const char* fname) {
 	std::shared_ptr<nt::NetworkTable> vpipe_tuning_nt = _global.base_ntable->GetSubTable("Tuning");
 	_global.vpp.rtbuff.nt_wst_alpha = vpipe_tuning_nt->GetIntegerTopic("Retro WST Alpha").GetEntry(VRetro::WST_ALPHA, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_wst_beta = vpipe_tuning_nt->GetIntegerTopic("Retro WST Beta").GetEntry(VRetro::WST_BETA, NT_OPTIONS);
-	_global.vpp.rtbuff.nt_wst_gamma = vpipe_tuning_nt->GetIntegerTopic("Retro WST Gamma").GetEntry(VRetro::WST_GAMMA, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_wst_thresh = vpipe_tuning_nt->GetIntegerTopic("Retro WST Thresh").GetEntry(VRetro::WST_THRESH, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_tape_lower_wh = vpipe_tuning_nt->GetFloatTopic("Retro Min Aspect").GetEntry(VRetro::TAPE_LOWER_WH_RATIO, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_tape_upper_wh = vpipe_tuning_nt->GetFloatTopic("Retro Max Aspect").GetEntry(VRetro::TAPE_UPPER_WH_RATIO, NT_OPTIONS);
@@ -744,7 +741,6 @@ bool init(const char* fname) {
 	_global.vpp.rtbuff.nt_tape_pix_thresh = vpipe_tuning_nt->GetFloatTopic("Retro Pixel Thresh").GetEntry(VRetro::TAPE_PIXEL_COUNT_THRESH, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_wst_alpha.Set(VRetro::WST_ALPHA);
 	_global.vpp.rtbuff.nt_wst_beta.Set(VRetro::WST_BETA);
-	_global.vpp.rtbuff.nt_wst_gamma.Set(VRetro::WST_GAMMA);
 	_global.vpp.rtbuff.nt_wst_thresh.Set(VRetro::WST_THRESH);
 	_global.vpp.rtbuff.nt_tape_lower_wh.Set(VRetro::TAPE_LOWER_WH_RATIO);
 	_global.vpp.rtbuff.nt_tape_upper_wh.Set(VRetro::TAPE_UPPER_WH_RATIO);
@@ -891,9 +887,10 @@ void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds, Anno
 				}
 				if(ctx.vpmode & 0b10) {
 					if(std::get<4>(*anno).size() > 0 && std::get<6>(*anno).try_lock()) {
-						if(ds > 1) {
-							::rescale(std::get<4>(*anno), Constant::VRetro::DECIMATE_FACTOR / ds);
-							::rescale(std::get<5>(*anno), Constant::VRetro::DECIMATE_FACTOR / ds);
+						float rscale = Constant::VRetro::DECIMATE_FACTOR / (ds < 1 ? 1 : ds);
+						if(rscale != 1.f) {
+							::rescale(std::get<4>(*anno), rscale);
+							::rescale(std::get<5>(*anno), rscale);
 						}
 						cv::drawContours(ctx.vpipe.aframe, std::get<4>(*anno), -1, {0, 255, 0});
 						for(const cv::Rect& r : std::get<5>(*anno)) {
@@ -1011,7 +1008,7 @@ void _worker(CThread& ctx) {
 																				timing[3] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
 		} else { timing[3] = 0.f; }
 																				ta = high_resolution_clock::now();
-		if(verbosity | downscale) {	// annotation and output
+		if(verbosity || downscale > 0) {	// annotation and output --> only if not directly streaming
 			if(output_link > 1 && output_worker.joinable()) {
 				output_worker.join();
 				output_link = 0;
@@ -1020,6 +1017,9 @@ void _worker(CThread& ctx) {
 				output_worker = std::thread(_annotate_output, std::ref(ctx), std::ref(output_link),
 											verbosity, downscale, annobuff);
 			}
+		} else {
+			timing[5] = timing[6] = timing[7] = timing[8] = timing[9] = timing[10] = 0.f;
+			ctx.vpipe.nt_timings.Set(std::span<float>(timing.begin(), timing.end()));
 		}
 																				timing[4] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
 																				timing[1] = duration<float>(high_resolution_clock::now() - tf).count() * 1000.f;
@@ -1227,7 +1227,6 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 	const uint8_t
 		wst_alpha = _buff.nt_wst_alpha.Get(),
 		wst_beta = _buff.nt_wst_beta.Get(),
-		wst_gamma = _buff.nt_wst_gamma.Get(),
 		wst_thresh = _buff.nt_wst_thresh.Get();
 	const float
 		tape_min_aspect = _buff.nt_tape_lower_wh.Get(),
@@ -1237,7 +1236,6 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 #define _DETECTION_BASE				Constant::VRetro::DETECTION_BASE
 #define _WST_ALPHA					wst_alpha
 #define _WST_BETA					wst_beta
-#define _WST_GAMMA					wst_gamma
 #define _WST_THRESH					wst_thresh
 #define _DECIMATE_FACTOR			Constant::VRetro::DECIMATE_FACTOR
 #define _TAPE_LOWER_WH_RATIO		tape_min_aspect
@@ -1248,7 +1246,6 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 #define _DETECTION_BASE				Constant::VRetro::DETECTION_BASE
 #define _WST_ALPHA					Constant::VRetro::WST_ALPHA
 #define _WST_BETA					Constant::VRetro::WST_BETA
-#define _WST_GAMMA					Constant::VRetro::WST_GAMMA
 #define _WST_THRESH					Constant::VRetro::WST_THRESH
 #define _DECIMATE_FACTOR			Constant::VRetro::DECIMATE_FACTOR
 #define _TAPE_LOWER_WH_RATIO		Constant::VRetro::TAPE_LOWER_WH_RATIO
@@ -1280,7 +1277,7 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 	_global.vpp.retro_profiling[0] = duration<float>(high_resolution_clock::now() - beg).count();
 
 	p = high_resolution_clock::now();
-	neon_deinterlace_wstb(*src, _buff.binary, _DETECTION_BASE, _WST_ALPHA, _WST_BETA, _WST_GAMMA, _WST_THRESH);
+	neon_deinterlace_wstb(*src, _buff.binary, _DETECTION_BASE, _WST_ALPHA, _WST_BETA, _WST_THRESH);
 	_global.vpp.retro_profiling[1] = duration<float>(high_resolution_clock::now() - p).count();
 
 	p = high_resolution_clock::now();
@@ -1313,7 +1310,7 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 				}
 			}
 			_buff.bboxes.insert(_buff.bboxes.begin() + insert, bbox);
-			_buff.centers.insert(_buff.centers.begin() + insert, findCenter<double>(contour));
+			_buff.centers.insert(_buff.centers.begin() + insert, (cv::Point2d(bbox.tl() + bbox.br()) / 2.0));
 			_buff.centers.at(insert).x /= _buff.binary.size().width;
 			_buff.centers.at(insert).y /= _buff.binary.size().height;
 		}

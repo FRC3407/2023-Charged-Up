@@ -13,9 +13,11 @@ import org.photonvision.PhotonCamera;
 import org.photonvision.targeting.*;
 
 
-public class Vision {
+public final class Vision {
 
 	public static PubSubOption NT_ENTRY_DEFAULT = PubSubOption.periodic(0.02);
+	public static PubSubOption[] NT_DATA_SUBSCRIBER = new PubSubOption[]{
+		NT_ENTRY_DEFAULT, PubSubOption.keepDuplicates(true), PubSubOption.pollStorage(10) };
 
 	public static class NT {
 		private NT() {
@@ -32,8 +34,17 @@ public class Vision {
 				0, Vision.NT_ENTRY_DEFAULT);
 			this.aprilp_mode = this.vbase.getIntegerTopic("AprilTag Mode").getEntry(
 				0, Vision.NT_ENTRY_DEFAULT);
-			this.pose_estimations = this.vbase.getDoubleArrayTopic("Camera Pose Estimations").subscribe(
-				new double[]{}, Vision.NT_ENTRY_DEFAULT);
+			this.retror_mode = this.vbase.getIntegerTopic("RetroRefl Mode").getEntry(
+				0, Vision.NT_ENTRY_DEFAULT);
+
+			this.active_estimations = this.vbase.getDoubleArrayTopic("Pose Estimations/Active").subscribe(
+				new double[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.extra_estimations = this.vbase.getDoubleArrayTopic("Pose Estimations/Extra").subscribe(
+				new double[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.estimate_errors = this.vbase.getFloatArrayTopic("Pose Estimations/RMSE").subscribe(
+				new float[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.retrorefl_centers = this.vbase.getDoubleArrayTopic("RetroReflective Detections/Centers").subscribe(
+				new double[]{}, Vision.NT_DATA_SUBSCRIBER);
 		}
 		private static NT global;
 		public static NT get() {
@@ -50,8 +61,14 @@ public class Vision {
 			overlay_verbosity,
 			cam_exposure,
 			downscaling,
-			aprilp_mode;
-		public final DoubleArraySubscriber pose_estimations;
+			aprilp_mode,
+			retror_mode;
+		public final DoubleArraySubscriber
+			active_estimations,
+			extra_estimations,
+			retrorefl_centers;
+		public final FloatArraySubscriber
+			estimate_errors;
 	}
 
 	public static NT nt = null;
@@ -111,32 +128,54 @@ public class Vision {
 		return (int)nt.overlay_verbosity.get();
 	}
 
-	public static Pose3d[] getRawEstimations(Pose3d[] p) {
-		double[] d = nt.pose_estimations.get();
-		int len = d.length / 7;
-		if(p == null || p.length != len) {
-			p = new Pose3d[len];
+	public static Pose3d[] extract3dPoses(double[] raw, Pose3d[] buff) {
+		int len = raw.length / 7;
+		if(buff == null || buff.length != len) {
+			buff = new Pose3d[len];
 		}
-		for(int i = 0; i / 7 < p.length;) {
-			p[i / 7] = new Pose3d(
+		for(int i = 0; i / 7 < buff.length;) {
+			buff[i / 7] = new Pose3d(
 				new Translation3d(
-					d[i++],
-					d[i++],
-					d[i++]
+					raw[i++],
+					raw[i++],
+					raw[i++]
 				),
 				new Rotation3d(
 					new Quaternion(
-						d[i++],
-						d[i++],
-						d[i++],
-						d[i++]
+						raw[i++],
+						raw[i++],
+						raw[i++],
+						raw[i++]
 					))
 			);
 		}
-		return p;
+		return buff;
 	}
-	public static Pose3d[] getRawEstimations() {
-		return getRawEstimations(null);
+
+	public static Pose3d[] getCurrentEstimations(Pose3d[] p) {
+		double[] d = nt.active_estimations.get();
+		return extract3dPoses(d, p);
+	}
+	public static Pose3d[] getCurrentEstimations() {
+		return getCurrentEstimations(null);
+	}
+	public static Pose3d[][] getQueuedEstimations() {
+		TimestampedDoubleArray[] d = nt.active_estimations.readQueue();
+		if(d.length > 0) {
+			Pose3d[][] arr = new Pose3d[d.length][];
+			for(int i = 0; i < arr.length; i++) {
+				arr[i] = extract3dPoses(d[i].value, null);
+			}
+			return arr;
+		}
+		return null;
+	}
+	public static TimestampedDoubleArray getNewestEstimation() {
+		TimestampedDoubleArray[] d = nt.active_estimations.readQueue();
+		if(d.length > 0) {
+			return d[d.length - 1];
+		}
+		return null;
 	}
 
 
@@ -156,7 +195,7 @@ public class Vision {
 		}
 		@Override
 		public void execute() {
-			this.raw = Vision.getRawEstimations(this.raw);
+			this.raw = Vision.getCurrentEstimations(this.raw);
 			if(this.raw.length > 0) {
 				this.poses.clear();
 				for(int i = 0; i < raw.length; i++) {
@@ -257,6 +296,50 @@ public class Vision {
 
 
 
+
+
+
+
+
+	public static final class PoseEstimation {
+
+		public static class BoundingVolume {
+			double[] xyz_a = new double[3], xyz_b = new double[3];
+		}
+		public static BoundingVolume createMinMax(double xmin, double xmax, double ymin, double ymax, double zmin, double zmax) {
+			BoundingVolume v = new BoundingVolume();
+			v.xyz_a[0] = xmax;
+			v.xyz_b[0] = xmin;
+			v.xyz_a[1] = ymax;
+			v.xyz_b[1] = ymin;
+			v.xyz_a[2] = zmax;
+			v.xyz_b[2] = zmin;
+			return v;
+		}
+
+		public static final double
+			FIELD_WIDTH_METERS = 8.0137,
+			FIELD_LENGTH_METERS = 16.54175,
+			MAX_HEIGHT = 3.0;
+		
+
+		public static boolean inside(Pose3d p, BoundingVolume v) {
+			boolean
+				x = p.getX() > v.xyz_b[0] && p.getX() < v.xyz_a[0],
+				y = p.getY() > v.xyz_b[1] && p.getY() < v.xyz_a[1],
+				z = p.getZ() > v.xyz_b[2] && p.getZ() < v.xyz_a[2];
+			return x && y && z;
+		}
+		public static boolean inside(Pose3d p, BoundingVolume... vs) {
+			for(BoundingVolume v : vs) {
+				if(!inside(p, v)) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+	}
 
 
 

@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.DoubleSupplier;
 
+import edu.wpi.first.math.estimator.DifferentialDrivePoseEstimator;
 import edu.wpi.first.math.trajectory.constraint.DifferentialDriveVoltageConstraint;
 import edu.wpi.first.math.trajectory.*;
 import edu.wpi.first.math.controller.*;
@@ -120,14 +121,15 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 
 	private final DifferentialDriveKinematics kinematics;
-	private final DifferentialDriveOdometry odometry;
+	private final DifferentialDriveOdometry raw_odometry;
+	private final DifferentialDrivePoseEstimator ov_fusion;
 	public final SimpleMotorFeedforward feedforward;
 	public final ClosedLoopParams parameters;
 
 	private final WPI_TalonSRX left, left2, right, right2;
 	private final Gyro gyro;
 
-	private Pose2d last_total_odometry = new Pose2d();
+	private Pose2d delta_pose_init = new Pose2d();
 
 
 	public DriveBase(DriveMap_4<WPI_TalonSRX> map, Gyro gy, ClosedLoopParams params)
@@ -140,8 +142,10 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		this.left2 = map.back_left;
 		this.right2 = map.back_right;
 
-		this.odometry = new DifferentialDriveOdometry(this.gyro.getRotation2d(), 0, 0);
 		this.kinematics = new DifferentialDriveKinematics(this.parameters.track_width_meters);
+		this.raw_odometry = new DifferentialDriveOdometry(this.gyro.getRotation2d(), 0.0, 0.0);
+		this.ov_fusion = new DifferentialDrivePoseEstimator(
+			this.kinematics, this.gyro.getRotation2d(), 0.0, 0.0, new Pose2d());
 		this.feedforward = this.parameters.getFeedforward();
 
 		this.left.configFactoryDefault();
@@ -169,11 +173,10 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 	@Override
 	public void periodic() {
-		this.odometry.update(
-			this.gyro.getRotation2d(),
-			this.getLeftPosition(),
-			this.getRightPosition()
-		);
+		Rotation2d a = this.gyro.getRotation2d();
+		double l = this.getLeftPosition(), r = this.getRightPosition();
+		this.ov_fusion.update(a, l, r);
+		this.raw_odometry.update(a, l, r);
 	}
 	@Override
 	public void initSendable(SendableBuilder b) {
@@ -211,14 +214,20 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 				this.left2.getTemperature(),
 				this.right2.getTemperature()
 			}; }, null);
-		b.addDoubleArrayProperty("Odometry Tracked Pose [Absolute, Delta]",
+		b.addDoubleArrayProperty("Estimated Pose",
 			()->{
-				Pose2d total = this.getTotalPose();
+				Pose2d total = this.getFusionPose();
+				return new double[]{ total.getX(), total.getY(), total.getRotation().getDegrees() };
+			}, null);
+		b.addDoubleArrayProperty("Raw Odometry",
+			()->{
+				Pose2d raw = this.getRawPose();
+				return new double[]{ raw.getX(), raw.getY(), raw.getRotation().getDegrees() };
+			}, null);
+		b.addDoubleArrayProperty("Delta Pose",
+			()->{
 				Pose2d delta = this.getDeltaPose();
-				return new double[]{
-					total.getX(), total.getY(), total.getRotation().getDegrees(),
-					delta.getX(), delta.getY(), delta.getRotation().getDegrees()
-				};
+				return new double[]{ delta.getX(), delta.getY(), delta.getRotation().getDegrees() };
 			}, null);
 	}
 	@Override
@@ -235,7 +244,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	}
 
 	public void setTotalFieldPose(FieldObject2d fo) {
-		fo.setPose(this.getTotalPose());
+		fo.setPose(this.getFusionPose());
 	}
 	public void setDeltaFieldPose(FieldObject2d fo) {
 		fo.setPose(this.getDeltaPose());
@@ -330,11 +339,22 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	public void zeroHeading() {
 		this.gyro.reset();
 	}
-	public void resetOdometry(Pose2d p) {
+	public void resetDeltaPose(Pose2d p) {
+		this.delta_pose_init = this.getFusionPose();
+	}
+	public void resetFusion(Pose2d p) {
+		this.ov_fusion.resetPosition(
+			this.getRotation(), this.getLeftPosition(), this.getRightPosition(), p);
+	}
+	public void softResetOdometry(Pose2d p) {
+		this.raw_odometry.resetPosition(
+			this.getRotation(), this.getLeftPosition(), this.getRightPosition(), p);
+	}
+	public void hardResetOdometry(Pose2d p) {
 		this.resetEncoders();
-		this.last_total_odometry = this.getTotalPose();
-		this.odometry.resetPosition(
-			this.getRotation(), 0.0, 0.0, p);
+		Rotation2d r = this.getRotation();
+		this.raw_odometry.resetPosition(r, 0.0, 0.0, p);
+		this.ov_fusion.resetPosition(r, 0.0, 0.0, p);
 	}
 
 	public void setNeutralMode(NeutralMode m) {
@@ -407,11 +427,14 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 
 	public Pose2d getDeltaPose() {
-		return this.odometry.getPoseMeters();
+		Transform2d dv = this.getFusionPose().minus(this.delta_pose_init);
+		return new Pose2d(dv.getTranslation(), dv.getRotation());
 	}
-	public Pose2d getTotalPose() {
-		Pose2d n = this.getDeltaPose();
-		return this.last_total_odometry.plus(new Transform2d(n.getTranslation(), n.getRotation()));
+	public Pose2d getRawPose() {
+		return this.raw_odometry.getPoseMeters();
+	}
+	public Pose2d getFusionPose() {
+		return this.ov_fusion.getEstimatedPosition();
 	}
 
 	public DifferentialDriveVoltageConstraint getVoltageConstraint() {
@@ -433,7 +456,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	public RamseteAutoBuilder makeAutoBuilder(HashMap<String, Command> events) {
 		return new RamseteAutoBuilder(
 			this::getDeltaPose,
-			this::resetOdometry,
+			this::resetDeltaPose,
 			this.parameters.getRamseteController(),
 			this.kinematics,
 			this.feedforward,
@@ -780,7 +803,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		@Override
 		public void initialize() {
 			if(this.relative) {
-				this.drivebase.resetOdometry(this.initial);
+				this.drivebase.resetDeltaPose(this.initial);
 			}
 			this.follower.initialize();
 		}

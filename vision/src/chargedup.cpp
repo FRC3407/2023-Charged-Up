@@ -292,24 +292,44 @@ namespace util {
 		return cvToWpi<u>(t, rvec);
 	}
 
+	// frc::Pose3d genPose(const std::vector<cv::Point3f>& corners, const frc::Vectord<3>& basedir = frc::Vectord<3>{0, 1, 0}) {
+	// 	cv::Point3d center = ::findCenter3D<double>(corners);
+	// 	frc::Vectord<3>
+	// 		a{corners[4].x - corners[1].x, corners[4].y - corners[1].y, corners[4].z - corners[1].z},	// tl to bl
+	// 		b{corners[2].x - corners[1].x, corners[2].y - corners[1].y, corners[2].z - corners[1].z},	// tl to tr
+	// 		n = a.cross(b);		// normal vector for clockwise ordered corners
+	// 	return frc::Pose3d(
+	// 		*reinterpret_cast<frc::Translation3d*>(&center),
+	// 		frc::Rotation3d(basedir, n)
+	// 	);
+	// }
+	// std::vector<frc::Pose3d> genPoses(const std::vector<std::vector<cv::Point3f>>& tags, const frc::Vectord<3>& basedir = frc::Vectord<3>{0, 1, 0}) {
+	// 	std::vector<frc::Pose3d> poses;
+	// 	poses.reserve(tags.size());
+	// 	for(const auto& tag : tags) {
+	// 		poses.emplace_back(genPose(tag, basedir));
+	// 	}
+	// 	return poses;
+	// }
+
 };
 
-void _ap_detect_aruco(
-	const cv::Mat& frame,
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids
-);
-int _ap_estimate_aruco(
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
-	cv::InputArray cmatx, cv::InputArray cdist,
-	std::vector<frc::Pose3d>& estimations
-);
-int _ap_estimate_aruco(
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
-	cv::InputArray cmatx, cv::InputArray cdist,
-	std::vector<frc::Pose3d>& estimations,
-	std::vector<cv::Mat1f>& _tvecs, std::vector<cv::Mat1f>& _rvecs,
-	std::vector<cv::Point3f>& _obj_points, std::vector<cv::Point2f>& _img_points
-);
+// void _ap_detect_aruco(
+// 	const cv::Mat& frame,
+// 	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids
+// );
+// int _ap_estimate_aruco(
+// 	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
+// 	cv::InputArray cmatx, cv::InputArray cdist,
+// 	std::vector<frc::Pose3d>& estimations
+// );
+// int _ap_estimate_aruco(
+// 	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
+// 	cv::InputArray cmatx, cv::InputArray cdist,
+// 	std::vector<frc::Pose3d>& estimations,
+// 	std::vector<cv::Mat1f>& _tvecs, std::vector<cv::Mat1f>& _rvecs,
+// 	std::vector<cv::Point3f>& _obj_points, std::vector<cv::Point2f>& _img_points
+// );
 
 
 
@@ -343,8 +363,10 @@ static struct {
 		;
 		nt::DoubleArrayEntry
 			poses,
+			ext_poses,
 			nodes;
 		nt::FloatArrayEntry
+			pose_errs,
 			april_timings,
 			retro_timings;
 	} nt;
@@ -358,7 +380,8 @@ static struct {
 
 	const cv::Ptr<cv::aruco::DetectorParameters> aprilp_params{ cv::aruco::DetectorParameters::create() };
 	const cv::Ptr<cv::aruco::Board> aprilp_field{ ::FIELD_2023 };
-	const frc::AprilTagFieldLayout aprilp_field_poses{ frc::LoadAprilTagLayoutField(frc::AprilTagField::k2023ChargedUp) };
+	const std::array<frc::Pose3d, 8>& aprilp_field_poses{ ::TAG_POSES_2023 };
+	// const frc::AprilTagFieldLayout aprilp_field_poses{ frc::LoadAprilTagLayoutField(frc::AprilTagField::k2023ChargedUp) };
 	struct {
 		std::thread april_worker, retro_worker;
 		std::atomic<int> april_link{0}, retro_link{0};
@@ -370,7 +393,8 @@ static struct {
 			std::vector<cv::Point2f> img_points;
 			std::vector<cv::Point3f> obj_points;
 			std::vector<cv::Mat1f> tvecs, rvecs;
-			std::vector<frc::Pose3d> estimations;
+			std::vector<frc::Pose3d> estimations, indv_estimations;
+			std::vector<float> eerrors;
 		} apbuff;
 		struct {
 			cv::Mat decimate, binary;
@@ -563,8 +587,10 @@ bool init(const char* fname) {
 	_global.nt.downscale = _global.base_ntable->GetIntegerTopic("Output Downscale").GetEntry(0, NT_OPTIONS);
 	_global.nt.april_mode = _global.base_ntable->GetIntegerTopic("AprilTag Mode").GetEntry(-2, NT_OPTIONS);
 	_global.nt.retro_mode = _global.base_ntable->GetIntegerTopic("RetroRefl Mode").GetEntry(-2, NT_OPTIONS);
-	_global.nt.poses = _global.base_ntable->GetDoubleArrayTopic("Camera Pose Estimations").GetEntry({}, NT_OPTIONS);
-	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("Retro Tape Detections").GetEntry({}, NT_OPTIONS);
+	_global.nt.poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Active").GetEntry({}, NT_OPTIONS);
+	_global.nt.ext_poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Extra").GetEntry({}, NT_OPTIONS);
+	_global.nt.pose_errs = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/RSME").GetEntry({}, NT_OPTIONS);
+	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("RetroReflective Detections/Centers").GetEntry({}, NT_OPTIONS);
 	std::shared_ptr<nt::NetworkTable> thread_stats_nt = _global.base_ntable->GetSubTable("Threads");
 	_global.nt.april_timings = thread_stats_nt->GetFloatArrayTopic("AprilTag Pipeline").GetEntry({}, NT_OPTIONS);
 	_global.nt.retro_timings = thread_stats_nt->GetFloatArrayTopic("RetroRef Pipeline").GetEntry({}, NT_OPTIONS);
@@ -727,8 +753,6 @@ bool init(const char* fname) {
 	_global.nt.downscale.Set(DEFAULT_DOWNSCALE);
 	_global.nt.april_mode.Set(-1);
 	_global.nt.retro_mode.Set(-2);
-	_global.nt.poses.Set({});
-	_global.nt.nodes.Set({});
 
 #if VPIPE_DEBUG_NT_OPTIONS > 0
 	std::shared_ptr<nt::NetworkTable> vpipe_tuning_nt = _global.base_ntable->GetSubTable("Tuning");
@@ -1052,131 +1076,134 @@ void _shutdown(CThread& ctx) {
 
 
 
-void _ap_detect_aruco(
-	const cv::Mat& frame,
-	std::vector<std::vector<cv::Point2f>>& corners,
-	std::vector<int32_t>& ids
-) {
-	cv::aruco::detectMarkers(
-		frame, _global.aprilp_field->dictionary,
-		corners, ids, _global.aprilp_params
-	);
-}
+// void _ap_detect_aruco(
+// 	const cv::Mat& frame,
+// 	std::vector<std::vector<cv::Point2f>>& corners,
+// 	std::vector<int32_t>& ids
+// ) {
+// 	cv::aruco::detectMarkers(
+// 		frame, _global.aprilp_field->dictionary,
+// 		corners, ids, _global.aprilp_params
+// 	);
+// }
 
-int _ap_estimate_aruco(
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
-	cv::InputArray cmatx, cv::InputArray cdist,
-	std::vector<frc::Pose3d>& estimations
-) {
-	std::vector<cv::Mat1f> _tvecs, _rvecs;
-	std::vector<cv::Point3f> _obj_points;
-	std::vector<cv::Point2f> _img_points;
-	_ap_estimate_aruco(corners, ids, cmatx, cdist, estimations, _tvecs, _rvecs, _obj_points, _img_points);
-}
-int _ap_estimate_aruco(
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
-	cv::InputArray cmatx, cv::InputArray cdist,
-	std::vector<frc::Pose3d>& estimations,
+// int _ap_estimate_aruco(
+// 	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
+// 	cv::InputArray cmatx, cv::InputArray cdist,
+// 	std::vector<frc::Pose3d>& estimations
+// ) {
+// 	std::vector<cv::Mat1f> _tvecs, _rvecs;
+// 	std::vector<cv::Point3f> _obj_points;
+// 	std::vector<cv::Point2f> _img_points;
+// 	_ap_estimate_aruco(corners, ids, cmatx, cdist, estimations, _tvecs, _rvecs, _obj_points, _img_points);
+// }
+// int _ap_estimate_aruco(
+// 	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
+// 	cv::InputArray cmatx, cv::InputArray cdist,
+// 	std::vector<frc::Pose3d>& estimations,
 
-	std::vector<cv::Mat1f>& _tvecs, std::vector<cv::Mat1f>& _rvecs,
-	std::vector<cv::Point3f>& _obj_points, std::vector<cv::Point2f>& _img_points
-) {
-	CV_Assert(corners.size() == ids.size());
+// 	std::vector<cv::Mat1f>& _tvecs, std::vector<cv::Mat1f>& _rvecs,
+// 	std::vector<cv::Point3f>& _obj_points, std::vector<cv::Point2f>& _img_points
+// ) {
+// 	CV_Assert(corners.size() == ids.size());
 
-	size_t ndetected = ids.size();
-	if(ndetected == 0) { return 0; }
-	else if(ndetected == 1) {
-		cv::solvePnPGeneric(
-			GENERIC_TAG_CORNERS, corners.at(0),
-			cmatx, cdist, _rvecs, _tvecs,
-			false, cv::SOLVEPNP_IPPE_SQUARE
-		);
+// 	size_t ndetected = ids.size();
+// 	if(ndetected == 0) { return 0; }
+// 	else if(ndetected == 1) {
 
-		int id = ids.at(0);
-		if(id > _global.aprilp_field->ids.size()) { return 0; }
+// 		int id = ids.at(0);
+// 		if(id > _global.aprilp_field->ids.size()) { return 0; }
 
-		auto opt = _global.aprilp_field_poses.GetTagPose(id);
-		frc::Pose3d tag;
-		if(opt.has_value()) {
-			tag = std::move(opt.value());
-		} else {
-			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id - 1);
-			cv::Point3d tx = findCenter3D<double>(x);
-			tag = frc::Pose3d(
-				*reinterpret_cast<frc::Translation3d*>(&tx),
-				frc::Rotation3d()	// put something here
-			);
-		}
-		for(size_t i = 0; i < _tvecs.size(); i++) {
-			frc::Transform3d c2tag = util::cvToWpi(_tvecs[i], _rvecs[i]);
-			estimations.push_back(tag.TransformBy(c2tag.Inverse()));
-			// estimations.emplace_back(tag.TransformBy(util::cvToWpiInv(_tvecs[i], _rvecs[i])));
-		}
-		return _tvecs.size();
-	}
+// 		cv::solvePnPGeneric(
+// 			GENERIC_TAG_CORNERS, corners.at(0),
+// 			cmatx, cdist, _rvecs, _tvecs,
+// 			false, cv::SOLVEPNP_IPPE_SQUARE,
+// 			cv::noArray(), cv::noArray(), _global.vpp.apbuff.eerrors
+// 		);
 
-	CV_Assert(_global.aprilp_field->ids.size() == _global.aprilp_field->objPoints.size());
+// 		for(size_t i = 0; i < _tvecs.size(); i++) {
+// 			frc::Transform3d c2tag = util::cvToWpi<units::meter_t>(_tvecs[i], _rvecs[i]);
+// 			estimations.push_back(_global.aprilp_field_poses.at(id - 1).TransformBy(c2tag.Inverse()));
+// 			// estimations.emplace_back(tag.TransformBy(util::cvToWpiInv(_tvecs[i], _rvecs[i])));
+// 		}
+// 		return _tvecs.size();
+// 	}
 
-	_obj_points.clear();
-	_img_points.clear();
-	_obj_points.reserve(ndetected * 4);
-	_img_points.reserve(ndetected * 4);
-	
-	for(size_t i = 0; i < ndetected; i++) {
-		int id = ids.at(i);
-		if(id > _global.aprilp_field->ids.size()) { continue; }
-		for(size_t j = 0; j < _global.aprilp_field->ids.size(); j++) {
-			if(id == _global.aprilp_field->ids[j]) {
-				_img_points.insert(_img_points.end(), corners.at(i).begin(), corners.at(i).end());
-				for(int p = 3; p >= 0; p--) {	// reverse the order such as to flip the points vertically
-					_obj_points.push_back(util::wpiToCv(_global.aprilp_field->objPoints[j][p]));
-				}
-			}
-		}
+// 	// CV_Assert(_global.aprilp_field->ids.size() == _global.aprilp_field->objPoints.size());
 
-		// solve all individual poses
-		cv::solvePnPGeneric(
-			GENERIC_TAG_CORNERS, corners.at(0),
-			cmatx, cdist, _rvecs, _tvecs,
-			false, cv::SOLVEPNP_IPPE_SQUARE
-		);
-		auto opt = _global.aprilp_field_poses.GetTagPose(id);
-		frc::Pose3d tag;
-		if(opt.has_value()) {
-			tag = std::move(opt.value());
-		} else {
-			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id - 1);
-			cv::Point3d tx = findCenter3D<double>(x);
-			tag = frc::Pose3d(
-				*reinterpret_cast<frc::Translation3d*>(&tx),
-				frc::Rotation3d()	// put something here
-			);
-		}
-		for(size_t i = 0; i < _tvecs.size(); i++) {
-			frc::Transform3d c2tag = util::cvToWpi(_tvecs[i], _rvecs[i]);
-			estimations.push_back(tag.TransformBy(c2tag.Inverse()));
-			// estimations.emplace_back(tag.TransformBy(util::cvToWpiInv(_tvecs[i], _rvecs[i])));
-		}
+// 	_obj_points.clear();
+// 	_img_points.clear();
+// 	_obj_points.reserve(ndetected * 4);
+// 	_img_points.reserve(ndetected * 4);
+// 	cv::Point3f tl1{};
+// 	frc::Pose3d p1{};
+// 	std::vector<float> rmse;
 
-	}
+// 	bool first = true;
+// 	for(size_t i = 0; i < ndetected; i++) {
 
-	CV_Assert(_img_points.size() == _obj_points.size());
+// 		int id = ids.at(i);
+// 		if(id > _global.aprilp_field->ids.size()) { continue; }
 
-	cv::solvePnPGeneric(
-		_obj_points, _img_points,
-		cmatx, cdist, _rvecs, _tvecs,
-		false, cv::SOLVEPNP_ITERATIVE
-	);
+// 		std::vector<cv::Point2f>& itag = corners.at(i);
+// 		size_t iidx;
+// 		for(iidx = 0;iidx < _global.aprilp_field->ids.size(); iidx++) {
+// 			if(id == _global.aprilp_field->ids[iidx]) {
+// 				_img_points.insert(_img_points.end(), itag.begin(), itag.end());
+// 				if(first) {
+// 					tl1 = _global.aprilp_field->objPoints[iidx][0];
+// 					p1 = _global.aprilp_field_poses.at(iidx);
+// 					_obj_points.insert(_obj_points.end(), GENERIC_TAG_CORNERS.begin(), GENERIC_TAG_CORNERS.end());
+// 					first = false;
+// 				} else {
+// 					cv::Point3f dv = util::wpiToCv(_global.aprilp_field->objPoints[iidx][0] - tl1);
+// 					for(auto& c : GENERIC_TAG_CORNERS) {
+// 						_obj_points.emplace_back(c + dv);
+// 					}
+// 				}
+// 				// for(int p = 3; p >= 0; p--) {	// reverse the order such as to flip the points vertically
+// 				// 	_obj_points.push_back(util::wpiToCv(_global.aprilp_field->objPoints[j][p]));
+// 				// }
+// 				break;
+// 			}
+// 		}
 
-	for(size_t i = 0; i < _tvecs.size(); i++) {
-		frc::Transform3d f2cam = util::cvToWpi(_tvecs[i], _rvecs[i]).Inverse();
-		estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
-		// estimations.emplace_back(util::cvToWpiInv_P(_tvecs[i], _rvecs[i]));
-	}
+// 		// solve individual poses
+// 		cv::solvePnPGeneric(
+// 			GENERIC_TAG_CORNERS, itag,
+// 			cmatx, cdist, _rvecs, _tvecs,
+// 			false, cv::SOLVEPNP_IPPE_SQUARE,
+// 			cv::noArray(), cv::noArray(), rmse
+// 		);
 
-	return _tvecs.size();
+// 		for(size_t s = 0; s < _tvecs.size(); s++) {
+// 			frc::Transform3d c2tag = util::cvToWpi<units::meter_t>(_tvecs[s], _rvecs[s]);
+// 			estimations.push_back(_global.aprilp_field_poses.at(iidx).TransformBy(c2tag.Inverse()));
+// 			// estimations.emplace_back(tag.TransformBy(util::cvToWpiInv(_tvecs[i], _rvecs[i])));
+// 		}
 
-}
+// 	}
+
+// 	CV_Assert(_img_points.size() == _obj_points.size());
+
+// 	cv::solvePnPGeneric(
+// 		_obj_points, _img_points,
+// 		cmatx, cdist, _rvecs, _tvecs,
+// 		false, cv::SOLVEPNP_SQPNP,
+// 		cv::noArray(), cv::noArray(), cv::noArray()	// <-- we should log the reproj error for each
+// 	);
+
+// 	for(size_t i = 0; i < _tvecs.size(); i++) {
+// 		frc::Transform3d c2tag = util::cvToWpi<units::meter_t>(_tvecs[i], _rvecs[i]);
+// 		estimations.push_back(p1.TransformBy(c2tag.Inverse()));
+// 		// frc::Transform3d f2cam = util::cvToWpi<units::meter_t>(_tvecs[i], _rvecs[i]).Inverse();
+// 		// estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
+// 		// estimations.emplace_back(util::cvToWpiInv_P(_tvecs[i], _rvecs[i]));
+// 	}
+
+// 	return _tvecs.size();
+
+// }
 
 
 
@@ -1193,19 +1220,128 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 	_buff.tag_ids.clear();
 
 	p = high_resolution_clock::now();
-	_ap_detect_aruco((f ? *f : target.vpipe.frame), _buff.tag_corners, _buff.tag_ids);
+	cv::aruco::detectMarkers(
+		(f ? *f : target.vpipe.frame),
+		_global.aprilp_field->dictionary,
+		_buff.tag_corners, _buff.tag_ids,
+		_global.aprilp_params
+	);
 	_global.vpp.april_profiling[0] = duration<float>(high_resolution_clock::now() - p).count();
 
-	if(_buff.tag_ids.size() > 0) {
-		_buff.estimations.clear();		// may do something with these later, like seed the new estimations?
+	if(const size_t detections = _buff.tag_ids.size(); (detections > 0 && detections == _buff.tag_corners.size())) {
+		_buff.estimations.clear();
+		_buff.indv_estimations.clear();
+		_buff.eerrors.clear();
+
 		p = high_resolution_clock::now();
-		_ap_estimate_aruco(
-			_buff.tag_corners, _buff.tag_ids, target.camera_matrix, target.dist_matrix, _buff.estimations,
-			_buff.tvecs, _buff.rvecs, _buff.obj_points, _buff.img_points);
+		{
+			if(detections == 1) {	// single tag
+				int id = _buff.tag_ids[0];
+				if(id > _global.aprilp_field->ids.size()) {}
+
+				cv::solvePnPGeneric(
+					::GENERIC_TAG_CORNERS, _buff.tag_corners[0],
+					target.camera_matrix, target.dist_matrix,
+					_buff.rvecs, _buff.tvecs, false, cv::SOLVEPNP_IPPE_SQUARE,
+					cv::noArray(), cv::noArray(), _buff.eerrors
+				);
+
+				for(size_t i = 0; i < _buff.tvecs.size(); i++) {
+					frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]);
+					_buff.estimations.push_back(_global.aprilp_field_poses[id - 1].TransformBy(c2tag.Inverse()));
+				}
+			} else {				// 'megatag'
+#define MEGATAG_SOLVE_METHOD cv::SOLVEPNP_ITERATIVE
+				_buff.obj_points.clear();
+				_buff.img_points.clear();
+				_buff.obj_points.reserve(detections * 4U);
+				_buff.obj_points.reserve(detections * 4U);
+
+				std::vector<float> rmse;
+#if MEGATAG_SOLVE_METHOD == cv::SOLVEPNP_SQPNP
+				cv::Point3f tl1{};
+				frc::Pose3d p1{};
+				bool first = true;
+#endif
+
+				for(size_t i = 0; i < detections; i++) {
+
+					int id = _buff.tag_ids[i];
+					if(id > _global.aprilp_field->ids.size()) { continue; }
+
+					std::vector<cv::Point2f>& itag_corners = _buff.tag_corners[i];
+					size_t iid;
+					for(iid = 0; iid < _global.aprilp_field->ids.size(); iid++) {
+						if(id == _global.aprilp_field->ids[iid]) {
+							_buff.img_points.insert(_buff.img_points.end(), itag_corners.begin(), itag_corners.end());
+#if MEGATAG_SOLVE_METHOD == cv::SOLVEPNP_SQPNP
+							if(first) {
+								tl1 = _global.aprilp_field->objPoints[iid][0];
+								p1 = _global.aprilp_field_poses[iid];
+								_buff.obj_points.insert(_buff.obj_points.end(), ::GENERIC_TAG_CORNERS.begin(), ::GENERIC_TAG_CORNERS.end());
+								first = false;
+							} else {
+								cv::Point3f dv = util::wpiToCv(_global.aprilp_field->objPoints[iid][0] - tl1);
+								for(const cv::Point3f& c : ::GENERIC_TAG_CORNERS) {
+									_buff.obj_points.emplace_back(c + dv);
+								}
+							}
+#else
+							for(int p = 3; p >= 0; p--) {
+								_buff.obj_points.push_back(util::wpiToCv(_global.aprilp_field->objPoints[iid][p]));
+							}
+#endif
+							break;
+						}
+					}
+
+					cv::solvePnPGeneric(
+						::GENERIC_TAG_CORNERS, itag_corners,
+						target.camera_matrix, target.dist_matrix,
+						_buff.rvecs, _buff.tvecs, false, cv::SOLVEPNP_IPPE_SQUARE,
+						cv::noArray(), cv::noArray(), rmse
+					);
+
+					for(size_t s = 0; s < _buff.tvecs.size(); s++) {
+						frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[s], _buff.rvecs[s]);
+						_buff.indv_estimations.push_back(_global.aprilp_field_poses[iid].TransformBy(c2tag.Inverse()));
+					}
+					_buff.eerrors.insert(_buff.eerrors.end(), rmse.begin(), rmse.end());
+
+				}
+
+				cv::solvePnPGeneric(
+					_buff.obj_points, _buff.img_points,
+					target.camera_matrix, target.dist_matrix,
+					_buff.rvecs, _buff.tvecs, false, MEGATAG_SOLVE_METHOD,
+					cv::noArray(), cv::noArray(), rmse
+				);
+
+				for(size_t i = 0; i < _buff.tvecs.size(); i++) {
+#if MEGATAG_SOLVE_METHOD == cv::SOLVEPNP_SQPNP
+					frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]);
+					_buff.estimations.push_back(p1.TransformBy(c2tag.Inverse()));
+#else
+					frc::Transform3d f2cam = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]).Inverse();
+					_buff.estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
+#endif
+				}
+				_buff.eerrors.insert(_buff.eerrors.begin(), rmse.begin(), rmse.end());
+
+			}
+		}
+		// _ap_estimate_aruco(
+		// 	_buff.tag_corners, _buff.tag_ids, target.camera_matrix, target.dist_matrix, _buff.estimations,
+		// 	_buff.tvecs, _buff.rvecs, _buff.obj_points, _buff.img_points);
+		
 		_global.vpp.april_profiling[1] = duration<float>(high_resolution_clock::now() - p).count();
 
+		static constexpr size_t POSE3D_ARRLEN = (sizeof(frc::Pose3d) / sizeof(double));
 		double* d = reinterpret_cast<double*>(_buff.estimations.data());
-		_global.nt.poses.Set(std::span<double>(d, d + (_buff.estimations.size() * (sizeof(frc::Pose3d) / sizeof(double)))));
+		_global.nt.poses.Set(std::span<double>(d, d + (_buff.estimations.size() * POSE3D_ARRLEN)));
+		d = reinterpret_cast<double*>(_buff.indv_estimations.data());
+		_global.nt.ext_poses.Set(std::span<double>(d, d + (_buff.indv_estimations.size() * POSE3D_ARRLEN)));
+		_global.nt.pose_errs.Set(_global.vpp.apbuff.eerrors);
 	} else {
 		_global.vpp.april_profiling[1] = 0.f;
 	}

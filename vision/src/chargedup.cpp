@@ -28,6 +28,7 @@
 #include <frc/apriltag/AprilTagFields.h>
 #include <networktables/NetworkTable.h>
 #include <networktables/IntegerTopic.h>
+#include <networktables/IntegerArrayTopic.h>
 #include <networktables/FloatArrayTopic.h>
 #include <networktables/DoubleArrayTopic.h>
 
@@ -97,7 +98,8 @@ namespace Constant {
 		NUM_CAMERAS
 	};
 	static const nt::PubSubOptions
-		NT_OPTIONS = { .periodic = 1.0 / 30.0 };
+		NT_OPTIONS = { .periodic = 1.0 / 30.0 },
+		NT_DATAFLOW_OPTIONS = { .periodic = 1.0 / 30.0, .sendAll = true, .keepDuplicates = true };
 	static const std::array<const char*, (size_t)CamID::NUM_CAMERAS>
 		CAMERA_TAGS{ "forward", "arm", "top" };
 	static const cs::VideoMode
@@ -345,13 +347,16 @@ static struct {
 			downscale		// outputs are downscaled by this factor
 		;
 		nt::DoubleArrayEntry
-			poses,
-			ext_poses,
+			i_poses,
+			c_poses,
 			nodes;
 		nt::FloatArrayEntry
-			pose_errs,
+			pose_rmse,
+			pose_distances,
 			april_timings,
 			retro_timings;
+		nt::IntegerArrayEntry
+			detection_ids;
 	} nt;
 
 	int next_stream_port = 1181;
@@ -376,8 +381,8 @@ static struct {
 			std::vector<cv::Point2f> img_points;
 			std::vector<cv::Point3f> obj_points;
 			std::vector<cv::Mat1f> tvecs, rvecs;
-			std::vector<frc::Pose3d> estimations, indv_estimations;
-			std::vector<float> eerrors;
+			std::vector<frc::Pose3d> i_estimations, c_estimations;
+			std::vector<float> eerrors, distances;
 		} apbuff;
 		struct {
 			cv::Mat decimate, binary;
@@ -570,10 +575,12 @@ bool init(const char* fname) {
 	_global.nt.downscale = _global.base_ntable->GetIntegerTopic("Output Downscale").GetEntry(0, NT_OPTIONS);
 	_global.nt.april_mode = _global.base_ntable->GetIntegerTopic("AprilTag Mode").GetEntry(-2, NT_OPTIONS);
 	_global.nt.retro_mode = _global.base_ntable->GetIntegerTopic("RetroRefl Mode").GetEntry(-2, NT_OPTIONS);
-	_global.nt.poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Active").GetEntry({}, NT_OPTIONS);
-	_global.nt.ext_poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Extra").GetEntry({}, NT_OPTIONS);
-	_global.nt.pose_errs = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/RMSE").GetEntry({}, NT_OPTIONS);
-	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("RetroReflective Detections/Centers").GetEntry({}, NT_OPTIONS);
+	_global.nt.i_poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Individual").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.c_poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Combined").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.pose_rmse = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/RMSE").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.pose_distances = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/Tag Distances").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.detection_ids = _global.base_ntable->GetIntegerArrayTopic("Pose Estimations/Tag IDs").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("RetroReflective Detections/Centers").GetEntry({}, NT_DATAFLOW_OPTIONS);
 	std::shared_ptr<nt::NetworkTable> thread_stats_nt = _global.base_ntable->GetSubTable("Threads");
 	_global.nt.april_timings = thread_stats_nt->GetFloatArrayTopic("AprilTag Pipeline").GetEntry({}, NT_OPTIONS);
 	_global.nt.retro_timings = thread_stats_nt->GetFloatArrayTopic("RetroRef Pipeline").GetEntry({}, NT_OPTIONS);
@@ -785,8 +792,8 @@ void _update(CThread& ctx) {
 	bool outputting = ctx.vid == _global.nt.view_id.Get();
 	bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
 	ctx.vpmode = (
-		((int)(((apmode == -1) && outputting) || apmode == ctx.vid) << 0) |		// first bit is apmode, second is reflmode
-		((int)(((rflmode == -1) && outputting) || rflmode == ctx.vid) << 1)
+		((int)(((apmode == -1) && outputting) || (apmode == ctx.vid)) << 0) |		// first bit is apmode, second is reflmode
+		((int)(((rflmode == -1) && outputting) || (rflmode == ctx.vid)) << 1)
 	);
 	bool enable = connected && ((overlay && outputting) || downscale || ctx.vpmode);	// change to connect direct piping if no frame proc is needed
 
@@ -1079,9 +1086,10 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 	_global.vpp.april_profiling[0] = duration<float>(high_resolution_clock::now() - p).count();
 
 	if(const size_t detections = _buff.tag_ids.size(); (detections > 0 && detections == _buff.tag_corners.size())) {
-		_buff.estimations.clear();
-		_buff.indv_estimations.clear();
+		_buff.i_estimations.clear();
+		_buff.c_estimations.clear();
 		_buff.eerrors.clear();
+		_buff.distances.clear();
 
 		p = high_resolution_clock::now();
 		{
@@ -1098,16 +1106,18 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 
 				for(size_t i = 0; i < _buff.tvecs.size(); i++) {
 					frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]);
-					_buff.estimations.push_back(_global.aprilp_field_poses[id - 1].TransformBy(c2tag.Inverse()));
+					_buff.i_estimations.push_back(_global.aprilp_field_poses[id - 1].TransformBy(c2tag.Inverse()));
+					_buff.distances.push_back(c2tag.Translation().Norm().value());
 				}
 			} else {				// 'megatag'
 				using namespace cv;
-#define MEGATAG_SOLVE_METHOD SOLVEPNP_ITERATIVE
+#define MEGATAG_SOLVE_METHOD -1
+#if MEGATAG_SOLVE_METHOD > -1
 				_buff.obj_points.clear();
 				_buff.img_points.clear();
 				_buff.obj_points.reserve(detections * 4U);
 				_buff.obj_points.reserve(detections * 4U);
-
+#endif
 				std::vector<float> rmse;
 #if MEGATAG_SOLVE_METHOD == SOLVEPNP_SQPNP
 				cv::Point3f tl1{};
@@ -1124,6 +1134,7 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 					size_t iid;
 					for(iid = 0; iid < _global.aprilp_field->ids.size(); iid++) {
 						if(id == _global.aprilp_field->ids[iid]) {
+#if MEGATAG_SOLVE_METHOD > -1
 							_buff.img_points.insert(_buff.img_points.end(), itag_corners.begin(), itag_corners.end());
 #if MEGATAG_SOLVE_METHOD == SOLVEPNP_SQPNP
 							if(first) {
@@ -1142,6 +1153,7 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 								_buff.obj_points.push_back(util::wpiToCv(_global.aprilp_field->objPoints[iid][p]));
 							}
 #endif
+#endif
 							break;
 						}
 					}
@@ -1155,12 +1167,14 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 
 					for(size_t s = 0; s < _buff.tvecs.size(); s++) {
 						frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[s], _buff.rvecs[s]);
-						_buff.indv_estimations.push_back(_global.aprilp_field_poses[iid].TransformBy(c2tag.Inverse()));
+						_buff.i_estimations.push_back(_global.aprilp_field_poses[iid].TransformBy(c2tag.Inverse()));
+						_buff.distances.push_back(c2tag.Translation().Norm().value());
 					}
 					_buff.eerrors.insert(_buff.eerrors.end(), rmse.begin(), rmse.end());
 
 				}
 
+#if MEGATAG_SOLVE_METHOD > -1
 				cv::solvePnPGeneric(
 					_buff.obj_points, _buff.img_points,
 					target.camera_matrix, target.dist_matrix,
@@ -1171,28 +1185,34 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 				for(size_t i = 0; i < _buff.tvecs.size(); i++) {
 #if MEGATAG_SOLVE_METHOD == SOLVEPNP_SQPNP
 					frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]);
-					_buff.estimations.push_back(p1.TransformBy(c2tag.Inverse()));
+					_buff.c_estimations.push_back(p1.TransformBy(c2tag.Inverse()));
+					_buff.distances.push_back(c2tag.Translation().Norm().value());
 #else
 					frc::Transform3d f2cam = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]).Inverse();
-					_buff.estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
+					_buff.c_estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
+					// calc distance to detected tags
 #endif
 				}
 				_buff.eerrors.insert(_buff.eerrors.begin(), rmse.begin(), rmse.end());
+#endif
 
 			}
 		}
-		// _ap_estimate_aruco(
-		// 	_buff.tag_corners, _buff.tag_ids, target.camera_matrix, target.dist_matrix, _buff.estimations,
-		// 	_buff.tvecs, _buff.rvecs, _buff.obj_points, _buff.img_points);
 		
 		_global.vpp.april_profiling[1] = duration<float>(high_resolution_clock::now() - p).count();
 
 		static constexpr size_t POSE3D_ARRLEN = (sizeof(frc::Pose3d) / sizeof(double));
-		double* d = reinterpret_cast<double*>(_buff.estimations.data());
-		_global.nt.poses.Set(std::span<double>(d, d + (_buff.estimations.size() * POSE3D_ARRLEN)));
-		d = reinterpret_cast<double*>(_buff.indv_estimations.data());
-		_global.nt.ext_poses.Set(std::span<double>(d, d + (_buff.indv_estimations.size() * POSE3D_ARRLEN)));
-		_global.nt.pose_errs.Set(_global.vpp.apbuff.eerrors);
+		const int64_t ts = nt::Now();
+		double* d = reinterpret_cast<double*>(_buff.i_estimations.data());
+		_global.nt.i_poses.Set(std::span<double>(d, d + (_buff.i_estimations.size() * POSE3D_ARRLEN)), ts);
+#if MEGATAG_SOLVE_METHOD > -1
+		d = reinterpret_cast<double*>(_buff.c_estimations.data());
+		_global.nt.c_poses.Set(std::span<double>(d, d + (_buff.c_estimations.size() * POSE3D_ARRLEN)), ts);
+#endif
+		_global.nt.pose_rmse.Set(_buff.eerrors, ts);
+		_global.nt.pose_distances.Set(_buff.distances, ts);
+		// _global.nt.detection_ids.Set(_buff.tag_ids);
+		nt::NetworkTableInstance::GetDefault().Flush();
 	} else {
 		_global.vpp.april_profiling[1] = 0.f;
 	}

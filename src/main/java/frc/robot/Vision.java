@@ -37,11 +37,13 @@ public final class Vision {
 			this.retror_mode = this.vbase.getIntegerTopic("RetroRefl Mode").getEntry(
 				0, Vision.NT_ENTRY_DEFAULT);
 
-			this.active_estimations = this.vbase.getDoubleArrayTopic("Pose Estimations/Active").subscribe(
+			this.all_estimations = this.vbase.getDoubleArrayTopic("Pose Estimations/Individual").subscribe(
 				new double[]{}, Vision.NT_DATA_SUBSCRIBER);
-			this.extra_estimations = this.vbase.getDoubleArrayTopic("Pose Estimations/Extra").subscribe(
+			this.combined_estimations = this.vbase.getDoubleArrayTopic("Pose Estimations/Combined").subscribe(
 				new double[]{}, Vision.NT_DATA_SUBSCRIBER);
 			this.estimate_errors = this.vbase.getFloatArrayTopic("Pose Estimations/RMSE").subscribe(
+				new float[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.tag_distances = this.vbase.getFloatArrayTopic("Pose Estimations/Tag Distances").subscribe(
 				new float[]{}, Vision.NT_DATA_SUBSCRIBER);
 			this.retrorefl_centers = this.vbase.getDoubleArrayTopic("RetroReflective Detections/Centers").subscribe(
 				new double[]{}, Vision.NT_DATA_SUBSCRIBER);
@@ -64,11 +66,12 @@ public final class Vision {
 			aprilp_mode,
 			retror_mode;
 		public final DoubleArraySubscriber
-			active_estimations,
-			extra_estimations,
+			all_estimations,
+			combined_estimations,
 			retrorefl_centers;
 		public final FloatArraySubscriber
-			estimate_errors;
+			estimate_errors,
+			tag_distances;
 	}
 
 	public static NT nt = null;
@@ -153,29 +156,11 @@ public final class Vision {
 	}
 
 	public static Pose3d[] getCurrentEstimations(Pose3d[] p) {
-		double[] d = nt.active_estimations.get();
+		double[] d = nt.all_estimations.get();
 		return extract3dPoses(d, p);
 	}
 	public static Pose3d[] getCurrentEstimations() {
 		return getCurrentEstimations(null);
-	}
-	public static Pose3d[][] getQueuedEstimations() {
-		TimestampedDoubleArray[] d = nt.active_estimations.readQueue();
-		if(d.length > 0) {
-			Pose3d[][] arr = new Pose3d[d.length][];
-			for(int i = 0; i < arr.length; i++) {
-				arr[i] = extract3dPoses(d[i].value, null);
-			}
-			return arr;
-		}
-		return null;
-	}
-	public static TimestampedDoubleArray getNewestEstimation() {
-		TimestampedDoubleArray[] d = nt.active_estimations.readQueue();
-		if(d.length > 0) {
-			return d[d.length - 1];
-		}
-		return null;
 	}
 
 
@@ -303,18 +288,66 @@ public final class Vision {
 
 	public static final class PoseEstimation {
 
-		public static class BoundingVolume {
-			double[] xyz_a = new double[3], xyz_b = new double[3];
+		public static final class RawEstimationBuffer {
+			public TimestampedDoubleArray[] estimations;
+			public TimestampedFloatArray[] errors, distances;
 		}
-		public static BoundingVolume createMinMax(double xmin, double xmax, double ymin, double ymax, double zmin, double zmax) {
-			BoundingVolume v = new BoundingVolume();
-			v.xyz_a[0] = xmax;
-			v.xyz_b[0] = xmin;
-			v.xyz_a[1] = ymax;
-			v.xyz_b[1] = ymin;
-			v.xyz_a[2] = zmax;
-			v.xyz_b[2] = zmin;
-			return v;
+		public static final class Estimation {
+			public Pose3d pose;
+			public float rmse, distance;
+		}
+		public static final class EstimationFrame {
+			public long tstamp;
+			public Estimation[] estimations;
+		}
+
+		public static void readEstimationQueue(RawEstimationBuffer buff) {
+			if(buff != null) {
+				buff.estimations = Vision.nt.all_estimations.readQueue();
+				buff.errors = Vision.nt.estimate_errors.readQueue();
+				buff.distances = Vision.nt.tag_distances.readQueue();
+			}
+		}
+		public static EstimationFrame[] extractEstimations(RawEstimationBuffer buff, EstimationFrame[] frames) {
+			if(buff != null && buff.estimations != null) {
+				final int len = buff.estimations.length;
+				if(frames == null || frames.length != len) {
+					frames = new EstimationFrame[len];
+				}
+				for(int i = 0; i < len; i++) {
+					frames[i] = new EstimationFrame();
+					TimestampedDoubleArray posedata = buff.estimations[i];
+					frames[i].tstamp = posedata.timestamp;
+					Pose3d[] poses = Vision.extract3dPoses(posedata.value, null);
+					frames[i].estimations = new Estimation[poses.length];
+					for(int p = 0; p < poses.length; p++) {			// maybe assert that all the inner data lengths are the same
+						frames[i].estimations[p].pose = poses[p];
+						frames[i].estimations[p].rmse = buff.errors[i].value[p];		// or check during each loop
+						frames[i].estimations[p].distance = buff.distances[i].value[p];
+					}
+				}
+			}
+			return frames;
+		}
+
+		public static class BoundingVolume {
+			public double[] _a, _b;
+			public BoundingVolume() {
+				this._a = new double[3];
+				this._b = new double[3];
+			}
+			public BoundingVolume(double xmin, double xmax, double ymin, double ymax, double zmin, double zmax) {
+				this._b[0] = xmin;
+				this._a[0] = xmax;
+				this._a[1] = ymax;
+				this._b[1] = ymin;
+				this._a[2] = zmax;
+				this._b[2] = zmin;
+			}
+			public BoundingVolume(double[] a, double[] b) {
+				if(a.length == 3) { this._a = a.clone(); } else { this._a = new double[3]; }
+				if(b.length == 3) { this._b = b.clone(); } else { this._b = new double[3]; }
+			}
 		}
 
 		public static final double
@@ -325,14 +358,29 @@ public final class Vision {
 
 		public static boolean inside(Pose3d p, BoundingVolume v) {
 			boolean
-				x = p.getX() > v.xyz_b[0] && p.getX() < v.xyz_a[0],
-				y = p.getY() > v.xyz_b[1] && p.getY() < v.xyz_a[1],
-				z = p.getZ() > v.xyz_b[2] && p.getZ() < v.xyz_a[2];
+				x = p.getX() > v._b[0] && p.getX() < v._a[0],
+				y = p.getY() > v._b[1] && p.getY() < v._a[1],
+				z = p.getZ() > v._b[2] && p.getZ() < v._a[2];
+			return x && y && z;
+		}
+		public static boolean outside(Pose3d p, BoundingVolume v) {
+			boolean
+				x = p.getX() < v._b[0] || p.getX() > v._a[0],
+				y = p.getY() < v._b[1] || p.getY() > v._a[1],
+				z = p.getZ() < v._b[2] || p.getZ() > v._a[2];
 			return x && y && z;
 		}
 		public static boolean inside(Pose3d p, BoundingVolume... vs) {
 			for(BoundingVolume v : vs) {
 				if(!inside(p, v)) {
+					return false;
+				}
+			}
+			return true;
+		}
+		public static boolean outside(Pose3d p, BoundingVolume... vs) {
+			for(BoundingVolume v : vs) {
+				if(!outside(p, v)) {
 					return false;
 				}
 			}

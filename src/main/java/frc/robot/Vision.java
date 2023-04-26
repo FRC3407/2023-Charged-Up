@@ -288,6 +288,44 @@ public final class Vision {
 
 	public static final class PoseEstimation {
 
+		public static final Transform3d
+			FORWARD_C2R = new Transform3d(
+				new Translation3d(),
+				new Rotation3d()),
+			ARM_C2R = new Transform3d(
+				new Translation3d(),
+				new Rotation3d()),
+			TOP_C2R = new Transform3d(
+				new Translation3d(),
+				new Rotation3d());
+		public static final Transform3d[]
+			CAMERA_TO_ROBOT_POSES = new Transform3d[]{ FORWARD_C2R, ARM_C2R, TOP_C2R };
+
+		public static Transform3d getCameraTranslation(CameraSelect c) {
+			return CAMERA_TO_ROBOT_POSES[c.id];
+		}
+
+		public static final double
+			FIELD_WIDTH_METERS = 8.0137,
+			FIELD_LENGTH_METERS = 16.54175,
+			MAX_HEIGHT = 3.0;
+
+		public static final BoundingVolume
+			FIELD_BOUNDS = new BoundingVolume(
+				0, FIELD_LENGTH_METERS,
+				0, FIELD_WIDTH_METERS,
+				0, MAX_HEIGHT);
+
+		public static final double getXYDeviation(double dx) {
+			if(dx < 1) { return 0.005; }
+			if(dx < 2) { return 0.02 * dx; }
+			return 0.1 * dx - 0.15;
+		}
+		public static final double getThetaDeviation(double dx) {
+			return 0.01 * dx + 0.025;
+		}
+
+
 		public static final class RawEstimationBuffer {
 			public TimestampedDoubleArray[] estimations;
 			public TimestampedFloatArray[] errors, distances;
@@ -329,6 +367,9 @@ public final class Vision {
 			}
 			return frames;
 		}
+		public static boolean testFieldBounds(Estimation e, BoundingVolume v) {
+			return insideBuffered(e.pose, v, getXYDeviation(e.distance));
+		}
 
 		public static class BoundingVolume {
 			public double[] _a, _b;
@@ -349,11 +390,6 @@ public final class Vision {
 				if(b.length == 3) { this._b = b.clone(); } else { this._b = new double[3]; }
 			}
 		}
-
-		public static final double
-			FIELD_WIDTH_METERS = 8.0137,
-			FIELD_LENGTH_METERS = 16.54175,
-			MAX_HEIGHT = 3.0;
 		
 
 		public static boolean inside(Pose3d p, BoundingVolume v) {
@@ -363,11 +399,25 @@ public final class Vision {
 				z = p.getZ() > v._b[2] && p.getZ() < v._a[2];
 			return x && y && z;
 		}
+		public static boolean insideBuffered(Pose3d p, BoundingVolume v, double b) {
+			boolean
+				x = (p.getX() > v._b[0] - b) && (p.getX() < v._a[0] + b),
+				y = (p.getY() > v._b[1] - b) && (p.getY() < v._a[1] + b),
+				z = (p.getZ() > v._b[2] - b) && (p.getZ() < v._a[2] + b);
+			return x && y && z;
+		}
 		public static boolean outside(Pose3d p, BoundingVolume v) {
 			boolean
 				x = p.getX() < v._b[0] || p.getX() > v._a[0],
 				y = p.getY() < v._b[1] || p.getY() > v._a[1],
 				z = p.getZ() < v._b[2] || p.getZ() > v._a[2];
+			return x && y && z;
+		}
+		public static boolean outsideBuffered(Pose3d p, BoundingVolume v, double b) {
+			boolean
+				x = (p.getX() < v._b[0] + b) || (p.getX() > v._a[0] - b),
+				y = (p.getY() < v._b[1] + b) || (p.getY() > v._a[1] - b),
+				z = (p.getZ() < v._b[2] + b) || (p.getZ() > v._a[2] - b);
 			return x && y && z;
 		}
 		public static boolean inside(Pose3d p, BoundingVolume... vs) {

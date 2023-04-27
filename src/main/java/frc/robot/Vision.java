@@ -4,13 +4,30 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
-import edu.wpi.first.math.geometry.*;
-import edu.wpi.first.networktables.*;
+import org.photonvision.PhotonCamera;
+import org.photonvision.targeting.PhotonPipelineResult;
+import org.photonvision.targeting.PhotonTrackedTarget;
+import org.photonvision.targeting.TargetCorner;
+
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Pose3d;
+import edu.wpi.first.math.geometry.Quaternion;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Rotation3d;
+import edu.wpi.first.math.geometry.Transform2d;
+import edu.wpi.first.math.geometry.Transform3d;
+import edu.wpi.first.math.geometry.Translation3d;
+import edu.wpi.first.math.util.Units;
+import edu.wpi.first.networktables.DoubleArraySubscriber;
+import edu.wpi.first.networktables.FloatArraySubscriber;
+import edu.wpi.first.networktables.IntegerEntry;
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.PubSubOption;
+import edu.wpi.first.networktables.TimestampedDoubleArray;
+import edu.wpi.first.networktables.TimestampedFloatArray;
 import edu.wpi.first.wpilibj.smartdashboard.FieldObject2d;
 import edu.wpi.first.wpilibj2.command.CommandBase;
-
-import org.photonvision.PhotonCamera;
-import org.photonvision.targeting.*;
 
 
 public final class Vision {
@@ -288,6 +305,12 @@ public final class Vision {
 
 	public static final class PoseEstimation {
 
+		public static final BoundingVolume
+			FIELD_BOUNDS_3D = new BoundingVolume(
+				0.0, Constants.Field.FIELD_LENGTH,
+				0.0, Constants.Field.FIELD_WIDTH,
+				0.0, 3.0);
+
 		public static final Transform3d
 			FORWARD_C2R = new Transform3d(
 				new Translation3d(),
@@ -296,8 +319,11 @@ public final class Vision {
 				new Translation3d(),
 				new Rotation3d()),
 			TOP_C2R = new Transform3d(
-				new Translation3d(),
-				new Rotation3d());
+				new Translation3d(
+					Units.inchesToMeters(3),	// forward amount
+					Units.inchesToMeters(-7),	// rightward amount
+					Units.inchesToMeters(30)),	// upward amount
+				new Rotation3d(0.0, -20, 0.0));	// angled slightly downward but otherwise facing forward
 		public static final Transform3d[]
 			CAMERA_TO_ROBOT_POSES = new Transform3d[]{ FORWARD_C2R, ARM_C2R, TOP_C2R };
 
@@ -305,25 +331,15 @@ public final class Vision {
 			return CAMERA_TO_ROBOT_POSES[c.id];
 		}
 
-		public static final double
-			FIELD_WIDTH_METERS = 8.0137,
-			FIELD_LENGTH_METERS = 16.54175,
-			MAX_HEIGHT = 3.0;
-
-		public static final BoundingVolume
-			FIELD_BOUNDS = new BoundingVolume(
-				0, FIELD_LENGTH_METERS,
-				0, FIELD_WIDTH_METERS,
-				0, MAX_HEIGHT);
-
 		public static final double getXYDeviation(double dx) {
 			if(dx < 1) { return 0.005; }
-			if(dx < 2) { return 0.02 * dx; }
+			if(dx < 2) { return 0.02 * dx; }	// from log data: deviation follows ~ 0.103x-0.157 (approximated here), but we also don't want negative values
 			return 0.1 * dx - 0.15;
 		}
 		public static final double getThetaDeviation(double dx) {
-			return 0.01 * dx + 0.025;
+			return 0.01 * dx + 0.025;			// this is more of a guesstimate
 		}
+
 
 
 		public static final class RawEstimationBuffer {
@@ -339,12 +355,14 @@ public final class Vision {
 			public Estimation[] estimations;
 		}
 
-		public static void readEstimationQueue(RawEstimationBuffer buff) {
-			if(buff != null) {
-				buff.estimations = Vision.nt.all_estimations.readQueue();
-				buff.errors = Vision.nt.estimate_errors.readQueue();
-				buff.distances = Vision.nt.tag_distances.readQueue();
+		public static RawEstimationBuffer readEstimationQueue(RawEstimationBuffer buff) {
+			if(buff == null) {
+				buff = new RawEstimationBuffer();
 			}
+			buff.estimations = Vision.nt.all_estimations.readQueue();
+			buff.errors = Vision.nt.estimate_errors.readQueue();
+			buff.distances = Vision.nt.tag_distances.readQueue();
+			return buff;
 		}
 		public static EstimationFrame[] extractEstimations(RawEstimationBuffer buff, EstimationFrame[] frames) {
 			if(buff != null && buff.estimations != null) {
@@ -369,6 +387,31 @@ public final class Vision {
 		}
 		public static boolean testFieldBounds(Estimation e, BoundingVolume v) {
 			return insideBuffered(e.pose, v, getXYDeviation(e.distance));
+		}
+		public static Estimation[] sortClosestNxN(Estimation[] e, int n, int s) {
+			Estimation[] ret = new Estimation[n];
+			for(int x = 0; x < n-1; x++) {
+				double min = Double.POSITIVE_INFINITY;
+				for(int b = (s*(x + 1)); b < (s*(x + 2)); b++) {
+					if(x > 0) {
+						double d = ret[x].pose.getTranslation().getDistance(e[b].pose.getTranslation());
+						if(d < min) {
+							ret[x + 1] = e[b];
+							min = d;
+						}
+					} else {
+						for(int a = s*x; a < (s*(x + 1)); a++) {
+							double d = e[a].pose.getTranslation().getDistance(e[b].pose.getTranslation());
+							if(d < min) {
+								ret[x] = e[a];
+								ret[x + 1] = e[b];
+								min = d;
+							}
+						}
+					}
+				}
+			}
+			return ret;
 		}
 
 		public static class BoundingVolume {
@@ -435,6 +478,54 @@ public final class Vision {
 				}
 			}
 			return true;
+		}
+
+
+
+
+		public static void fuseVision(DriveBase db) {
+			final int c_id = Vision.getSelectedCamera();	// or equivelant timestamp-sampled history of camera selection
+			RawEstimationBuffer rbuff = PoseEstimation.readEstimationQueue(null);
+			EstimationFrame[] frames = PoseEstimation.extractEstimations(rbuff, null);
+			for(EstimationFrame frame : frames) {
+				if(frame.estimations.length > 2) {	// need to sort through multiple tag detections
+					
+					Estimation[] closest = PoseEstimation.sortClosestNxN(frame.estimations, frame.estimations.length / 2, 2);
+
+				} else {	// only one estimation to deal with
+					Estimation best = null;
+					switch(frame.estimations.length) {
+						case 0:
+						default:
+							continue;
+						case 1:
+						{
+							best = frame.estimations[0];
+							break;
+						}
+						case 2:
+						{
+							if(frame.estimations[0].rmse < frame.estimations[1].rmse * 0.15) {
+								best = frame.estimations[0];
+							} else if(frame.estimations[1].rmse < frame.estimations[0].rmse * 0.15) {
+								best = frame.estimations[1];
+							} else {
+								// compare to current pose, rotation, etc..?
+							}
+							break;
+						}
+					}
+					// translate to robot pose
+					double dvxy = getXYDeviation(best.distance);
+					if(insideBuffered(best.pose, FIELD_BOUNDS_3D, dvxy)) {
+						db.applyVisionUpdate(
+							best.pose.toPose2d(),
+							frame.tstamp / 1e6,
+							dvxy, getThetaDeviation(best.distance)
+						);
+					}
+				}
+			}
 		}
 
 	}

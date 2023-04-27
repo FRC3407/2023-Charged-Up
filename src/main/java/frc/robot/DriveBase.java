@@ -10,6 +10,7 @@ import edu.wpi.first.math.trajectory.*;
 import edu.wpi.first.math.controller.*;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.kinematics.*;
+import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -331,6 +332,9 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		this.left.setVoltage(lv);
 		this.right.setVoltage(rv);
 		super.feed();
+	}
+	public void applyVisionUpdate(Pose2d p, double ts, double dv_xy, double dv_theta) {
+		this.ov_fusion.addVisionMeasurement(p, ts, VecBuilder.fill(dv_xy, dv_xy, dv_theta));
 	}
 	public void resetEncoders() {
 		this.left.setSelectedSensorPosition(0.0);

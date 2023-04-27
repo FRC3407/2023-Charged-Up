@@ -314,16 +314,19 @@ public final class Vision {
 		public static final Transform3d
 			FORWARD_C2R = new Transform3d(
 				new Translation3d(),
-				new Rotation3d()),
+				new Rotation3d()
+			).inverse(),
 			ARM_C2R = new Transform3d(
 				new Translation3d(),
-				new Rotation3d()),
+				new Rotation3d()
+			).inverse(),
 			TOP_C2R = new Transform3d(
 				new Translation3d(
 					Units.inchesToMeters(3),	// forward amount
 					Units.inchesToMeters(-7),	// rightward amount
 					Units.inchesToMeters(30)),	// upward amount
-				new Rotation3d(0.0, -20, 0.0));	// angled slightly downward but otherwise facing forward
+				new Rotation3d(0.0, -20, 0.0)	// angled slightly downward but otherwise facing forward
+			).inverse();
 		public static final Transform3d[]
 			CAMERA_TO_ROBOT_POSES = new Transform3d[]{ FORWARD_C2R, ARM_C2R, TOP_C2R };
 
@@ -483,14 +486,15 @@ public final class Vision {
 
 
 
-		public static void fuseVision(DriveBase db) {
+		public static void fuseVision(DriveBase db, boolean filter_bounds) {
 			final int c_id = Vision.getSelectedCamera();	// or equivelant timestamp-sampled history of camera selection
 			RawEstimationBuffer rbuff = PoseEstimation.readEstimationQueue(null);
 			EstimationFrame[] frames = PoseEstimation.extractEstimations(rbuff, null);
 			for(EstimationFrame frame : frames) {
 				if(frame.estimations.length > 2) {	// need to sort through multiple tag detections
-					
-					Estimation[] closest = PoseEstimation.sortClosestNxN(frame.estimations, frame.estimations.length / 2, 2);
+					Estimation[] best = new Estimation[frame.estimations.length / 2];
+
+					// Estimation[] closest = PoseEstimation.sortClosestNxN(frame.estimations, frame.estimations.length / 2, 2);
 
 				} else {	// only one estimation to deal with
 					Estimation best = null;
@@ -510,6 +514,13 @@ public final class Vision {
 							} else if(frame.estimations[1].rmse < frame.estimations[0].rmse * 0.15) {
 								best = frame.estimations[1];
 							} else {
+								double dv1 = getXYDeviation(frame.estimations[0].distance);
+								double dv2 = getXYDeviation(frame.estimations[0].distance);
+								double dd = frame.estimations[0].pose.getTranslation().getDistance(frame.estimations[1].pose.getTranslation());
+								if(dd < dv1 || dd < dv2) {
+									// apply both but with a higer deviation
+								}
+
 								// compare to current pose, rotation, etc..?
 							}
 							break;
@@ -517,7 +528,7 @@ public final class Vision {
 					}
 					// translate to robot pose
 					double dvxy = getXYDeviation(best.distance);
-					if(insideBuffered(best.pose, FIELD_BOUNDS_3D, dvxy)) {
+					if(!filter_bounds || insideBuffered(best.pose, FIELD_BOUNDS_3D, dvxy)) {
 						db.applyVisionUpdate(
 							best.pose.toPose2d(),
 							frame.tstamp / 1e6,

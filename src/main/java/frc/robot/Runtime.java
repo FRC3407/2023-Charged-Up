@@ -167,7 +167,7 @@ public final class Runtime extends TimedRobot {
 	@Override
 	public void robotPeriodic() {
 		CommandScheduler.getInstance().run();
-		Vision.PoseEstimation.fuseVision(this.robot.drivebase);
+		Vision.PoseEstimation.fuseVision(this.robot.drivebase, true);
 	}
 
 	@Override

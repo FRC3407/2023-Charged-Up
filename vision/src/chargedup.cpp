@@ -1106,24 +1106,23 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 
 				for(size_t i = 0; i < _buff.tvecs.size(); i++) {
 					frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]);
-					_buff.i_estimations.push_back(_global.aprilp_field_poses[id - 1].TransformBy(c2tag.Inverse()));
+					_buff.c_estimations.push_back(_global.aprilp_field_poses[id - 1].TransformBy(c2tag.Inverse()));
 					_buff.distances.push_back(c2tag.Translation().Norm().value());
 				}
+				_buff.i_estimations = _buff.c_estimations;		// make a constexpr param for enabling/disabling this
 			} else {				// 'megatag'
-				using namespace cv;
-#define MEGATAG_SOLVE_METHOD -1
+				{
+					using namespace cv;
+#define MEGATAG_SOLVE_METHOD SOLVEPNP_SQPNP
+				}
+
 #if MEGATAG_SOLVE_METHOD > -1
 				_buff.obj_points.clear();
 				_buff.img_points.clear();
 				_buff.obj_points.reserve(detections * 4U);
 				_buff.obj_points.reserve(detections * 4U);
 #endif
-				std::vector<float> rmse;
-#if MEGATAG_SOLVE_METHOD == SOLVEPNP_SQPNP
-				cv::Point3f tl1{};
-				frc::Pose3d p1{};
-				bool first = true;
-#endif
+				// std::vector<float> rmse;
 
 				for(size_t i = 0; i < detections; i++) {
 
@@ -1134,25 +1133,12 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 					size_t iid;
 					for(iid = 0; iid < _global.aprilp_field->ids.size(); iid++) {
 						if(id == _global.aprilp_field->ids[iid]) {
+							_buff.tag_ids[i] = iid;	// replace with array index for tag id (normally is the same)
 #if MEGATAG_SOLVE_METHOD > -1
 							_buff.img_points.insert(_buff.img_points.end(), itag_corners.begin(), itag_corners.end());
-#if MEGATAG_SOLVE_METHOD == SOLVEPNP_SQPNP
-							if(first) {
-								tl1 = _global.aprilp_field->objPoints[iid][0];
-								p1 = _global.aprilp_field_poses[iid];
-								_buff.obj_points.insert(_buff.obj_points.end(), ::GENERIC_TAG_CORNERS.begin(), ::GENERIC_TAG_CORNERS.end());
-								first = false;
-							} else {
-								cv::Point3f dv = util::wpiToCv(_global.aprilp_field->objPoints[iid][0] - tl1);
-								for(const cv::Point3f& c : ::GENERIC_TAG_CORNERS) {
-									_buff.obj_points.emplace_back(c + dv);
-								}
-							}
-#else
-							for(int p = 3; p >= 0; p--) {
+							for(int p = 0; p < 4; p++) {
 								_buff.obj_points.push_back(util::wpiToCv(_global.aprilp_field->objPoints[iid][p]));
 							}
-#endif
 #endif
 							break;
 						}
@@ -1161,16 +1147,16 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 					cv::solvePnPGeneric(
 						::GENERIC_TAG_CORNERS, itag_corners,
 						target.camera_matrix, target.dist_matrix,
-						_buff.rvecs, _buff.tvecs, false, cv::SOLVEPNP_IPPE_SQUARE,
-						cv::noArray(), cv::noArray(), rmse
+						_buff.rvecs, _buff.tvecs, false, cv::SOLVEPNP_IPPE_SQUARE
+						// , cv::noArray(), cv::noArray(), rmse
 					);
 
 					for(size_t s = 0; s < _buff.tvecs.size(); s++) {
 						frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[s], _buff.rvecs[s]);
 						_buff.i_estimations.push_back(_global.aprilp_field_poses[iid].TransformBy(c2tag.Inverse()));
-						_buff.distances.push_back(c2tag.Translation().Norm().value());
+						//_buff.distances.push_back(c2tag.Translation().Norm().value());	// add constexpr param for inserting these
 					}
-					_buff.eerrors.insert(_buff.eerrors.end(), rmse.begin(), rmse.end());
+					//_buff.eerrors.insert(_buff.eerrors.end(), rmse.begin(), rmse.end());
 
 				}
 
@@ -1179,21 +1165,20 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 					_buff.obj_points, _buff.img_points,
 					target.camera_matrix, target.dist_matrix,
 					_buff.rvecs, _buff.tvecs, false, MEGATAG_SOLVE_METHOD,
-					cv::noArray(), cv::noArray(), rmse
+					// cv::noArray(), cv::noArray(), rmse
+					cv::noArray(), cv::noArray(), _buff.eerrors
 				);
 
 				for(size_t i = 0; i < _buff.tvecs.size(); i++) {
-#if MEGATAG_SOLVE_METHOD == SOLVEPNP_SQPNP
-					frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]);
-					_buff.c_estimations.push_back(p1.TransformBy(c2tag.Inverse()));
-					_buff.distances.push_back(c2tag.Translation().Norm().value());
-#else
 					frc::Transform3d f2cam = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]).Inverse();
 					_buff.c_estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
-					// calc distance to detected tags
-#endif
+					_buff.distances.insert(_buff.distances.begin() + i, 0.f);
+					for(int32_t iid : _buff.tag_ids) {
+						_buff.distances[i] += f2cam.Translation().Distance(_global.aprilp_field_poses[iid].Translation()).value();
+					}
+					_buff.distances[i] /= detections;
 				}
-				_buff.eerrors.insert(_buff.eerrors.begin(), rmse.begin(), rmse.end());
+				// _buff.eerrors.insert(_buff.eerrors.begin(), rmse.begin(), rmse.end());
 #endif
 
 			}
@@ -1205,13 +1190,10 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 		const int64_t ts = nt::Now();
 		double* d = reinterpret_cast<double*>(_buff.i_estimations.data());
 		_global.nt.i_poses.Set(std::span<double>(d, d + (_buff.i_estimations.size() * POSE3D_ARRLEN)), ts);
-#if MEGATAG_SOLVE_METHOD > -1
 		d = reinterpret_cast<double*>(_buff.c_estimations.data());
 		_global.nt.c_poses.Set(std::span<double>(d, d + (_buff.c_estimations.size() * POSE3D_ARRLEN)), ts);
-#endif
 		_global.nt.pose_rmse.Set(_buff.eerrors, ts);
 		_global.nt.pose_distances.Set(_buff.distances, ts);
-		// _global.nt.detection_ids.Set(_buff.tag_ids);
 		nt::NetworkTableInstance::GetDefault().Flush();
 	} else {
 		_global.vpp.april_profiling[1] = 0.f;

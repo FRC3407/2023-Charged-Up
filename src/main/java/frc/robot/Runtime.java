@@ -140,7 +140,7 @@ public final class Runtime extends TimedRobot {
 		for(String t : Constants.TRAJECTORIES) {
 			String n = t + " [Trajectory]";
 			this.auto.addOption(n, send(
-				this.robot.drivebase.followEventTrajectory(t, Constants.AUTO_EVENTS),
+				this.robot.drivebase.followEventTrajectory(t, Constants.AUTO_EVENTS, DriverStation.getAlliance()),
 				"Commands/Auto Trajectories/" + n
 			));
 		}
@@ -167,6 +167,7 @@ public final class Runtime extends TimedRobot {
 	@Override
 	public void robotPeriodic() {
 		CommandScheduler.getInstance().run();
+		Vision.PoseEstimation.fuseVision(this.robot.drivebase, true);
 	}
 
 	@Override

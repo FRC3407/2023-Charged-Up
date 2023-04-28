@@ -28,6 +28,7 @@
 #include <frc/apriltag/AprilTagFields.h>
 #include <networktables/NetworkTable.h>
 #include <networktables/IntegerTopic.h>
+#include <networktables/IntegerArrayTopic.h>
 #include <networktables/FloatArrayTopic.h>
 #include <networktables/DoubleArrayTopic.h>
 
@@ -97,7 +98,8 @@ namespace Constant {
 		NUM_CAMERAS
 	};
 	static const nt::PubSubOptions
-		NT_OPTIONS = { .periodic = 1.0 / 30.0 };
+		NT_OPTIONS = { .periodic = 1.0 / 30.0 },
+		NT_DATAFLOW_OPTIONS = { .periodic = 1.0 / 30.0, .sendAll = true, .keepDuplicates = true };
 	static const std::array<const char*, (size_t)CamID::NUM_CAMERAS>
 		CAMERA_TAGS{ "forward", "arm", "top" };
 	static const cs::VideoMode
@@ -150,7 +152,6 @@ namespace Constant {
 		static constexpr uint8_t
 			WST_ALPHA = 0b01111111,
 			WST_BETA = 0b00111111,
-			WST_GAMMA = 0U,
 			WST_THRESH = 25U;
 		static constexpr bool
 			FILTER_UPRIGHT = true;			// only look for upright rectangles -- use unless the camera is intentionally tilted
@@ -293,24 +294,27 @@ namespace util {
 		return cvToWpi<u>(t, rvec);
 	}
 
-};
+	// frc::Pose3d genPose(const std::vector<cv::Point3f>& corners, const frc::Vectord<3>& basedir = frc::Vectord<3>{0, 1, 0}) {
+	// 	cv::Point3d center = ::findCenter3D<double>(corners);
+	// 	frc::Vectord<3>
+	// 		a{corners[4].x - corners[1].x, corners[4].y - corners[1].y, corners[4].z - corners[1].z},	// tl to bl
+	// 		b{corners[2].x - corners[1].x, corners[2].y - corners[1].y, corners[2].z - corners[1].z},	// tl to tr
+	// 		n = a.cross(b);		// normal vector for clockwise ordered corners
+	// 	return frc::Pose3d(
+	// 		*reinterpret_cast<frc::Translation3d*>(&center),
+	// 		frc::Rotation3d(basedir, n)
+	// 	);
+	// }
+	// std::vector<frc::Pose3d> genPoses(const std::vector<std::vector<cv::Point3f>>& tags, const frc::Vectord<3>& basedir = frc::Vectord<3>{0, 1, 0}) {
+	// 	std::vector<frc::Pose3d> poses;
+	// 	poses.reserve(tags.size());
+	// 	for(const auto& tag : tags) {
+	// 		poses.emplace_back(genPose(tag, basedir));
+	// 	}
+	// 	return poses;
+	// }
 
-void _ap_detect_aruco(
-	const cv::Mat& frame,
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids
-);
-int _ap_estimate_aruco(
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
-	cv::InputArray cmatx, cv::InputArray cdist,
-	std::vector<frc::Pose3d>& estimations
-);
-int _ap_estimate_aruco(
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
-	cv::InputArray cmatx, cv::InputArray cdist,
-	std::vector<frc::Pose3d>& estimations,
-	std::vector<cv::Mat1f>& _tvecs, std::vector<cv::Mat1f>& _rvecs,
-	std::vector<cv::Point3f>& _obj_points, std::vector<cv::Point2f>& _img_points
-);
+};
 
 
 
@@ -343,11 +347,16 @@ static struct {
 			downscale		// outputs are downscaled by this factor
 		;
 		nt::DoubleArrayEntry
-			poses,
+			i_poses,
+			c_poses,
 			nodes;
 		nt::FloatArrayEntry
+			pose_rmse,
+			pose_distances,
 			april_timings,
 			retro_timings;
+		nt::IntegerArrayEntry
+			detection_ids;
 	} nt;
 
 	int next_stream_port = 1181;
@@ -359,7 +368,8 @@ static struct {
 
 	const cv::Ptr<cv::aruco::DetectorParameters> aprilp_params{ cv::aruco::DetectorParameters::create() };
 	const cv::Ptr<cv::aruco::Board> aprilp_field{ ::FIELD_2023 };
-	const frc::AprilTagFieldLayout aprilp_field_poses{ frc::LoadAprilTagLayoutField(frc::AprilTagField::k2023ChargedUp) };
+	const std::array<frc::Pose3d, 8>& aprilp_field_poses{ ::TAG_POSES_2023 };
+	// const frc::AprilTagFieldLayout aprilp_field_poses{ frc::LoadAprilTagLayoutField(frc::AprilTagField::k2023ChargedUp) };
 	struct {
 		std::thread april_worker, retro_worker;
 		std::atomic<int> april_link{0}, retro_link{0};
@@ -371,7 +381,8 @@ static struct {
 			std::vector<cv::Point2f> img_points;
 			std::vector<cv::Point3f> obj_points;
 			std::vector<cv::Mat1f> tvecs, rvecs;
-			std::vector<frc::Pose3d> estimations;
+			std::vector<frc::Pose3d> i_estimations, c_estimations;
+			std::vector<float> eerrors, distances;
 		} apbuff;
 		struct {
 			cv::Mat decimate, binary;
@@ -382,7 +393,6 @@ static struct {
 			nt::IntegerEntry
 				nt_wst_alpha,
 				nt_wst_beta,
-				nt_wst_gamma,
 				nt_wst_thresh;
 			nt::FloatEntry
 				nt_tape_lower_wh,
@@ -565,8 +575,12 @@ bool init(const char* fname) {
 	_global.nt.downscale = _global.base_ntable->GetIntegerTopic("Output Downscale").GetEntry(0, NT_OPTIONS);
 	_global.nt.april_mode = _global.base_ntable->GetIntegerTopic("AprilTag Mode").GetEntry(-2, NT_OPTIONS);
 	_global.nt.retro_mode = _global.base_ntable->GetIntegerTopic("RetroRefl Mode").GetEntry(-2, NT_OPTIONS);
-	_global.nt.poses = _global.base_ntable->GetDoubleArrayTopic("Camera Pose Estimations").GetEntry({}, NT_OPTIONS);
-	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("Retro Tape Detections").GetEntry({}, NT_OPTIONS);
+	_global.nt.i_poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Individual").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.c_poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Combined").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.pose_rmse = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/RMSE").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.pose_distances = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/Tag Distances").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.detection_ids = _global.base_ntable->GetIntegerArrayTopic("Pose Estimations/Tag IDs").GetEntry({}, NT_DATAFLOW_OPTIONS);
+	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("RetroReflective Detections/Centers").GetEntry({}, NT_DATAFLOW_OPTIONS);
 	std::shared_ptr<nt::NetworkTable> thread_stats_nt = _global.base_ntable->GetSubTable("Threads");
 	_global.nt.april_timings = thread_stats_nt->GetFloatArrayTopic("AprilTag Pipeline").GetEntry({}, NT_OPTIONS);
 	_global.nt.retro_timings = thread_stats_nt->GetFloatArrayTopic("RetroRef Pipeline").GetEntry({}, NT_OPTIONS);
@@ -729,14 +743,11 @@ bool init(const char* fname) {
 	_global.nt.downscale.Set(DEFAULT_DOWNSCALE);
 	_global.nt.april_mode.Set(-1);
 	_global.nt.retro_mode.Set(-2);
-	_global.nt.poses.Set({});
-	_global.nt.nodes.Set({});
 
 #if VPIPE_DEBUG_NT_OPTIONS > 0
 	std::shared_ptr<nt::NetworkTable> vpipe_tuning_nt = _global.base_ntable->GetSubTable("Tuning");
 	_global.vpp.rtbuff.nt_wst_alpha = vpipe_tuning_nt->GetIntegerTopic("Retro WST Alpha").GetEntry(VRetro::WST_ALPHA, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_wst_beta = vpipe_tuning_nt->GetIntegerTopic("Retro WST Beta").GetEntry(VRetro::WST_BETA, NT_OPTIONS);
-	_global.vpp.rtbuff.nt_wst_gamma = vpipe_tuning_nt->GetIntegerTopic("Retro WST Gamma").GetEntry(VRetro::WST_GAMMA, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_wst_thresh = vpipe_tuning_nt->GetIntegerTopic("Retro WST Thresh").GetEntry(VRetro::WST_THRESH, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_tape_lower_wh = vpipe_tuning_nt->GetFloatTopic("Retro Min Aspect").GetEntry(VRetro::TAPE_LOWER_WH_RATIO, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_tape_upper_wh = vpipe_tuning_nt->GetFloatTopic("Retro Max Aspect").GetEntry(VRetro::TAPE_UPPER_WH_RATIO, NT_OPTIONS);
@@ -744,7 +755,6 @@ bool init(const char* fname) {
 	_global.vpp.rtbuff.nt_tape_pix_thresh = vpipe_tuning_nt->GetFloatTopic("Retro Pixel Thresh").GetEntry(VRetro::TAPE_PIXEL_COUNT_THRESH, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_wst_alpha.Set(VRetro::WST_ALPHA);
 	_global.vpp.rtbuff.nt_wst_beta.Set(VRetro::WST_BETA);
-	_global.vpp.rtbuff.nt_wst_gamma.Set(VRetro::WST_GAMMA);
 	_global.vpp.rtbuff.nt_wst_thresh.Set(VRetro::WST_THRESH);
 	_global.vpp.rtbuff.nt_tape_lower_wh.Set(VRetro::TAPE_LOWER_WH_RATIO);
 	_global.vpp.rtbuff.nt_tape_upper_wh.Set(VRetro::TAPE_UPPER_WH_RATIO);
@@ -782,8 +792,8 @@ void _update(CThread& ctx) {
 	bool outputting = ctx.vid == _global.nt.view_id.Get();
 	bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
 	ctx.vpmode = (
-		((int)(((apmode == -1) && outputting) || apmode == ctx.vid) << 0) |		// first bit is apmode, second is reflmode
-		((int)(((rflmode == -1) && outputting) || rflmode == ctx.vid) << 1)
+		((int)(((apmode == -1) && outputting) || (apmode == ctx.vid)) << 0) |		// first bit is apmode, second is reflmode
+		((int)(((rflmode == -1) && outputting) || (rflmode == ctx.vid)) << 1)
 	);
 	bool enable = connected && ((overlay && outputting) || downscale || ctx.vpmode);	// change to connect direct piping if no frame proc is needed
 
@@ -891,9 +901,10 @@ void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds, Anno
 				}
 				if(ctx.vpmode & 0b10) {
 					if(std::get<4>(*anno).size() > 0 && std::get<6>(*anno).try_lock()) {
-						if(ds > 1) {
-							::rescale(std::get<4>(*anno), Constant::VRetro::DECIMATE_FACTOR / ds);
-							::rescale(std::get<5>(*anno), Constant::VRetro::DECIMATE_FACTOR / ds);
+						float rscale = Constant::VRetro::DECIMATE_FACTOR / (ds < 1 ? 1 : ds);
+						if(rscale != 1.f) {
+							::rescale(std::get<4>(*anno), rscale);
+							::rescale(std::get<5>(*anno), rscale);
 						}
 						cv::drawContours(ctx.vpipe.aframe, std::get<4>(*anno), -1, {0, 255, 0});
 						for(const cv::Rect& r : std::get<5>(*anno)) {
@@ -1011,7 +1022,7 @@ void _worker(CThread& ctx) {
 																				timing[3] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
 		} else { timing[3] = 0.f; }
 																				ta = high_resolution_clock::now();
-		if(verbosity | downscale) {	// annotation and output
+		if(verbosity || downscale > 0) {	// annotation and output --> only if not directly streaming
 			if(output_link > 1 && output_worker.joinable()) {
 				output_worker.join();
 				output_link = 0;
@@ -1020,6 +1031,9 @@ void _worker(CThread& ctx) {
 				output_worker = std::thread(_annotate_output, std::ref(ctx), std::ref(output_link),
 											verbosity, downscale, annobuff);
 			}
+		} else {
+			timing[5] = timing[6] = timing[7] = timing[8] = timing[9] = timing[10] = 0.f;
+			ctx.vpipe.nt_timings.Set(std::span<float>(timing.begin(), timing.end()));
 		}
 																				timing[4] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
 																				timing[1] = duration<float>(high_resolution_clock::now() - tf).count() * 1000.f;
@@ -1052,136 +1066,6 @@ void _shutdown(CThread& ctx) {
 
 
 
-void _ap_detect_aruco(
-	const cv::Mat& frame,
-	std::vector<std::vector<cv::Point2f>>& corners,
-	std::vector<int32_t>& ids
-) {
-	cv::aruco::detectMarkers(
-		frame, _global.aprilp_field->dictionary,
-		corners, ids, _global.aprilp_params
-	);
-}
-
-int _ap_estimate_aruco(
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
-	cv::InputArray cmatx, cv::InputArray cdist,
-	std::vector<frc::Pose3d>& estimations
-) {
-	std::vector<cv::Mat1f> _tvecs, _rvecs;
-	std::vector<cv::Point3f> _obj_points;
-	std::vector<cv::Point2f> _img_points;
-	_ap_estimate_aruco(corners, ids, cmatx, cdist, estimations, _tvecs, _rvecs, _obj_points, _img_points);
-}
-int _ap_estimate_aruco(
-	std::vector<std::vector<cv::Point2f>>& corners, std::vector<int32_t>& ids,
-	cv::InputArray cmatx, cv::InputArray cdist,
-	std::vector<frc::Pose3d>& estimations,
-
-	std::vector<cv::Mat1f>& _tvecs, std::vector<cv::Mat1f>& _rvecs,
-	std::vector<cv::Point3f>& _obj_points, std::vector<cv::Point2f>& _img_points
-) {
-	CV_Assert(corners.size() == ids.size());
-
-	size_t ndetected = ids.size();
-	if(ndetected == 0) { return 0; }
-	else if(ndetected == 1) {
-		cv::solvePnPGeneric(
-			GENERIC_TAG_CORNERS, corners.at(0),
-			cmatx, cdist, _rvecs, _tvecs,
-			false, cv::SOLVEPNP_IPPE_SQUARE
-		);
-
-		int id = ids.at(0);
-		if(id > _global.aprilp_field->ids.size()) { return 0; }
-
-		auto opt = _global.aprilp_field_poses.GetTagPose(id);
-		frc::Pose3d tag;
-		if(opt.has_value()) {
-			tag = std::move(opt.value());
-		} else {
-			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id - 1);
-			cv::Point3d tx = findCenter3D<double>(x);
-			tag = frc::Pose3d(
-				*reinterpret_cast<frc::Translation3d*>(&tx),
-				frc::Rotation3d()	// put something here
-			);
-		}
-		for(size_t i = 0; i < _tvecs.size(); i++) {
-			frc::Transform3d c2tag = util::cvToWpi(_tvecs[i], _rvecs[i]);
-			estimations.push_back(tag.TransformBy(c2tag.Inverse()));
-			// estimations.emplace_back(tag.TransformBy(util::cvToWpiInv(_tvecs[i], _rvecs[i])));
-		}
-		return _tvecs.size();
-	}
-
-	CV_Assert(_global.aprilp_field->ids.size() == _global.aprilp_field->objPoints.size());
-
-	_obj_points.clear();
-	_img_points.clear();
-	_obj_points.reserve(ndetected * 4);
-	_img_points.reserve(ndetected * 4);
-	
-	for(size_t i = 0; i < ndetected; i++) {
-		int id = ids.at(i);
-		if(id > _global.aprilp_field->ids.size()) { continue; }
-		for(size_t j = 0; j < _global.aprilp_field->ids.size(); j++) {
-			if(id == _global.aprilp_field->ids[j]) {
-				_img_points.insert(_img_points.end(), corners.at(i).begin(), corners.at(i).end());
-				for(int p = 3; p >= 0; p--) {	// reverse the order such as to flip the points vertically
-					_obj_points.push_back(util::wpiToCv(_global.aprilp_field->objPoints[j][p]));
-				}
-			}
-		}
-
-		// solve all individual poses
-		cv::solvePnPGeneric(
-			GENERIC_TAG_CORNERS, corners.at(0),
-			cmatx, cdist, _rvecs, _tvecs,
-			false, cv::SOLVEPNP_IPPE_SQUARE
-		);
-		auto opt = _global.aprilp_field_poses.GetTagPose(id);
-		frc::Pose3d tag;
-		if(opt.has_value()) {
-			tag = std::move(opt.value());
-		} else {
-			std::vector<cv::Point3f>& x = _global.aprilp_field->objPoints.at(id - 1);
-			cv::Point3d tx = findCenter3D<double>(x);
-			tag = frc::Pose3d(
-				*reinterpret_cast<frc::Translation3d*>(&tx),
-				frc::Rotation3d()	// put something here
-			);
-		}
-		for(size_t i = 0; i < _tvecs.size(); i++) {
-			frc::Transform3d c2tag = util::cvToWpi(_tvecs[i], _rvecs[i]);
-			estimations.push_back(tag.TransformBy(c2tag.Inverse()));
-			// estimations.emplace_back(tag.TransformBy(util::cvToWpiInv(_tvecs[i], _rvecs[i])));
-		}
-
-	}
-
-	CV_Assert(_img_points.size() == _obj_points.size());
-
-	cv::solvePnPGeneric(
-		_obj_points, _img_points,
-		cmatx, cdist, _rvecs, _tvecs,
-		false, cv::SOLVEPNP_ITERATIVE
-	);
-
-	for(size_t i = 0; i < _tvecs.size(); i++) {
-		frc::Transform3d f2cam = util::cvToWpi(_tvecs[i], _rvecs[i]).Inverse();
-		estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
-		// estimations.emplace_back(util::cvToWpiInv_P(_tvecs[i], _rvecs[i]));
-	}
-
-	return _tvecs.size();
-
-}
-
-
-
-
-
 void _april_worker_inst(CThread& target, const cv::Mat* f) {
 
 	_global.vpp.april_link = 1;
@@ -1193,19 +1077,124 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 	_buff.tag_ids.clear();
 
 	p = high_resolution_clock::now();
-	_ap_detect_aruco((f ? *f : target.vpipe.frame), _buff.tag_corners, _buff.tag_ids);
+	cv::aruco::detectMarkers(
+		(f ? *f : target.vpipe.frame),
+		_global.aprilp_field->dictionary,
+		_buff.tag_corners, _buff.tag_ids,
+		_global.aprilp_params
+	);
 	_global.vpp.april_profiling[0] = duration<float>(high_resolution_clock::now() - p).count();
 
-	if(_buff.tag_ids.size() > 0) {
-		_buff.estimations.clear();		// may do something with these later, like seed the new estimations?
+	if(const size_t detections = _buff.tag_ids.size(); (detections > 0 && detections == _buff.tag_corners.size())) {
+		_buff.i_estimations.clear();
+		_buff.c_estimations.clear();
+		_buff.eerrors.clear();
+		_buff.distances.clear();
+
 		p = high_resolution_clock::now();
-		_ap_estimate_aruco(
-			_buff.tag_corners, _buff.tag_ids, target.camera_matrix, target.dist_matrix, _buff.estimations,
-			_buff.tvecs, _buff.rvecs, _buff.obj_points, _buff.img_points);
+		{
+			if(detections == 1) {	// single tag
+				int id = _buff.tag_ids[0];
+				if(id > _global.aprilp_field->ids.size()) {}
+
+				cv::solvePnPGeneric(
+					::GENERIC_TAG_CORNERS, _buff.tag_corners[0],
+					target.camera_matrix, target.dist_matrix,
+					_buff.rvecs, _buff.tvecs, false, cv::SOLVEPNP_IPPE_SQUARE,
+					cv::noArray(), cv::noArray(), _buff.eerrors
+				);
+
+				for(size_t i = 0; i < _buff.tvecs.size(); i++) {
+					frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]);
+					_buff.c_estimations.push_back(_global.aprilp_field_poses[id - 1].TransformBy(c2tag.Inverse()));
+					_buff.distances.push_back(c2tag.Translation().Norm().value());
+				}
+				_buff.i_estimations = _buff.c_estimations;		// make a constexpr param for enabling/disabling this
+			} else {				// 'megatag'
+				{
+					using namespace cv;
+#define MEGATAG_SOLVE_METHOD SOLVEPNP_SQPNP
+				}
+
+#if MEGATAG_SOLVE_METHOD > -1
+				_buff.obj_points.clear();
+				_buff.img_points.clear();
+				_buff.obj_points.reserve(detections * 4U);
+				_buff.obj_points.reserve(detections * 4U);
+#endif
+				// std::vector<float> rmse;
+
+				for(size_t i = 0; i < detections; i++) {
+
+					int id = _buff.tag_ids[i];
+					if(id > _global.aprilp_field->ids.size()) { continue; }
+
+					std::vector<cv::Point2f>& itag_corners = _buff.tag_corners[i];
+					size_t iid;
+					for(iid = 0; iid < _global.aprilp_field->ids.size(); iid++) {
+						if(id == _global.aprilp_field->ids[iid]) {
+							_buff.tag_ids[i] = iid;	// replace with array index for tag id (normally is the same)
+#if MEGATAG_SOLVE_METHOD > -1
+							_buff.img_points.insert(_buff.img_points.end(), itag_corners.begin(), itag_corners.end());
+							for(int p = 0; p < 4; p++) {
+								_buff.obj_points.push_back(util::wpiToCv(_global.aprilp_field->objPoints[iid][p]));
+							}
+#endif
+							break;
+						}
+					}
+
+					cv::solvePnPGeneric(
+						::GENERIC_TAG_CORNERS, itag_corners,
+						target.camera_matrix, target.dist_matrix,
+						_buff.rvecs, _buff.tvecs, false, cv::SOLVEPNP_IPPE_SQUARE
+						// , cv::noArray(), cv::noArray(), rmse
+					);
+
+					for(size_t s = 0; s < _buff.tvecs.size(); s++) {
+						frc::Transform3d c2tag = util::cvToWpi(_buff.tvecs[s], _buff.rvecs[s]);
+						_buff.i_estimations.push_back(_global.aprilp_field_poses[iid].TransformBy(c2tag.Inverse()));
+						//_buff.distances.push_back(c2tag.Translation().Norm().value());	// add constexpr param for inserting these
+					}
+					//_buff.eerrors.insert(_buff.eerrors.end(), rmse.begin(), rmse.end());
+
+				}
+
+#if MEGATAG_SOLVE_METHOD > -1
+				cv::solvePnPGeneric(
+					_buff.obj_points, _buff.img_points,
+					target.camera_matrix, target.dist_matrix,
+					_buff.rvecs, _buff.tvecs, false, MEGATAG_SOLVE_METHOD,
+					// cv::noArray(), cv::noArray(), rmse
+					cv::noArray(), cv::noArray(), _buff.eerrors
+				);
+
+				for(size_t i = 0; i < _buff.tvecs.size(); i++) {
+					frc::Transform3d f2cam = util::cvToWpi(_buff.tvecs[i], _buff.rvecs[i]).Inverse();
+					_buff.c_estimations.emplace_back(f2cam.Translation(), f2cam.Rotation());
+					_buff.distances.insert(_buff.distances.begin() + i, 0.f);
+					for(int32_t iid : _buff.tag_ids) {
+						_buff.distances[i] += f2cam.Translation().Distance(_global.aprilp_field_poses[iid].Translation()).value();
+					}
+					_buff.distances[i] /= detections;
+				}
+				// _buff.eerrors.insert(_buff.eerrors.begin(), rmse.begin(), rmse.end());
+#endif
+
+			}
+		}
+		
 		_global.vpp.april_profiling[1] = duration<float>(high_resolution_clock::now() - p).count();
 
-		double* d = reinterpret_cast<double*>(_buff.estimations.data());
-		_global.nt.poses.Set(std::span<double>(d, d + (_buff.estimations.size() * (sizeof(frc::Pose3d) / sizeof(double)))));
+		static constexpr size_t POSE3D_ARRLEN = (sizeof(frc::Pose3d) / sizeof(double));
+		const int64_t ts = nt::Now();
+		double* d = reinterpret_cast<double*>(_buff.i_estimations.data());
+		_global.nt.i_poses.Set(std::span<double>(d, d + (_buff.i_estimations.size() * POSE3D_ARRLEN)), ts);
+		d = reinterpret_cast<double*>(_buff.c_estimations.data());
+		_global.nt.c_poses.Set(std::span<double>(d, d + (_buff.c_estimations.size() * POSE3D_ARRLEN)), ts);
+		_global.nt.pose_rmse.Set(_buff.eerrors, ts);
+		_global.nt.pose_distances.Set(_buff.distances, ts);
+		nt::NetworkTableInstance::GetDefault().Flush();
 	} else {
 		_global.vpp.april_profiling[1] = 0.f;
 	}
@@ -1227,7 +1216,6 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 	const uint8_t
 		wst_alpha = _buff.nt_wst_alpha.Get(),
 		wst_beta = _buff.nt_wst_beta.Get(),
-		wst_gamma = _buff.nt_wst_gamma.Get(),
 		wst_thresh = _buff.nt_wst_thresh.Get();
 	const float
 		tape_min_aspect = _buff.nt_tape_lower_wh.Get(),
@@ -1237,7 +1225,6 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 #define _DETECTION_BASE				Constant::VRetro::DETECTION_BASE
 #define _WST_ALPHA					wst_alpha
 #define _WST_BETA					wst_beta
-#define _WST_GAMMA					wst_gamma
 #define _WST_THRESH					wst_thresh
 #define _DECIMATE_FACTOR			Constant::VRetro::DECIMATE_FACTOR
 #define _TAPE_LOWER_WH_RATIO		tape_min_aspect
@@ -1248,7 +1235,6 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 #define _DETECTION_BASE				Constant::VRetro::DETECTION_BASE
 #define _WST_ALPHA					Constant::VRetro::WST_ALPHA
 #define _WST_BETA					Constant::VRetro::WST_BETA
-#define _WST_GAMMA					Constant::VRetro::WST_GAMMA
 #define _WST_THRESH					Constant::VRetro::WST_THRESH
 #define _DECIMATE_FACTOR			Constant::VRetro::DECIMATE_FACTOR
 #define _TAPE_LOWER_WH_RATIO		Constant::VRetro::TAPE_LOWER_WH_RATIO
@@ -1280,7 +1266,7 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 	_global.vpp.retro_profiling[0] = duration<float>(high_resolution_clock::now() - beg).count();
 
 	p = high_resolution_clock::now();
-	neon_deinterlace_wstb(*src, _buff.binary, _DETECTION_BASE, _WST_ALPHA, _WST_BETA, _WST_GAMMA, _WST_THRESH);
+	neon_deinterlace_wstb(*src, _buff.binary, _DETECTION_BASE, _WST_ALPHA, _WST_BETA, _WST_THRESH);
 	_global.vpp.retro_profiling[1] = duration<float>(high_resolution_clock::now() - p).count();
 
 	p = high_resolution_clock::now();
@@ -1313,7 +1299,7 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 				}
 			}
 			_buff.bboxes.insert(_buff.bboxes.begin() + insert, bbox);
-			_buff.centers.insert(_buff.centers.begin() + insert, findCenter<double>(contour));
+			_buff.centers.insert(_buff.centers.begin() + insert, (cv::Point2d(bbox.tl() + bbox.br()) / 2.0));
 			_buff.centers.at(insert).x /= _buff.binary.size().width;
 			_buff.centers.at(insert).y /= _buff.binary.size().height;
 		}

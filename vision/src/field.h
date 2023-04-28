@@ -2,6 +2,8 @@
 
 #include <array>
 
+#include <frc/geometry/Pose3d.h>
+
 #include <core/aprilpose.h>
 
 
@@ -22,45 +24,45 @@ static inline const cv::Ptr<cv::aruco::Board>	// the frc 2023 field has 8 marker
 		// calculations and formatting: https://docs.google.com/spreadsheets/d/1c-rZgIMjbx5Ruouc-R8gldkDkMjAIx7uA9ZRElyW1K4/edit?usp=sharing
 		std::vector<std::vector<cv::Point3f>>{ {
 			{
-				cv::Point3f(610.77,45.19,21.22),
-				cv::Point3f(610.77,39.19,21.22),
 				cv::Point3f(610.77,39.19,15.22),
-				cv::Point3f(610.77,45.19,15.22)
+				cv::Point3f(610.77,45.19,15.22),
+				cv::Point3f(610.77,45.19,21.22),
+				cv::Point3f(610.77,39.19,21.22)
 			}, {
-				cv::Point3f(610.77,111.19,21.22),
-				cv::Point3f(610.77,105.19,21.22),
 				cv::Point3f(610.77,105.19,15.22),
-				cv::Point3f(610.77,111.19,15.22)
+				cv::Point3f(610.77,111.19,15.22),
+				cv::Point3f(610.77,111.19,21.22),
+				cv::Point3f(610.77,105.19,21.22)
 			}, {
-				cv::Point3f(610.77,177.19,21.22),
-				cv::Point3f(610.77,171.19,21.22),
 				cv::Point3f(610.77,171.19,15.22),
-				cv::Point3f(610.77,177.19,15.22)
+				cv::Point3f(610.77,177.19,15.22),
+				cv::Point3f(610.77,177.19,21.22),
+				cv::Point3f(610.77,171.19,21.22)
 			}, {
-				cv::Point3f(636.96,268.74,30.38),
-				cv::Point3f(636.96,262.74,30.38),
 				cv::Point3f(636.96,262.74,24.38),
-				cv::Point3f(636.96,268.74,24.38)
+				cv::Point3f(636.96,268.74,24.38),
+				cv::Point3f(636.96,268.74,30.38),
+				cv::Point3f(636.96,262.74,30.38)
 			}, {
-				cv::Point3f(14.25,262.74,30.38),
-				cv::Point3f(14.25,268.74,30.38),
 				cv::Point3f(14.25,268.74,24.38),
-				cv::Point3f(14.25,262.74,24.38)
+				cv::Point3f(14.25,262.74,24.38),
+				cv::Point3f(14.25,262.74,30.38),
+				cv::Point3f(14.25,268.74,30.38)
 			}, {
-				cv::Point3f(40.45,171.19,21.22),
-				cv::Point3f(40.45,177.19,21.22),
 				cv::Point3f(40.45,177.19,15.22),
-				cv::Point3f(40.45,171.19,15.22)
+				cv::Point3f(40.45,171.19,15.22),
+				cv::Point3f(40.45,171.19,21.22),
+				cv::Point3f(40.45,177.19,21.22)
 			}, {
-				cv::Point3f(40.45,105.19,21.22),
-				cv::Point3f(40.45,111.19,21.22),
 				cv::Point3f(40.45,111.19,15.22),
-				cv::Point3f(40.45,105.19,15.22)
+				cv::Point3f(40.45,105.19,15.22),
+				cv::Point3f(40.45,105.19,21.22),
+				cv::Point3f(40.45,111.19,21.22)
 			}, {
-				cv::Point3f(40.45,39.19,21.22),
-				cv::Point3f(40.45,45.19,21.22),
 				cv::Point3f(40.45,45.19,15.22),
-				cv::Point3f(40.45,39.19,15.22)
+				cv::Point3f(40.45,39.19,15.22),
+				cv::Point3f(40.45,39.19,21.22),
+				cv::Point3f(40.45,45.19,21.22)
 			}
 		} },
 		cv::aruco::getPredefinedDictionary(FRC_DICT),
@@ -69,6 +71,18 @@ static inline const cv::Ptr<cv::aruco::Board>	// the frc 2023 field has 8 marker
 		}
 	)
 };
+
+static inline const std::array<frc::Pose3d, 8>
+	TAG_POSES_2023{
+		frc::Pose3d( frc::Translation3d(610.77_in, 42.19_in, 18.22_in),		frc::Rotation3d(frc::Quaternion(0.0, 0.0, 0.0, 1.0)) ),
+		frc::Pose3d( frc::Translation3d(610.77_in, 108.19_in, 18.22_in),	frc::Rotation3d(frc::Quaternion(0.0, 0.0, 0.0, 1.0)) ),
+		frc::Pose3d( frc::Translation3d(610.77_in, 174.19_in, 18.22_in),	frc::Rotation3d(frc::Quaternion(0.0, 0.0, 0.0, 1.0)) ),
+		frc::Pose3d( frc::Translation3d(636.96_in, 265.74_in, 27.38_in),	frc::Rotation3d(frc::Quaternion(0.0, 0.0, 0.0, 1.0)) ),
+		frc::Pose3d( frc::Translation3d(14.25_in, 265.74_in, 27.38_in),		frc::Rotation3d(frc::Quaternion(1.0, 0.0, 0.0, 0.0)) ),
+		frc::Pose3d( frc::Translation3d(40.45_in, 174.19_in, 18.22_in),		frc::Rotation3d(frc::Quaternion(1.0, 0.0, 0.0, 0.0)) ),
+		frc::Pose3d( frc::Translation3d(40.45_in, 108.19_in, 18.22_in),		frc::Rotation3d(frc::Quaternion(1.0, 0.0, 0.0, 0.0)) ),
+		frc::Pose3d( frc::Translation3d(40.45_in, 42.19_in, 18.22_in),		frc::Rotation3d(frc::Quaternion(1.0, 0.0, 0.0, 0.0)) )
+	};
 
 
 // https://docs.opencv.org/4.5.2/db/da9/tutorial_aruco_board_detection.html

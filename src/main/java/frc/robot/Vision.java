@@ -22,8 +22,6 @@ public final class Vision {
 	public static class NT {
 		private NT() {
 			this.vbase = NetworkTableInstance.getDefault().getTable("Vision");
-			this.avail_cams =			this.vbase.getIntegerTopic("Available Outputs")
-											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
 			this.active_cam =			this.vbase.getIntegerTopic("Active Camera Thread")
 											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
 			this.overlay_verbosity =	this.vbase.getIntegerTopic("Overlay Verbosity")
@@ -33,8 +31,10 @@ public final class Vision {
 			this.downscaling =			this.vbase.getIntegerTopic("Output Downscale")
 											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
 			this.aprilp_mode =			this.vbase.getIntegerTopic("AprilTag Mode")
-											.getEntry(0, Vision.NT_DATA_SUBSCRIBER);
+											.getEntry(-2, Vision.NT_DATA_SUBSCRIBER);
 			this.retror_mode =			this.vbase.getIntegerTopic("RetroRefl Mode")
+											.getEntry(-2, Vision.NT_ENTRY_DEFAULT);
+			this.perf_override = 		this.vbase.getIntegerTopic("Performance Mode")
 											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
 
 			this.all_estimations =		this.vbase.getDoubleArrayTopic("Pose Estimations/Individual")
@@ -58,13 +58,13 @@ public final class Vision {
 
 		public final NetworkTable vbase;
 		public final IntegerEntry
-			avail_cams,
 			active_cam,
 			overlay_verbosity,
 			cam_exposure,
 			downscaling,
 			aprilp_mode,
-			retror_mode;
+			retror_mode,
+			perf_override;
 		public final DoubleArraySubscriber
 			all_estimations,
 			combined_estimations,
@@ -127,7 +127,7 @@ public final class Vision {
 		public final int val;
 		private Verbosity(int v) { this.val = v; }
 
-		public void set() { setVerbosity(this); }
+		public void setActive() { setVerbosity(this); }
 	}
 	public static void setVerbosity(Verbosity v) {
 		nt.overlay_verbosity.set(v.val);
@@ -148,6 +148,37 @@ public final class Vision {
 	}
 	public static int getStreamDownscale() {
 		return (int)nt.downscaling.get();
+	}
+
+	public static enum PerfMode {
+		STREAM_ONLY			(-1),
+		NONE				(0),
+		RAW_MULTISTREAM		(1),
+		SINGLESTREAM		(2),
+		RAW_SINGLESTREAM	(3),
+		VPP_ONLY			(4),
+		APRIL_ONLY			(5),
+		RETRO_ONLY			(6);
+
+		public final int val;
+		private PerfMode(int v) { this.val = v; }
+
+		public void setActive() { setPerfMode(this.val); }
+	}
+	public static void setPerfMode(PerfMode p) {
+		nt.perf_override.set(p.val);
+	}
+	public static void setPerfMode(int m) {
+		nt.perf_override.set(m);
+	}
+	public static int getPerfMode() {
+		return (int)nt.perf_override.get();
+	}
+	public static PerfMode perfModeFromVal(int v) {
+		final PerfMode[] vals = PerfMode.values();
+		if(v < -1) { return PerfMode.STREAM_ONLY; }
+		else if(v <= PerfMode.RETRO_ONLY.val) { return vals[v + 1]; }
+		return null;
 	}
 
 
@@ -301,82 +332,6 @@ public final class Vision {
 
 	public static final class PoseEstimation {
 
-		// public static class BoundingVolume {
-		// 	public double[] _a, _b;
-		// 	public BoundingVolume() {
-		// 		this._a = new double[3];
-		// 		this._b = new double[3];
-		// 	}
-		// 	public BoundingVolume(double xmin, double xmax, double ymin, double ymax, double zmin, double zmax) {
-		// 		this._a = new double[3];
-		// 		this._b = new double[3];
-		// 		this._b[0] = xmin;
-		// 		this._a[0] = xmax;
-		// 		this._a[1] = ymax;
-		// 		this._b[1] = ymin;
-		// 		this._a[2] = zmax;
-		// 		this._b[2] = zmin;
-		// 	}
-		// 	public BoundingVolume(double[] a, double[] b) {
-		// 		if(a.length == 3) { this._a = a.clone(); } else { this._a = new double[3]; }
-		// 		if(b.length == 3) { this._b = b.clone(); } else { this._b = new double[3]; }
-		// 	}
-		// }
-
-		// public static boolean inside(Pose3d p, BoundingVolume v) {
-		// 	return (
-		// 		(p.getX() > v._b[0]) && (p.getX() < v._a[0]) &&
-		// 		(p.getY() > v._b[1]) && (p.getY() < v._a[1]) &&
-		// 		(p.getZ() > v._b[2]) && (p.getZ() < v._a[2])
-		// 	);
-		// }
-		// public static boolean insideBuffered(Pose3d p, BoundingVolume v, double b) {
-		// 	return (
-		// 		(p.getX() > v._b[0] - b) && (p.getX() < v._a[0] + b) &&
-		// 		(p.getY() > v._b[1] - b) && (p.getY() < v._a[1] + b) &&
-		// 		(p.getZ() > v._b[2] - b) && (p.getZ() < v._a[2] + b)
-		// 	);
-		// }
-		// public static boolean outside(Pose3d p, BoundingVolume v) {
-		// 	return (
-		// 		(p.getX() < v._b[0]) || (p.getX() > v._a[0]) ||
-		// 		(p.getY() < v._b[1]) || (p.getY() > v._a[1]) ||
-		// 		(p.getZ() < v._b[2]) || (p.getZ() > v._a[2])
-		// 	);
-		// }
-		// public static boolean outsideBuffered(Pose3d p, BoundingVolume v, double b) {
-		// 	return (
-		// 		(p.getX() < v._b[0] + b) || (p.getX() > v._a[0] - b) ||
-		// 		(p.getY() < v._b[1] + b) || (p.getY() > v._a[1] - b) ||
-		// 		(p.getZ() < v._b[2] + b) || (p.getZ() > v._a[2] - b)
-		// 	);
-		// }
-		// public static boolean inside(Pose3d p, BoundingVolume... vs) {
-		// 	for(BoundingVolume v : vs) {
-		// 		if(!inside(p, v)) {
-		// 			return false;
-		// 		}
-		// 	}
-		// 	return true;
-		// }
-		// public static boolean outside(Pose3d p, BoundingVolume... vs) {
-		// 	for(BoundingVolume v : vs) {
-		// 		if(!outside(p, v)) {
-		// 			return false;
-		// 		}
-		// 	}
-		// 	return true;
-		// }
-
-
-
-
-		// public static final BoundingVolume
-		// 	FIELD_BOUNDS_3D = new BoundingVolume(
-		// 		0.0, Constants.Field.FIELD_LENGTH,
-		// 		0.0, Constants.Field.FIELD_WIDTH,
-		// 		0.0, 2.0);
-
 		public static final Transform3d		// the inverses of the camera locations in robot coord space -- +x is "forward", +y is right, +z is up
 			FORWARD_C2R = new Transform3d(
 				new Translation3d(
@@ -495,9 +450,6 @@ public final class Vision {
 			return frames;
 		}
 
-		// public static boolean insideBufferedFieldBounds(Estimation e, BoundingVolume v) {
-		// 	return insideBuffered(e.pose, v, getXYZDeviation(e.distance));
-		// }
 		public static boolean insideBufferedFieldBounds(Estimation e, double flen, double fwidth) {
 			return insideBufferedFieldBounds(e.pose, getXYZDeviation(e.distance), flen, fwidth);
 		}
@@ -508,32 +460,6 @@ public final class Vision {
 				(p.getZ() > - dv)
 			);
 		}
-
-		// public static Estimation[] sortClosestNxN(Estimation[] e, int n, int s) {
-		// 	Estimation[] ret = new Estimation[n];
-		// 	for(int x = 0; x < n-1; x++) {
-		// 		double min = Double.POSITIVE_INFINITY;
-		// 		for(int b = (s*(x + 1)); b < (s*(x + 2)); b++) {
-		// 			if(x > 0) {
-		// 				double d = ret[x].pose.getTranslation().getDistance(e[b].pose.getTranslation());
-		// 				if(d < min) {
-		// 					ret[x + 1] = e[b];
-		// 					min = d;
-		// 				}
-		// 			} else {
-		// 				for(int a = s*x; a < (s*(x + 1)); a++) {
-		// 					double d = e[a].pose.getTranslation().getDistance(e[b].pose.getTranslation());
-		// 					if(d < min) {
-		// 						ret[x] = e[a];
-		// 						ret[x + 1] = e[b];
-		// 						min = d;
-		// 					}
-		// 				}
-		// 			}
-		// 		}
-		// 	}
-		// 	return ret;
-		// }
 
 
 

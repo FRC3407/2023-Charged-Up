@@ -28,7 +28,6 @@
 #include <frc/apriltag/AprilTagFields.h>
 #include <networktables/NetworkTable.h>
 #include <networktables/IntegerTopic.h>
-#include <networktables/IntegerArrayTopic.h>
 #include <networktables/FloatArrayTopic.h>
 #include <networktables/DoubleArrayTopic.h>
 
@@ -72,14 +71,14 @@
 #ifndef PATCH_LIFECAM_V4L_PROP_IDS
 #define PATCH_LIFECAM_V4L_PROP_IDS 1
 #endif
-#ifndef VPIPE_DEBUG_NT_OPTIONS
-#define VPIPE_DEBUG_NT_OPTIONS 1
+#ifndef VPIPE_CONFIG_NT_OPTIONS
+#define VPIPE_CONFIG_NT_OPTIONS 1
 #endif
 
 #if ENABLE_CAMERASERVER > 0
 #include <cameraserver/CameraServer.h>
 #endif
-#if VPIPE_DEBUG_NT_OPTIONS > 0
+#if VPIPE_CONFIG_NT_OPTIONS > 0
 #include <networktables/FloatTopic.h>
 #endif
 
@@ -91,9 +90,9 @@ using namespace std::chrono;
 
 namespace Constant {
 	enum CamID {
-		FWD_CAMERA,
-		ARM_CAMERA,
-		TOP_CAMERA,
+		FWD_CAMERA = 0,
+		ARM_CAMERA = 1,
+		TOP_CAMERA = 2,
 
 		NUM_CAMERAS
 	};
@@ -146,13 +145,25 @@ namespace Constant {
 
 
 
+	enum PerfMode {
+		STREAM_ONLY =		-1,
+		NONE =				0,
+		RAW_MULTISTREAM =	1,
+		SINGLESTREAM =		2,
+		RAW_SINGLESTREAM =	3,
+		VPP_ONLY =			4,
+		APRIL_ONLY =		5,
+		RETRO_ONLY =		6
+	};
+
 	namespace VRetro {
 		static constexpr vs2::BGR
 			DETECTION_BASE = vs2::BGR::GREEN;
 		static constexpr uint8_t
 			WST_ALPHA = 0b01111111,
 			WST_BETA = 0b00111111,
-			WST_THRESH = 25U;
+			WST_THRESH = 25U,
+			SRC_EXPOSURE = 20U;
 		static constexpr bool
 			FILTER_UPRIGHT = true;			// only look for upright rectangles -- use unless the camera is intentionally tilted
 		static constexpr float
@@ -206,7 +217,7 @@ struct CThread {
 		fin_h(t.fin_h),
 		view_h(t.view_h),
 		link_state(t.link_state.load()),
-		vpmode(t.vpmode.load()),
+		vpstate(t.vpstate.load()),
 		vproc(std::move(t.vproc)),
 		vpipe(std::move(t.vpipe)) {}
 
@@ -220,7 +231,7 @@ struct CThread {
 	CS_Sink fin_h, view_h;
 
 	std::atomic<bool> link_state{true};
-	std::atomic<int> vpmode{0};
+	std::atomic<int> vpstate{0};
 	std::thread vproc;
 	struct {
 		cv::Mat frame, aframe, dframe;
@@ -330,7 +341,9 @@ static struct {
 			view_updated{false},
 			vrbo_updated{false},
 			exposure_updated{false},
-			dscale_updated{false}
+			dscale_updated{false},
+			vretro_updated{false},
+			perfm_updated{false}
 		;
 	} state;
 	Stats stats{};
@@ -338,13 +351,13 @@ static struct {
 	std::shared_ptr<nt::NetworkTable> base_ntable;
 	struct {
 		nt::IntegerEntry
-			views_avail,	// the amount of cameras connected
 			view_id,		// active camera id
 			ovl_verbosity,	// overlay verbosity - 0 for off, 1+ for increasing verbosity outputs
 			april_mode,		// apriltag detection mode - -2 for off, -1 for active camera, 0+ for specific camera
 			retro_mode,		// retrorefl tape detection mode - -2 for off, -1 for active camera, 0+ for specific camera
 			exposure,		// exposure to apply to all cameras - default 40
-			downscale		// outputs are downscaled by this factor
+			downscale,		// outputs are downscaled by this factor
+			performance_override	// prefer vision pipelines or streams
 		;
 		nt::DoubleArrayEntry
 			i_poses,
@@ -355,8 +368,6 @@ static struct {
 			pose_distances,
 			april_timings,
 			retro_timings;
-		nt::IntegerArrayEntry
-			detection_ids;
 	} nt;
 
 	int next_stream_port = 1181;
@@ -369,7 +380,6 @@ static struct {
 	const cv::Ptr<cv::aruco::DetectorParameters> aprilp_params{ cv::aruco::DetectorParameters::create() };
 	const cv::Ptr<cv::aruco::Board> aprilp_field{ ::FIELD_2023 };
 	const std::array<frc::Pose3d, 8>& aprilp_field_poses{ ::TAG_POSES_2023 };
-	// const frc::AprilTagFieldLayout aprilp_field_poses{ frc::LoadAprilTagLayoutField(frc::AprilTagField::k2023ChargedUp) };
 	struct {
 		std::thread april_worker, retro_worker;
 		std::atomic<int> april_link{0}, retro_link{0};
@@ -389,11 +399,12 @@ static struct {
 			std::vector<std::vector<cv::Point2i>> contours;
 			std::vector<cv::Point2d> centers;
 			std::vector<cv::Rect2i> bboxes;
-#if VPIPE_DEBUG_NT_OPTIONS > 0
+#if VPIPE_CONFIG_NT_OPTIONS > 0
 			nt::IntegerEntry
 				nt_wst_alpha,
 				nt_wst_beta,
-				nt_wst_thresh;
+				nt_wst_thresh,
+				nt_wst_src_exposure;
 			nt::FloatEntry
 				nt_tape_lower_wh,
 				nt_tape_upper_wh,
@@ -458,16 +469,19 @@ int main(int argc, char** argv) {
 
 		high_resolution_clock::time_point b = high_resolution_clock::now();
 
-		_global.state.view_updated = (_global.nt.view_id.ReadQueue().size() > 0);
-		_global.state.vrbo_updated = (_global.nt.ovl_verbosity.ReadQueue().size() > 0);
-		_global.state.exposure_updated = (_global.nt.exposure.ReadQueue().size() > 0);
-		_global.state.dscale_updated = (_global.nt.downscale.ReadQueue().size() > 0);
+		_global.state.view_updated = (_global.nt.view_id.ReadQueue().size() > 0U);
+		_global.state.vrbo_updated = (_global.nt.ovl_verbosity.ReadQueue().size() > 0U);
+		_global.state.exposure_updated = (_global.nt.exposure.ReadQueue().size() > 0U);
+		_global.state.dscale_updated = (_global.nt.downscale.ReadQueue().size() > 0U);
+		_global.state.vretro_updated = (_global.nt.retro_mode.ReadQueue().size() > 0U);
+		_global.state.perfm_updated = (_global.nt.performance_override.ReadQueue().size() > 0U);
 
 #if DEBUG > 1
 		if(_global.state.view_updated) { std::cout << "MAINLOOP: View idx updated." << std::endl; }
 		if(_global.state.vrbo_updated) { std::cout << "MAINLOOP: Verbosity lvl updated." << std::endl; }
 		if(_global.state.exposure_updated) { std::cout << "MAINLOOP: Exposure updated." << std::endl; }
 		if(_global.state.dscale_updated) { std::cout << "MAINLOOP: Downscale updated." << std::endl; }
+		if(_global.state.perfm_updated) { std::cout << "MAINLOOP: Performance mode updated." << std::endl; }
 #endif
 
 		for(CThread& t : _global.cthreads) {
@@ -568,18 +582,17 @@ bool init(const char* fname) {
 	using namespace Constant;
 
 	_global.base_ntable = nt::NetworkTableInstance::GetDefault().GetTable("Vision");
-	_global.nt.views_avail = _global.base_ntable->GetIntegerTopic("Available Outputs").GetEntry(0, NT_OPTIONS);
 	_global.nt.view_id = _global.base_ntable->GetIntegerTopic("Active Camera Thread").GetEntry(0, NT_OPTIONS);
 	_global.nt.ovl_verbosity = _global.base_ntable->GetIntegerTopic("Overlay Verbosity").GetEntry(0, NT_OPTIONS);
 	_global.nt.exposure = _global.base_ntable->GetIntegerTopic("Camera Exposure").GetEntry(0, NT_OPTIONS);
 	_global.nt.downscale = _global.base_ntable->GetIntegerTopic("Output Downscale").GetEntry(0, NT_OPTIONS);
 	_global.nt.april_mode = _global.base_ntable->GetIntegerTopic("AprilTag Mode").GetEntry(-2, NT_OPTIONS);
 	_global.nt.retro_mode = _global.base_ntable->GetIntegerTopic("RetroRefl Mode").GetEntry(-2, NT_OPTIONS);
+	_global.nt.performance_override = _global.base_ntable->GetIntegerTopic("Performance Mode").GetEntry(0, NT_OPTIONS);
 	_global.nt.i_poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Individual").GetEntry({}, NT_DATAFLOW_OPTIONS);
 	_global.nt.c_poses = _global.base_ntable->GetDoubleArrayTopic("Pose Estimations/Combined").GetEntry({}, NT_DATAFLOW_OPTIONS);
 	_global.nt.pose_rmse = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/RMSE").GetEntry({}, NT_DATAFLOW_OPTIONS);
 	_global.nt.pose_distances = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/Tag Distances").GetEntry({}, NT_DATAFLOW_OPTIONS);
-	_global.nt.detection_ids = _global.base_ntable->GetIntegerArrayTopic("Pose Estimations/Tag IDs").GetEntry({}, NT_DATAFLOW_OPTIONS);
 	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("RetroReflective Detections/Centers").GetEntry({}, NT_DATAFLOW_OPTIONS);
 	std::shared_ptr<nt::NetworkTable> thread_stats_nt = _global.base_ntable->GetSubTable("Threads");
 	_global.nt.april_timings = thread_stats_nt->GetFloatArrayTopic("AprilTag Pipeline").GetEntry({}, NT_OPTIONS);
@@ -736,19 +749,20 @@ bool init(const char* fname) {
 
 	std::cout << fmt::format("Cameras Available: {}", _global.cthreads.size()) << std::endl;
 
-	_global.nt.views_avail.Set(_global.cthreads.size());
 	_global.nt.view_id.Set(_global.cthreads.size() > 0 ? _global.cthreads[0].vid : -1);
 	_global.nt.ovl_verbosity.Set(1);
 	_global.nt.exposure.Set(DEFAULT_EXPOSURE);
 	_global.nt.downscale.Set(DEFAULT_DOWNSCALE);
 	_global.nt.april_mode.Set(-1);
 	_global.nt.retro_mode.Set(-2);
+	_global.nt.performance_override.Set(0);
 
-#if VPIPE_DEBUG_NT_OPTIONS > 0
+#if VPIPE_CONFIG_NT_OPTIONS > 0
 	std::shared_ptr<nt::NetworkTable> vpipe_tuning_nt = _global.base_ntable->GetSubTable("Tuning");
 	_global.vpp.rtbuff.nt_wst_alpha = vpipe_tuning_nt->GetIntegerTopic("Retro WST Alpha").GetEntry(VRetro::WST_ALPHA, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_wst_beta = vpipe_tuning_nt->GetIntegerTopic("Retro WST Beta").GetEntry(VRetro::WST_BETA, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_wst_thresh = vpipe_tuning_nt->GetIntegerTopic("Retro WST Thresh").GetEntry(VRetro::WST_THRESH, NT_OPTIONS);
+	_global.vpp.rtbuff.nt_wst_src_exposure = vpipe_tuning_nt->GetIntegerTopic("RetroRef Exposure").GetEntry(VRetro::SRC_EXPOSURE, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_tape_lower_wh = vpipe_tuning_nt->GetFloatTopic("Retro Min Aspect").GetEntry(VRetro::TAPE_LOWER_WH_RATIO, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_tape_upper_wh = vpipe_tuning_nt->GetFloatTopic("Retro Max Aspect").GetEntry(VRetro::TAPE_UPPER_WH_RATIO, NT_OPTIONS);
 	_global.vpp.rtbuff.nt_tape_fill_thresh = vpipe_tuning_nt->GetFloatTopic("Retro Fill Percent").GetEntry(VRetro::TAPE_RECT_FILL_THRESH, NT_OPTIONS);
@@ -756,6 +770,7 @@ bool init(const char* fname) {
 	_global.vpp.rtbuff.nt_wst_alpha.Set(VRetro::WST_ALPHA);
 	_global.vpp.rtbuff.nt_wst_beta.Set(VRetro::WST_BETA);
 	_global.vpp.rtbuff.nt_wst_thresh.Set(VRetro::WST_THRESH);
+	_global.vpp.rtbuff.nt_wst_src_exposure.Set(VRetro::SRC_EXPOSURE);
 	_global.vpp.rtbuff.nt_tape_lower_wh.Set(VRetro::TAPE_LOWER_WH_RATIO);
 	_global.vpp.rtbuff.nt_tape_upper_wh.Set(VRetro::TAPE_UPPER_WH_RATIO);
 	_global.vpp.rtbuff.nt_tape_fill_thresh.Set(VRetro::TAPE_RECT_FILL_THRESH);
@@ -784,35 +799,70 @@ bool init(const char* fname) {
 
 
 void _update(CThread& ctx) {
-	int status = 0;
-	int apmode = _global.nt.april_mode.Get();
-	int rflmode = _global.nt.retro_mode.Get();
-	bool downscale = _global.nt.downscale.Get() > 1;
-	bool overlay = _global.nt.ovl_verbosity.Get() > 0;
-	bool outputting = ctx.vid == _global.nt.view_id.Get();
-	bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
-	ctx.vpmode = (
-		((int)(((apmode == -1) && outputting) || (apmode == ctx.vid)) << 0) |		// first bit is apmode, second is reflmode
-		((int)(((rflmode == -1) && outputting) || (rflmode == ctx.vid)) << 1)
-	);
-	bool enable = connected && ((overlay && outputting) || downscale || ctx.vpmode);	// change to connect direct piping if no frame proc is needed
+	using namespace Constant;
 
-	if(_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated) {
+	int status = 0;
+	const int apmode = _global.nt.april_mode.Get();
+	const int rflmode = _global.nt.retro_mode.Get();
+	const int perfm = _global.nt.performance_override.Get();
+	const bool downscale = (_global.nt.downscale.Get() > 1) && (perfm < PerfMode::VPP_ONLY);
+	const bool overlay = (_global.nt.ovl_verbosity.Get() > 0) && (perfm <= PerfMode::NONE || perfm == PerfMode::SINGLESTREAM);
+	const bool active = ctx.vid == _global.nt.view_id.Get();
+	const bool multistream = (perfm <= PerfMode::RAW_MULTISTREAM);
+	const bool mainstream = active && (perfm < PerfMode::VPP_ONLY);
+	const bool streaming = multistream || mainstream;
+	const bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
+	ctx.vpstate = (	// first bit is apmode, second is reflmode
+		((int)( (perfm > PerfMode::STREAM_ONLY) && (perfm != PerfMode::RETRO_ONLY) && (((apmode == -1)	&& active) || (apmode == ctx.vid)) ) << 0) |
+		((int)( (perfm > PerfMode::STREAM_ONLY) && (perfm != PerfMode::APRIL_ONLY) && (((rflmode == -1)	&& active) || (rflmode == ctx.vid)) ) << 1)
+	);
+	const bool enable_thread = connected && (((overlay || downscale) && streaming) || ctx.vpstate);
+
+	if(_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated || _global.state.perfm_updated) {
+		cs::SetSinkEnabled(ctx.view_h, multistream, &status);	// this does not actually do anything --> instead apply to CvSink's
+		if(active) {
+			cs::SetSinkEnabled(_global.stream_h, mainstream, &status);
+		}
 		if(connected) {
 			if(overlay || downscale) {
-				cs::SetSinkSource(ctx.view_h, ctx.fout_h, &status);
-				if(outputting) cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);
+				if(multistream) cs::SetSinkSource(ctx.view_h, ctx.fout_h, &status);
+				if(mainstream) cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);
 			} else {
-				cs::SetSinkSource(ctx.view_h, ctx.camera_h, &status);
-				if(outputting) cs::SetSinkSource(_global.stream_h, ctx.camera_h, &status);
+				if(multistream) cs::SetSinkSource(ctx.view_h, ctx.camera_h, &status);
+				if(mainstream) cs::SetSinkSource(_global.stream_h, ctx.camera_h, &status);
 			}
 		} else {
-			cs::SetSinkSource(ctx.view_h, _global.discon_frame_h, &status);
-			if(outputting) cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
+			if(multistream) cs::SetSinkSource(ctx.view_h, _global.discon_frame_h, &status);
+			if(mainstream) cs::SetSinkSource(_global.stream_h, _global.discon_frame_h, &status);
 		}
 	}
-	if(_global.state.exposure_updated) {
-		int exp = _global.nt.exposure.Get();
+
+#if PATCH_LIFECAM_V4L_PROP_IDS <= 0
+	if(ctx.vpstate & 0b10) {	// retrorefl pipe is operating on the thread
+		if(_global.state.vretro_updated
+#if VPIPE_CONFIG_NT_OPTIONS > 0
+			|| _global.vpp.rtbuff.nt_wst_src_exposure.ReadQueue().size() > 0)
+#endif
+		{
+#if VPIPE_CONFIG_NT_OPTIONS > 0
+			const int exp = _global.vpp.rtbuff.nt_wst_src_exposure.Get();
+			if(exp < 0) {
+				cs::SetCameraExposureAuto(ctx.camera_h, &status);
+			} else {
+				cs::SetCameraExposureManual(ctx.camera_h, exp, &status);
+			}
+#else
+			constexpr if(VRetro::SRC_EXPOSURE < 0) {
+				cs::SetCameraExposureAuto(ctx.camera_h, &status);
+			} else {
+				cs::SetCameraExposureManual(ctx.camera_h, VRetro::SRC_EXPOSURE, &status);
+			}
+#endif
+		}
+	} else
+#endif
+	if(_global.state.exposure_updated || _global.state.vretro_updated) {
+		const int exp = _global.nt.exposure.Get();
 #if PATCH_LIFECAM_V4L_PROP_IDS > 0
 		if(exp < 0) {
 			cs::SetProperty(cs::GetSourceProperty(ctx.camera_h, "auto_exposure", &status), 3, &status);
@@ -828,7 +878,7 @@ void _update(CThread& ctx) {
 		}
 #endif
 	}
-	if(enable) {	// add other states to compute (ex. isproc, isactive) in the future too
+	if(enable_thread) {
 		if(!ctx.vproc.joinable()) {
 			ctx.link_state = true;
 			ctx.vproc = std::thread(_worker, std::ref(ctx));
@@ -837,10 +887,11 @@ void _update(CThread& ctx) {
 		ctx.link_state = false;
 		ctx.vproc.join();
 	}
-	if(outputting && !connected) {
+	if(mainstream && !connected) {
 		cs::PutSourceFrame(_global.discon_frame_h, _global.disconnect_frame, &status);
 	}
 }
+
 using AnnotationBuffer =
 	std::tuple<
 		float*, float*,
@@ -880,8 +931,8 @@ void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds, Anno
 		int vl = 2 * fnthz1;
 
 		if(vb > 1) {
-			if(ctx.vpmode && anno) {
-				if(ctx.vpmode & 0b01) {
+			if(ctx.vpstate && anno) {
+				if(ctx.vpstate & 0b01) {
 					if(std::get<3>(*anno).size() > 0 && std::get<6>(*anno).try_lock()) {
 						if(ds > 1) {
 							::rescale(std::get<2>(*anno), 1.0 / ds);
@@ -899,7 +950,7 @@ void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds, Anno
 									cv::Point(5, vl += fnthz2), cv::FONT_HERSHEY_DUPLEX, fntscale2, {0, 255, 0}, 1, cv::LINE_AA);
 					}
 				}
-				if(ctx.vpmode & 0b10) {
+				if(ctx.vpstate & 0b10) {
 					if(std::get<4>(*anno).size() > 0 && std::get<6>(*anno).try_lock()) {
 						float rscale = Constant::VRetro::DECIMATE_FACTOR / (ds < 1 ? 1 : ds);
 						if(rscale != 1.f) {
@@ -952,12 +1003,13 @@ void _annotate_output(CThread& ctx, std::atomic<int>& link, int vb, int ds, Anno
 void _worker(CThread& ctx) {
 
 	high_resolution_clock::time_point ta, tf = high_resolution_clock::now();
-	int status{0}, verbosity, downscale;
+	int status{0}, verbosity, downscale, perfmode;
 	std::atomic<int> output_link{0};
 	std::thread output_worker;
 	decltype(ctx.vpipe.timings)& timing = ctx.vpipe.timings;
 	AnnotationBuffer* annobuff{nullptr};
 
+	cs::SetSinkEnabled(ctx.fin_h, true, &status);
 	cs::SetSinkSource(ctx.fin_h, ctx.camera_h, &status);
 
 	for(;ctx.link_state && _global.state.program_enable;) {
@@ -966,10 +1018,11 @@ void _worker(CThread& ctx) {
 																				ta = high_resolution_clock::now();
 																				timing[0] = duration<float>(ta - tf).count() * 1000.f;
 																				tf = ta;
-		verbosity = _global.nt.ovl_verbosity.Get();
-		downscale = _global.nt.downscale.Get();
+		perfmode = _global.nt.performance_override.Get();
+		verbosity = (_global.nt.ovl_verbosity.Get()) * (perfmode <= Constant::PerfMode::NONE || perfmode == Constant::PerfMode::SINGLESTREAM);
+		downscale = (_global.nt.downscale.Get()) * (perfmode < Constant::PerfMode::VPP_ONLY);
 
-		if(ctx.vpmode & 0b01) {		// apriltag
+		if(ctx.vpstate & 0b01) {		// apriltag
 																				ta = high_resolution_clock::now();
 			if(_global.vpp.april_link > 1 && _global.vpp.april_worker.joinable()) {
 				_global.vpp.april_worker.join();
@@ -995,7 +1048,7 @@ void _worker(CThread& ctx) {
 			}
 																				timing[2] = duration<float>(high_resolution_clock::now() - ta).count() * 1000.f;
 		} else { timing[2] = 0.f; }
-		if(ctx.vpmode & 0b10) {		// retroreflective
+		if(ctx.vpstate & 0b10) {		// retroreflective
 																				ta = high_resolution_clock::now();
 			if(_global.vpp.retro_link > 1 && _global.vpp.retro_worker.joinable()) {
 				_global.vpp.retro_worker.join();
@@ -1039,6 +1092,8 @@ void _worker(CThread& ctx) {
 																				timing[1] = duration<float>(high_resolution_clock::now() - tf).count() * 1000.f;
 
 	}
+
+	cs::SetSinkEnabled(ctx.fin_h, false, &status);
 
 	if(output_worker.joinable()) {
 		output_worker.join();
@@ -1111,10 +1166,8 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 				}
 				_buff.i_estimations = _buff.c_estimations;		// make a constexpr param for enabling/disabling this
 			} else {				// 'megatag'
-				{
-					using namespace cv;
+				using namespace cv;
 #define MEGATAG_SOLVE_METHOD SOLVEPNP_SQPNP
-				}
 
 #if MEGATAG_SOLVE_METHOD > -1
 				_buff.obj_points.clear();
@@ -1212,7 +1265,7 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 	high_resolution_clock::time_point p, beg = high_resolution_clock::now();
 	decltype(_global.vpp.rtbuff)& _buff = _global.vpp.rtbuff;
 
-#if VPIPE_DEBUG_NT_OPTIONS > 0
+#if VPIPE_CONFIG_NT_OPTIONS > 0
 	const uint8_t
 		wst_alpha = _buff.nt_wst_alpha.Get(),
 		wst_beta = _buff.nt_wst_beta.Get(),

@@ -155,6 +155,9 @@
           },
           "open": true
         },
+        "Simulated Robot": {
+          "open": true
+        },
         "Vision": {
           "Stats": {
             "Threads": {

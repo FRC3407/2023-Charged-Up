@@ -5,6 +5,9 @@ import java.util.function.DoubleSupplier;
 
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
+import edu.wpi.first.math.MathUtil;
+import edu.wpi.first.math.geometry.*;
+import edu.wpi.first.math.interpolation.Interpolatable;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.CommandBase;
@@ -14,7 +17,7 @@ import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
 import com.ctre.phoenix.motorcontrol.*;
 
 
-public final class Manipulator implements Sendable {
+public final class Manipulator implements Subsystem, Sendable {
 
 	public static final class Arm implements Subsystem, Sendable {
 
@@ -256,6 +259,89 @@ public final class Manipulator implements Sendable {
 
 
 
+	public static final double	// meters
+		ARM_V1_LINKAGE_LENGTH = 0.742950,
+		ARM_V2_LINKAGE_LENGTH = 0.800100,
+		ARM_V2_ELBOW_HEIGHT = 0.044450;
+	public static final double
+		MODEL_ARM_ANGLE_OFFSET = 3.679565,
+		MODEL_HAND_ANGLE_OFFSET = 24.531084;
+
+	public static final Translation3d
+		ROBOT_ORIGIN_TO_PIVOT = new Translation3d(0.136785, 0, 1.110984),
+		ARM_V1_LINKAGE_TRANSLATION = new Translation3d(0, 0, ARM_V1_LINKAGE_LENGTH),
+		ARM_V2_LINKAGE_TRANSLATION = new Translation3d(ARM_V2_ELBOW_HEIGHT, 0, ARM_V2_LINKAGE_LENGTH);
+
+	public static class ManipulatorPose implements Interpolatable<ManipulatorPose> {
+
+		public double	// degrees
+			arm_angle,		// relative from when the arm is hanging vertical - positive values represent outward movement
+			elbow_angle;	// relative from the horizontal - positive values represent upward movement
+
+		ManipulatorPose(double aa, double ea) {
+			this.arm_angle = aa;
+			this.elbow_angle = ea;
+		}
+
+		public void setElbowRelativeTo90(double ea_rel) {	// set the elbow angle from an offset of being perpendicular to the arm
+			this.elbow_angle = -(this.arm_angle + ea_rel);
+		}
+		public void setElbowRelativeTo180(double ea_rel) {	// set the elbow angle from an offset of being parallel to the arm
+			this.elbow_angle = 90.0 - this.arm_angle - ea_rel;
+		}
+
+		private Rotation3d armRotationModel3d() {
+			return new Rotation3d(0, Math.toRadians(180 - this.arm_angle - 2 * MODEL_ARM_ANGLE_OFFSET), 0.0);
+		}
+		private Pose3d armPoseModel3d() {
+			return new Pose3d(ROBOT_ORIGIN_TO_PIVOT, this.armRotationModel3d());
+		}
+		public Rotation3d armRotation3d() {
+			return new Rotation3d(0, Math.toRadians(180 - this.arm_angle + MODEL_ARM_ANGLE_OFFSET), 0.0);
+		}
+		public Pose3d armPose3d() {		// relative to the arm pivot (as the origin) when the arm is hanging vertical - otherwise robot coordinate system conventions are conserved
+			return new Pose3d(ROBOT_ORIGIN_TO_PIVOT, this.armRotation3d());
+		}
+		public Rotation3d handRotation3d() {
+			return new Rotation3d(0, Math.toRadians(90 - MODEL_HAND_ANGLE_OFFSET - this.elbow_angle), 0.0);
+		}
+		public Pose3d handPose3d() {	// relative to the arm pivot as origin
+			return this.armPoseModel3d().transformBy(new Transform3d(ARM_V2_LINKAGE_TRANSLATION, this.handRotation3d()));
+		}
+
+		@Override
+		public ManipulatorPose interpolate(ManipulatorPose end, double t) {
+			return new ManipulatorPose(
+				MathUtil.interpolate(this.arm_angle, end.arm_angle, t),
+				MathUtil.interpolate(this.elbow_angle, end.elbow_angle, t)
+			);
+		}
+
+	}
+	public static class ManipulatorState implements Interpolatable<ManipulatorState> {
+
+		public final ManipulatorPose aquisition_pose;
+		public double aquisition_voltage;
+
+		public ManipulatorState(double aa, double ea, double v) {
+			this(new ManipulatorPose(aa, ea), v);
+		}
+		public ManipulatorState(ManipulatorPose p, double v) {
+			this.aquisition_pose = p;
+			this.aquisition_voltage = v;
+		}
+
+		@Override
+		public ManipulatorState interpolate(ManipulatorState end, double t) {
+			return new ManipulatorState(
+				this.aquisition_pose.interpolate(end.aquisition_pose, t),
+				MathUtil.interpolate(this.aquisition_voltage, end.aquisition_voltage, t)
+			);
+		}
+
+	}
+
+
 	public final Arm arm;
 	public final Grabber grabber;
 
@@ -264,6 +350,10 @@ public final class Manipulator implements Sendable {
 		this.grabber = g;
 	}
 
+	@Override
+	public void periodic() {
+
+	}
 	@Override
 	public void initSendable(SendableBuilder b) {
 

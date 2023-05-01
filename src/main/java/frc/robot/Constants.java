@@ -31,7 +31,7 @@ public final class Constants {
 		DRIVEBASE_NEUTRAL_MODE = NeutralMode.Brake;
 	public static final DriveBase.ClosedLoopParams
 		DRIVEBASE_PARAMS = new DriveBase.ClosedLoopParams(  // MAKE SURE THESE ARE ALL CORRECT BEFORE TEST DRIVING IT!!!
-			0.58204,		// use the 'empirical' value from characterization here rather than the actual width
+			0.58204,		// use the 'empirical' value from characterization here rather than the actual width -- actual is 0.509758
 			0.1524,		// 6 inches, coverted to meters
 			0.77652,		// angular is 1.239
 			2.1418,			// angular is 2.3416

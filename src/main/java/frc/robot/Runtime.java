@@ -3,9 +3,7 @@ package frc.robot;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
@@ -242,7 +240,7 @@ public final class Runtime extends TimedRobot {
 					Xbox.Analog.RY.getDriveInputSupplier(controller,
 						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Xbox.Analog.LX.getDriveInputSupplier(controller,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, -1.0 * Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Xbox.Digital.RB.getSupplier(controller),
 					Xbox.Digital.LB.getSupplier(controller),
 					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
@@ -262,6 +260,36 @@ public final class Runtime extends TimedRobot {
 					Xbox.Digital.LB.getPressedSupplier(controller2)
 				), "Commands/Manipulator Control")
 			);
+			DisabledTrigger.OnTrue(send(
+				new SimPoseDrive(
+					arcadeDriveSupreme(
+						Xbox.Analog.RY.getDriveInputSupplier(controller,
+							Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Xbox.Analog.LX.getDriveInputSupplier(controller,
+							Constants.DRIVE_INPUT_DEADZONE, -1.0 * Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Xbox.Digital.RB.getSupplier(controller),
+						Xbox.Digital.LB.getSupplier(controller),
+						Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+					),
+					Xbox.Analog.RY.getDriveInputSupplier(controller2, Constants.DRIVE_INPUT_DEADZONE, -120.0, 1.0),
+					Xbox.Analog.LY.getDriveInputSupplier(controller2, Constants.DRIVE_INPUT_DEADZONE, -120.0, 1.0)
+				), "Simulated Robot"
+			));
+		} else {
+			DisabledTrigger.OnTrue(send(
+				new SimPoseDrive(
+					arcadeDriveSupreme(
+						Xbox.Analog.RY.getDriveInputSupplier(controller,
+							Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Xbox.Analog.LX.getDriveInputSupplier(controller,
+							Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Xbox.Digital.RB.getSupplier(controller),
+						Xbox.Digital.LB.getSupplier(controller),
+						Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+					),
+					()->0.0, ()->0.0
+				), "Simulated Robot"
+			));
 		}
 		new Vision.CameraControl(
 			Xbox.Digital.A.getPressedSupplier(controller),
@@ -400,6 +428,68 @@ public final class Runtime extends TimedRobot {
 
 
 
+
+	public static class SimPoseDrive extends CommandBase {
+
+		public static final double
+			ARM_MIN_ANGLE = -15.0,
+			ARM_MAX_ANGLE = 120.0,
+			ELBOW_REL_MIN_ANGLE = -45.0,
+			ELBOW_REL_MAX_ANGLE = 135.0;
+
+		private final DifferentialDriveSupplier dbsupplier;
+		private final DoubleSupplier arm_rate, elbow_rate;
+
+		private Pose2d robot;
+		private Manipulator.ManipulatorPose mpose;
+		private double eangle = 90.0;
+
+		public SimPoseDrive(DifferentialDriveSupplier dbs, DoubleSupplier arm, DoubleSupplier elbow) {
+			this.dbsupplier = dbs;
+			this.arm_rate = arm;
+			this.elbow_rate = elbow;
+			this.robot = new Pose2d();
+			this.mpose = new Manipulator.ManipulatorPose(0.0, 0.0);
+		}
+
+		@Override
+		public void initialize() {}
+		@Override
+		public void execute() {
+			final double DT_s = 0.02;
+			double
+				lx = this.dbsupplier.leftOutput() * DT_s,
+				rx = this.dbsupplier.rightOutput() * DT_s,
+				fx = (rx + lx) / 2.0,
+				tx = (rx - lx) / 0.509758; // radians
+			robot = robot.exp(new Twist2d(fx, 0.0, tx));
+			this.mpose.arm_angle = Math.min(ARM_MAX_ANGLE, Math.max(ARM_MIN_ANGLE, this.mpose.arm_angle + this.arm_rate.getAsDouble() * DT_s));
+			this.eangle = Math.min(ELBOW_REL_MAX_ANGLE, Math.max(ELBOW_REL_MIN_ANGLE, this.eangle + this.elbow_rate.getAsDouble() * DT_s));
+			this.mpose.setElbowRelativeTo180(this.eangle);
+		}
+		@Override
+		public boolean isFinished() { return false; }
+		@Override
+		public void end(boolean i) {}
+		@Override
+		public boolean runsWhenDisabled() { return true; }
+
+		@Override
+		public void initSendable(SendableBuilder b) {
+			b.addDoubleArrayProperty("Pose2d", ()->new double[]{ this.robot.getX(), this.robot.getY(), this.robot.getRotation().getDegrees() }, null);
+			b.addDoubleArrayProperty("Manipulator Poses", ()->{
+				Pose3d arm = this.mpose.armPose3d();
+				Pose3d hand = this.mpose.handPose3d();
+				Quaternion aq = arm.getRotation().getQuaternion();
+				Quaternion hq = hand.getRotation().getQuaternion();
+				return new double[]{
+					arm.getX(), arm.getY(), arm.getZ(), aq.getW(), aq.getX(), aq.getY(), aq.getZ(),
+					hand.getX(), hand.getY(), hand.getZ(), hq.getW(), hq.getX(), hq.getY(), hq.getZ()
+				};
+			}, null);
+		}
+
+	}
 
 	// public static class LEDTest implements Sendable {
 

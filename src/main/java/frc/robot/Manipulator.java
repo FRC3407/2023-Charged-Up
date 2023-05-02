@@ -259,55 +259,54 @@ public final class Manipulator implements Subsystem, Sendable {
 
 
 
-	public static final double	// meters
-		ARM_V1_LINKAGE_LENGTH = 0.742950,
-		ARM_V2_LINKAGE_LENGTH = 0.800100,
-		ARM_V2_ELBOW_HEIGHT = 0.044450;
-	public static final double
-		MODEL_ARM_ANGLE_OFFSET = 3.679565,
-		MODEL_HAND_ANGLE_OFFSET = 24.531084;
+	public static final class Kinematics {
 
-	public static final Translation3d
-		ROBOT_ORIGIN_TO_PIVOT = new Translation3d(0.136785, 0, 1.110984),
-		ARM_V1_LINKAGE_TRANSLATION = new Translation3d(0, 0, ARM_V1_LINKAGE_LENGTH),
-		ARM_V2_LINKAGE_TRANSLATION = new Translation3d(ARM_V2_ELBOW_HEIGHT, 0, ARM_V2_LINKAGE_LENGTH);
+		public static final double	// meters
+			ARM_V1_LINKAGE_LENGTH = 0.742950,
+			ARM_V2_LINKAGE_LENGTH = 0.800100,
+			ARM_V2_ELBOW_HEIGHT = 0.044450;
+
+		public static final Translation3d
+			ROBOT_ORIGIN_TO_PIVOT = new Translation3d(0.136808, 0, 1.111005),
+			ARM_V1_LINKAGE_TRANSLATION = new Translation3d(0, 0, ARM_V1_LINKAGE_LENGTH),
+			ARM_V2_LINKAGE_TRANSLATION = new Translation3d(ARM_V2_ELBOW_HEIGHT, 0, ARM_V2_LINKAGE_LENGTH);
+
+		public static Rotation3d getArmRotation3d(double arm_angle) {
+			return new Rotation3d(0, Math.toRadians(180.0 - arm_angle), 0.0);
+		}
+		public static Pose3d getArmPose3d(double arm_angle) {
+			return new Pose3d(ROBOT_ORIGIN_TO_PIVOT, getArmRotation3d(arm_angle));
+		}
+		public static Rotation3d getHandRotation3d(double arm_angle, double elbow_angle) {
+			return getArmRotation3d(arm_angle).plus(new Rotation3d(0, Math.toRadians(180.0 - elbow_angle), 0.0));
+		}
+		public static Pose3d getHandPose3d(double arm_angle, double elbow_angle) {
+			return new Pose3d(ROBOT_ORIGIN_TO_PIVOT.plus(ARM_V2_LINKAGE_TRANSLATION.rotateBy(getArmRotation3d(arm_angle))), getHandRotation3d(arm_angle, elbow_angle));
+		}
+
+	}
+
+
 
 	public static class ManipulatorPose implements Interpolatable<ManipulatorPose> {
 
 		public double	// degrees
 			arm_angle,		// relative from when the arm is hanging vertical - positive values represent outward movement
-			elbow_angle;	// relative from the horizontal - positive values represent upward movement
+			elbow_angle;	// relative from being parallel with the arm -- positive values represent upward movement
 
 		ManipulatorPose(double aa, double ea) {
 			this.arm_angle = aa;
 			this.elbow_angle = ea;
 		}
 
-		public void setElbowRelativeTo90(double ea_rel) {	// set the elbow angle from an offset of being perpendicular to the arm
-			this.elbow_angle = -(this.arm_angle + ea_rel);
-		}
-		public void setElbowRelativeTo180(double ea_rel) {	// set the elbow angle from an offset of being parallel to the arm
-			this.elbow_angle = 90.0 - this.arm_angle - ea_rel;
+		public void setElbowAbsolute(double ea) {
+			this.elbow_angle = 90.0 - this.arm_angle - ea;
 		}
 
-		private Rotation3d armRotationModel3d() {
-			return new Rotation3d(0, Math.toRadians(180 - this.arm_angle - 2 * MODEL_ARM_ANGLE_OFFSET), 0.0);
-		}
-		private Pose3d armPoseModel3d() {
-			return new Pose3d(ROBOT_ORIGIN_TO_PIVOT, this.armRotationModel3d());
-		}
-		public Rotation3d armRotation3d() {
-			return new Rotation3d(0, Math.toRadians(180 - this.arm_angle + MODEL_ARM_ANGLE_OFFSET), 0.0);
-		}
-		public Pose3d armPose3d() {		// relative to the arm pivot (as the origin) when the arm is hanging vertical - otherwise robot coordinate system conventions are conserved
-			return new Pose3d(ROBOT_ORIGIN_TO_PIVOT, this.armRotation3d());
-		}
-		public Rotation3d handRotation3d() {
-			return new Rotation3d(0, Math.toRadians(90 - MODEL_HAND_ANGLE_OFFSET - this.elbow_angle), 0.0);
-		}
-		public Pose3d handPose3d() {	// relative to the arm pivot as origin
-			return this.armPoseModel3d().transformBy(new Transform3d(ARM_V2_LINKAGE_TRANSLATION, this.handRotation3d()));
-		}
+		public Rotation3d armRotation3d() { return Kinematics.getArmRotation3d(this.arm_angle); }
+		public Pose3d armPose3d() { return Kinematics.getArmPose3d(this.arm_angle); }
+		public Rotation3d handRotation3d() { return Kinematics.getHandRotation3d(this.arm_angle, this.elbow_angle); }
+		public Pose3d handPose3d() { return Kinematics.getHandPose3d(this.arm_angle, this.elbow_angle); }
 
 		@Override
 		public ManipulatorPose interpolate(ManipulatorPose end, double t) {

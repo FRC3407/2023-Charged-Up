@@ -262,11 +262,11 @@ public final class Runtime extends TimedRobot {
 			);
 			DisabledTrigger.OnTrue(send(
 				new SimPoseDrive(
-					arcadeDriveSupreme(
+					tankDriveSupreme(
 						Xbox.Analog.RY.getDriveInputSupplier(controller,
 							Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-						Xbox.Analog.LX.getDriveInputSupplier(controller,
-							Constants.DRIVE_INPUT_DEADZONE, -1.0 * Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Xbox.Analog.LY.getDriveInputSupplier(controller,
+							Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 						Xbox.Digital.RB.getSupplier(controller),
 						Xbox.Digital.LB.getSupplier(controller),
 						Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
@@ -279,15 +279,15 @@ public final class Runtime extends TimedRobot {
 			DisabledTrigger.OnTrue(send(
 				new SimPoseDrive(
 					arcadeDriveSupreme(
-						Xbox.Analog.RY.getDriveInputSupplier(controller,
-							Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						()->(Xbox.Analog.LT.getValueOf(controller) - Xbox.Analog.RT.getValueOf(controller)) * Constants.DRIVE_INPUT_VEL_SCALE,
 						Xbox.Analog.LX.getDriveInputSupplier(controller,
-							Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+							Constants.DRIVE_INPUT_DEADZONE, -1.0 * Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 						Xbox.Digital.RB.getSupplier(controller),
 						Xbox.Digital.LB.getSupplier(controller),
 						Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
 					),
-					()->0.0, ()->0.0
+					Xbox.Analog.RY.getDriveInputSupplier(controller, Constants.DRIVE_INPUT_DEADZONE, -120.0, 1.0),
+					Xbox.Analog.LY.getDriveInputSupplier(controller, Constants.DRIVE_INPUT_DEADZONE, -120.0, 1.0)
 				), "Simulated Robot"
 			));
 		}
@@ -432,24 +432,23 @@ public final class Runtime extends TimedRobot {
 	public static class SimPoseDrive extends CommandBase {
 
 		public static final double
-			ARM_MIN_ANGLE = -15.0,
-			ARM_MAX_ANGLE = 120.0,
+			ARM_MIN_ANGLE = -10.0,
+			ARM_MAX_ANGLE = 110.0,
 			ELBOW_REL_MIN_ANGLE = -45.0,
-			ELBOW_REL_MAX_ANGLE = 135.0;
+			ELBOW_REL_MAX_ANGLE = 180.0;
 
 		private final DifferentialDriveSupplier dbsupplier;
 		private final DoubleSupplier arm_rate, elbow_rate;
 
 		private Pose2d robot;
 		private Manipulator.ManipulatorPose mpose;
-		private double eangle = 90.0;
 
 		public SimPoseDrive(DifferentialDriveSupplier dbs, DoubleSupplier arm, DoubleSupplier elbow) {
 			this.dbsupplier = dbs;
 			this.arm_rate = arm;
 			this.elbow_rate = elbow;
 			this.robot = new Pose2d();
-			this.mpose = new Manipulator.ManipulatorPose(0.0, 0.0);
+			this.mpose = new Manipulator.ManipulatorPose(0.0, 180.0);
 		}
 
 		@Override
@@ -464,8 +463,7 @@ public final class Runtime extends TimedRobot {
 				tx = (rx - lx) / 0.509758; // radians
 			robot = robot.exp(new Twist2d(fx, 0.0, tx));
 			this.mpose.arm_angle = Math.min(ARM_MAX_ANGLE, Math.max(ARM_MIN_ANGLE, this.mpose.arm_angle + this.arm_rate.getAsDouble() * DT_s));
-			this.eangle = Math.min(ELBOW_REL_MAX_ANGLE, Math.max(ELBOW_REL_MIN_ANGLE, this.eangle + this.elbow_rate.getAsDouble() * DT_s));
-			this.mpose.setElbowRelativeTo180(this.eangle);
+			this.mpose.elbow_angle = Math.min(ELBOW_REL_MAX_ANGLE, Math.max(ELBOW_REL_MIN_ANGLE, this.mpose.elbow_angle + this.elbow_rate.getAsDouble() * DT_s));
 		}
 		@Override
 		public boolean isFinished() { return false; }

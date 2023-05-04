@@ -69,10 +69,13 @@
 #define ENABLE_CAMERASERVER 0
 #endif
 #ifndef PATCH_LIFECAM_V4L_PROP_IDS
-#define PATCH_LIFECAM_V4L_PROP_IDS 1
+#define PATCH_LIFECAM_V4L_PROP_IDS 0
 #endif
 #ifndef VPIPE_CONFIG_NT_OPTIONS
-#define VPIPE_CONFIG_NT_OPTIONS 1
+#define VPIPE_CONFIG_NT_OPTIONS 0
+#endif
+#ifndef ESTIMATE_TAPE_DISTANCES
+#define ESTIMATE_TAPE_DISTANCES 1
 #endif
 
 #if ENABLE_CAMERASERVER > 0
@@ -171,7 +174,9 @@ namespace Constant {
 			TAPE_LOWER_WH_RATIO = 0.20f,	// >>
 			TAPE_UPPER_WH_RATIO = 0.50f,	// the tape *should* be 1.66in wide x 4in tall -- ratio: 0.4125
 			TAPE_RECT_FILL_THRESH = 0.65f,	// the contour area must be at least this proportion of the bounding rect's area
-			TAPE_PIXEL_COUNT_THRESH = 60.f;
+			TAPE_PIXEL_COUNT_THRESH = 60.f,
+			
+			TAPE_HEIGHT_INCHES = 4.f;
 	}
 
 }
@@ -362,7 +367,8 @@ static struct {
 		nt::DoubleArrayEntry
 			i_poses,
 			c_poses,
-			nodes;
+			nodes,
+			nodes_3d;
 		nt::FloatArrayEntry
 			pose_rmse,
 			pose_distances,
@@ -399,6 +405,10 @@ static struct {
 			std::vector<std::vector<cv::Point2i>> contours;
 			std::vector<cv::Point2d> centers;
 			std::vector<cv::Rect2i> bboxes;
+#if ESTIMATE_TAPE_DISTANCES > 0
+			cv::Mat1f tvec, rvec;
+			std::vector<frc::Translation3d> locations;
+#endif
 #if VPIPE_CONFIG_NT_OPTIONS > 0
 			nt::IntegerEntry
 				nt_wst_alpha,
@@ -594,6 +604,9 @@ bool init(const char* fname) {
 	_global.nt.pose_rmse = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/RMSE").GetEntry({}, NT_DATAFLOW_OPTIONS);
 	_global.nt.pose_distances = _global.base_ntable->GetFloatArrayTopic("Pose Estimations/Tag Distances").GetEntry({}, NT_DATAFLOW_OPTIONS);
 	_global.nt.nodes = _global.base_ntable->GetDoubleArrayTopic("RetroReflective Detections/Centers").GetEntry({}, NT_DATAFLOW_OPTIONS);
+#if ESTIMATE_TAPE_DISTANCES > 0
+	_global.nt.nodes_3d = _global.base_ntable->GetDoubleArrayTopic("RetroReflective Detections/Translations").GetEntry({}, NT_DATAFLOW_OPTIONS);
+#endif
 	std::shared_ptr<nt::NetworkTable> thread_stats_nt = _global.base_ntable->GetSubTable("Threads");
 	_global.nt.april_timings = thread_stats_nt->GetFloatArrayTopic("AprilTag Pipeline").GetEntry({}, NT_OPTIONS);
 	_global.nt.retro_timings = thread_stats_nt->GetFloatArrayTopic("RetroRef Pipeline").GetEntry({}, NT_OPTIONS);
@@ -861,7 +874,7 @@ void _update(CThread& ctx) {
 		}
 	} else
 #endif
-	if(_global.state.exposure_updated || _global.state.vretro_updated) {
+	if(_global.state.exposure_updated || _global.state.vretro_updated) {	// need to somehow detect when coming out of vretro and reset exposure
 		const int exp = _global.nt.exposure.Get();
 #if PATCH_LIFECAM_V4L_PROP_IDS > 0
 		if(exp < 0) {
@@ -1168,6 +1181,7 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 			} else {				// 'megatag'
 				using namespace cv;
 #define MEGATAG_SOLVE_METHOD SOLVEPNP_SQPNP
+#define SOLVE_COMPONENT_POSES 0
 
 #if MEGATAG_SOLVE_METHOD > -1
 				_buff.obj_points.clear();
@@ -1197,6 +1211,7 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 						}
 					}
 
+#if SOLVE_COMPONENT_POSES > 0
 					cv::solvePnPGeneric(
 						::GENERIC_TAG_CORNERS, itag_corners,
 						target.camera_matrix, target.dist_matrix,
@@ -1210,6 +1225,7 @@ void _april_worker_inst(CThread& target, const cv::Mat* f) {
 						//_buff.distances.push_back(c2tag.Translation().Norm().value());	// add constexpr param for inserting these
 					}
 					//_buff.eerrors.insert(_buff.eerrors.end(), rmse.begin(), rmse.end());
+#endif
 
 				}
 
@@ -1355,12 +1371,40 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 			_buff.centers.insert(_buff.centers.begin() + insert, (cv::Point2d(bbox.tl() + bbox.br()) / 2.0));
 			_buff.centers.at(insert).x /= _buff.binary.size().width;
 			_buff.centers.at(insert).y /= _buff.binary.size().height;
+#if ESTIMATE_TAPE_DISTANCES
+			std::array<cv::Point2f, 4> _img;
+			std::array<cv::Point3f, 4> _obj;
+			_img[0] = bbox.tl() * _DECIMATE_FACTOR;
+			_img[1] = cv::Point2f(bbox.x + bbox.width, bbox.y) * _DECIMATE_FACTOR;
+			_img[2] = bbox.br() * _DECIMATE_FACTOR;
+			_img[3] = cv::Point2f(bbox.x, bbox.y + bbox.height) * _DECIMATE_FACTOR;
+			const float
+				_yc = Constant::VRetro::TAPE_HEIGHT_INCHES / 2.f,
+				_xc = _yc * bbox.size().aspectRatio();
+			_obj[0] = cv::Point3f(-_xc, _yc, 0.f);
+			_obj[1] = cv::Point3f(_xc, _yc, 0.f);
+			_obj[2] = cv::Point3f(_xc, -_yc, 0.f);
+			_obj[3] = cv::Point3f(-_xc, -_yc, 0.f);
+
+			cv::solvePnP(_obj, _img,
+				target.camera_matrix, target.dist_matrix,
+				_buff.rvec, _buff.tvec,
+				false, cv::SOLVEPNP_IPPE_SQUARE
+			);
+			// frc::Transform3d c2tape = util::cvToWpi(_buff.tvec, _buff.rvec);
+			_buff.locations.insert(_buff.locations.begin() + insert, util::cvToWpi_T(_buff.tvec));
+#endif
 		}
 	}
 	_global.vpp.retro_profiling[3] = duration<float>(high_resolution_clock::now() - p).count();
 	if(_buff.centers.size() > 0) {
 		double* d = reinterpret_cast<double*>(_buff.centers.data());
 		_global.nt.nodes.Set(std::span<double>(d, d + (_buff.centers.size() * sizeof(cv::Point2d) / sizeof(double))));
+#if ESTIMATE_TAPE_DISTANCES
+		d = reinterpret_cast<double*>(_buff.locations.data());
+		_global.nt.nodes_3d.Set(std::span<double>(d, d + (_buff.locations.size() * sizeof(frc::Translation3d) / sizeof(double))));
+#endif
+		nt::NetworkTableInstance::GetDefault().Flush();
 	}
 
 	_global.vpp.retro_profiling[4] = duration<float>(high_resolution_clock::now() - beg).count();

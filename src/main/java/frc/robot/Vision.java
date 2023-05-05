@@ -2,7 +2,7 @@ package frc.robot;
 
 import java.util.function.BooleanSupplier;
 
-import edu.wpi.first.math.util.Units;
+// import edu.wpi.first.math.util.Units;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.networktables.*;
 import edu.wpi.first.wpilibj2.command.CommandBase;
@@ -31,7 +31,7 @@ public final class Vision {
 			this.downscaling =			this.vbase.getIntegerTopic("Output Downscale")
 											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
 			this.aprilp_mode =			this.vbase.getIntegerTopic("AprilTag Mode")
-											.getEntry(-2, Vision.NT_DATA_SUBSCRIBER);
+											.getEntry(-2, Vision.NT_ENTRY_DEFAULT);
 			this.retror_mode =			this.vbase.getIntegerTopic("RetroRefl Mode")
 											.getEntry(-2, Vision.NT_ENTRY_DEFAULT);
 			this.perf_override = 		this.vbase.getIntegerTopic("Performance Mode")
@@ -46,6 +46,8 @@ public final class Vision {
 			this.tag_distances =		this.vbase.getFloatArrayTopic("Pose Estimations/Tag Distances")
 											.subscribe(new float[]{}, Vision.NT_DATA_SUBSCRIBER);
 			this.retrorefl_centers =	this.vbase.getDoubleArrayTopic("RetroReflective Detections/Centers")
+											.subscribe(new double[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.retrorefl_locations =	this.vbase.getDoubleArrayTopic("RetroReflective Detections/Translations")
 											.subscribe(new double[]{}, Vision.NT_DATA_SUBSCRIBER);
 		}
 		private static NT global;
@@ -68,7 +70,8 @@ public final class Vision {
 		public final DoubleArraySubscriber
 			all_estimations,
 			combined_estimations,
-			retrorefl_centers;
+			retrorefl_centers,
+			retrorefl_locations;
 		public final FloatArraySubscriber
 			estimate_errors,
 			tag_distances;
@@ -82,15 +85,16 @@ public final class Vision {
 
 
 	public static enum CameraSelect {
-		FORWARD		(0, "Forward Facing Camera"),
-		ARM			(1, "Arm Camera"),
-		TOP			(2, "Top Camera");
+		UNDERARM		(0, "Under Arm Camera", PoseEstimation.UNDER_ARM_C2R),
+		UPPER			(1, "Upper Camera", PoseEstimation.UPPER_C2R);
 
 		public final int id;
 		public final String name;
-		private CameraSelect(int id, String n) {
+		public final Transform3d c2r;
+		private CameraSelect(int id, String n, Transform3d c2r) {
 			this.id = id;
 			this.name = n;
+			this.c2r = c2r;
 		}
 
 		public void set() { selectCamera(this); }
@@ -231,34 +235,30 @@ public final class Vision {
 		public static class DirectSwitching extends CameraControl {
 
 			protected final BooleanSupplier
-				sel_forward,
-				sel_arm,
-				sel_top;
+				sel_under,
+				sel_upper;
 
 			public DirectSwitching(
 				BooleanSupplier inc, BooleanSupplier dec, BooleanSupplier vrb,
-				BooleanSupplier fwd, BooleanSupplier arm, BooleanSupplier top
+				BooleanSupplier und, BooleanSupplier up
 			) {
 				super(inc, dec, vrb);
-				this.sel_forward = fwd;
-				this.sel_arm = arm;
-				this.sel_top = top;
+				this.sel_under = und;
+				this.sel_upper = up;
 			}
 			public DirectSwitching(
 				BooleanSupplier inc, BooleanSupplier vrb,
-				BooleanSupplier fwd, BooleanSupplier arm, BooleanSupplier top
-			) { this(inc, ()->false, vrb, fwd, arm, top); }
+				BooleanSupplier und, BooleanSupplier up
+			) { this(inc, ()->false, vrb, und, up); }
 			public DirectSwitching(
-				BooleanSupplier inc,
-				BooleanSupplier fwd, BooleanSupplier arm, BooleanSupplier top
-			) { this(inc, ()->false, ()->false, fwd, arm, top); }
+				BooleanSupplier inc, BooleanSupplier und, BooleanSupplier up
+			) { this(inc, ()->false, ()->false, und, up); }
 
 			@Override
 			public void execute() {
 				super.execute();
-				if(this.sel_forward.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.FORWARD); }
-				if(this.sel_arm.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.ARM); }
-				if(this.sel_top.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.TOP); }
+				if(this.sel_under.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.UNDERARM); }
+				if(this.sel_upper.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.UPPER); }
 			}
 
 		}
@@ -291,9 +291,6 @@ public final class Vision {
 	}
 	public static int getAprilTagCamID() {
 		return aprilTagModeToCamID(getAprilTagMode());
-	}
-	public static TimestampedInteger[] aprilTagModeHistory() {
-		return nt.aprilp_mode.readQueue();
 	}
 
 	public static void setRetroRefMode(int m) {
@@ -333,33 +330,20 @@ public final class Vision {
 	public static final class PoseEstimation {
 
 		public static final Transform3d		// the inverses of the camera locations in robot coord space -- +x is "forward", +y is right, +z is up
-			FORWARD_C2R = new Transform3d(
+			UNDER_ARM_C2R = new Transform3d(
 				new Translation3d(
-					Units.inchesToMeters(0.0),	// forward amount
-					Units.inchesToMeters(0.0),	// rightward amount
-					Units.inchesToMeters(0.0)),	// upward amount
+					0.069728,	// forward amount
+					0.0,			// rightward amount
+					0.925875),	// upward amount
 				new Rotation3d(0.0, 0.0, 0.0)
 			).inverse(),
-			ARM_C2R = new Transform3d(
+			UPPER_C2R = new Transform3d(
 				new Translation3d(
-					Units.inchesToMeters(0.0),	// forward amount
-					Units.inchesToMeters(0.0),	// rightward amount
-					Units.inchesToMeters(0.0)),	// upward amount
-				new Rotation3d(0.0, 0.0, 0.0)
-			).inverse(),
-			TOP_C2R = new Transform3d(
-				new Translation3d(
-					Units.inchesToMeters(0.0),	// forward amount
-					Units.inchesToMeters(0.0),	// rightward amount
-					Units.inchesToMeters(0.0)),	// upward amount
-				new Rotation3d(0.0, 0.0, 0.0)
+					0.271509,	// forward amount
+					0.155702,	// rightward amount
+					1.067222),	// upward amount
+				new Rotation3d(0.0, 15.0, 0.0)
 			).inverse();
-		public static final Transform3d[]
-			CAMERA_TO_ROBOT_POSES = new Transform3d[]{ FORWARD_C2R, ARM_C2R, TOP_C2R };
-
-		public static Transform3d getCameraTransform(CameraSelect c) {
-			return c == null ? null : CAMERA_TO_ROBOT_POSES[c.id];
-		}
 
 		public static final double getXYDeviation(double dx) {
 			if(dx < 1) { return 0.01; }
@@ -391,7 +375,7 @@ public final class Vision {
 		}
 
 		public static Pose3d[] extract3dPoses(double[] raw, Pose3d[] buff) {
-			int len = raw.length / 7;
+			final int len = raw.length / 7;
 			if(buff == null || buff.length != len) {
 				buff = new Pose3d[len];
 			}
@@ -473,9 +457,7 @@ public final class Vision {
 				if((frame.tstamp - apmode_ts.timestamp) * 1e6 < 0.15) {		// 150ms max delay between apmode change and detection up to date
 					continue;
 				}
-				Transform3d c2r = getCameraTransform(
-						selectedCameraFromID(
-							aprilTagModeToCamID((int)apmode_ts.value)));
+				Transform3d c2r = selectedCameraFromID(aprilTagModeToCamID((int)apmode_ts.value)).c2r;
 
 				Estimation best_rp = null;
 				switch(frame.estimations.length) {
@@ -544,6 +526,25 @@ public final class Vision {
 					getThetaDeviation(best_rp.distance)
 				);
 			}
+		}
+
+	}
+
+	public static final class RetroDetection {
+
+		public static Translation3d[] extractTranslations(double[] raw, Translation3d[] buff) {
+			final int len = raw.length / 3;
+			if(buff == null || buff.length != len) {
+				buff = new Translation3d[len];
+			}
+			for(int i = 0; i / 3 < buff.length;) {
+				buff[i / 3] = new Translation3d(
+					raw[i++],
+					raw[i++],
+					raw[i++]
+				);
+			}
+			return buff;
 		}
 
 	}

@@ -93,9 +93,8 @@ using namespace std::chrono;
 
 namespace Constant {
 	enum CamID {
-		FWD_CAMERA = 0,
-		ARM_CAMERA = 1,
-		TOP_CAMERA = 2,
+		UNDER_ARM_CAM = 0,
+		UPPER_CAM = 1,
 
 		NUM_CAMERAS
 	};
@@ -103,7 +102,7 @@ namespace Constant {
 		NT_OPTIONS = { .periodic = 1.0 / 30.0 },
 		NT_DATAFLOW_OPTIONS = { .periodic = 1.0 / 30.0, .sendAll = true, .keepDuplicates = true };
 	static const std::array<const char*, (size_t)CamID::NUM_CAMERAS>
-		CAMERA_TAGS{ "forward", "arm", "top" };
+		CAMERA_TAGS{ "underarm", "upper" };
 	static const cs::VideoMode
 		DEFAULT_VMODE{ cs::VideoMode::kMJPEG, 640, 480, 30 };
 	static constexpr int
@@ -160,20 +159,30 @@ namespace Constant {
 	};
 
 	namespace VRetro {
+		/* Tuning Notes:
+		 * 10-20 for exposure, 10 is good when the light is mounted correctly, 20 is better for tuning when it is just haning at an indirect angle
+		 * 7/8 bits for alpha (red), 6/8 bits for beta (blue) works the best
+		 * 25~30 to 100 thresh for 20exp, 20 to 80 thresh for 10exp -- upper bounds for each yields tighter bboxes but may be unstable at farther distance?
+		 * Filter upright when camera is aligned with horizontal
+		 * Decimate by 4 unless source image is unreasonably small
+		 * Ideal ratio is ~0.4125 -- 0.2 to 0.5 seems to work, the main source of variability is the lack of illumination of the edges of the poles, so ratio will dip occationally
+		 * 0.6-0.65 for fill thresh is usually good
+		 * 60 pixels min -- might want to scale by source size?
+		*/
 		static constexpr vs2::BGR
 			DETECTION_BASE = vs2::BGR::GREEN;
 		static constexpr uint8_t
 			WST_ALPHA = 0b01111111,
 			WST_BETA = 0b00111111,
-			WST_THRESH = 25U,
-			SRC_EXPOSURE = 20U;
+			WST_THRESH = 35U,
+			SRC_EXPOSURE = 10U;
 		static constexpr bool
 			FILTER_UPRIGHT = true;			// only look for upright rectangles -- use unless the camera is intentionally tilted
 		static constexpr float
 			DECIMATE_FACTOR = 4.f,			// downscale the source frame by this amount
 			TAPE_LOWER_WH_RATIO = 0.20f,	// >>
 			TAPE_UPPER_WH_RATIO = 0.50f,	// the tape *should* be 1.66in wide x 4in tall -- ratio: 0.4125
-			TAPE_RECT_FILL_THRESH = 0.65f,	// the contour area must be at least this proportion of the bounding rect's area
+			TAPE_RECT_FILL_THRESH = 0.6f,	// the contour area must be at least this proportion of the bounding rect's area
 			TAPE_PIXEL_COUNT_THRESH = 60.f,
 			
 			TAPE_HEIGHT_INCHES = 4.f;
@@ -821,7 +830,7 @@ void _update(CThread& ctx) {
 	const bool downscale = (_global.nt.downscale.Get() > 1) && (perfm < PerfMode::VPP_ONLY);
 	const bool overlay = (_global.nt.ovl_verbosity.Get() > 0) && (perfm <= PerfMode::NONE || perfm == PerfMode::SINGLESTREAM);
 	const bool active = ctx.vid == _global.nt.view_id.Get();
-	const bool multistream = (perfm <= PerfMode::RAW_MULTISTREAM);
+	const bool multistream = (perfm <= PerfMode::RAW_MULTISTREAM);	// and maybe add a constexpr override for completely disabling?
 	const bool mainstream = active && (perfm < PerfMode::VPP_ONLY);
 	const bool streaming = multistream || mainstream;
 	const bool connected = cs::IsSourceConnected(ctx.camera_h, &status);
@@ -830,19 +839,21 @@ void _update(CThread& ctx) {
 		((int)( (perfm > PerfMode::STREAM_ONLY) && (perfm != PerfMode::APRIL_ONLY) && (((rflmode == -1)	&& active) || (rflmode == ctx.vid)) ) << 1)
 	);
 	const bool enable_thread = connected && (((overlay || downscale) && streaming) || ctx.vpstate);
-
+																	// ^^ this is possibly a redundant comparison but still include it for sanity
 	if(_global.state.view_updated || _global.state.vrbo_updated || _global.state.dscale_updated || _global.state.perfm_updated) {
-		cs::SetSinkEnabled(ctx.view_h, multistream, &status);	// this does not actually do anything --> instead apply to CvSink's
-		if(active) {
-			cs::SetSinkEnabled(_global.stream_h, mainstream, &status);
-		}
+		// cs::SetSinkEnabled(ctx.view_h, multistream, &status);	// this does not actually do anything --> instead apply to CvSink's
+		// if(active) {
+		// 	cs::SetSinkEnabled(_global.stream_h, mainstream, &status);
+		// }
 		if(connected) {
 			if(overlay || downscale) {
 				if(multistream) cs::SetSinkSource(ctx.view_h, ctx.fout_h, &status);
 				if(mainstream) cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);
 			} else {
 				if(multistream) cs::SetSinkSource(ctx.view_h, ctx.camera_h, &status);
+					else cs::SetSinkSource(ctx.view_h, ctx.fout_h, &status);				// or set to a dummy source to ensure no streaming
 				if(mainstream) cs::SetSinkSource(_global.stream_h, ctx.camera_h, &status);
+					else if(active) cs::SetSinkSource(_global.stream_h, ctx.fout_h, &status);	// ^^^ in theory, if !(overlay || downscale), then the thread should never output to ctx.fout_h
 			}
 		} else {
 			if(multistream) cs::SetSinkSource(ctx.view_h, _global.discon_frame_h, &status);
@@ -850,13 +861,15 @@ void _update(CThread& ctx) {
 		}
 	}
 
+	const bool possible_exp_update = _global.state.vretro_updated || _global.state.perfm_updated || _global.state.view_updated;
+
 #if PATCH_LIFECAM_V4L_PROP_IDS <= 0
 	if(ctx.vpstate & 0b10) {	// retrorefl pipe is operating on the thread
-		if(_global.state.vretro_updated
+		if(possible_exp_update
 #if VPIPE_CONFIG_NT_OPTIONS > 0
-			|| _global.vpp.rtbuff.nt_wst_src_exposure.ReadQueue().size() > 0)
+			|| _global.vpp.rtbuff.nt_wst_src_exposure.ReadQueue().size() > 0
 #endif
-		{
+		) {
 #if VPIPE_CONFIG_NT_OPTIONS > 0
 			const int exp = _global.vpp.rtbuff.nt_wst_src_exposure.Get();
 			if(exp < 0) {
@@ -865,7 +878,7 @@ void _update(CThread& ctx) {
 				cs::SetCameraExposureManual(ctx.camera_h, exp, &status);
 			}
 #else
-			constexpr if(VRetro::SRC_EXPOSURE < 0) {
+			if constexpr(VRetro::SRC_EXPOSURE < 0) {
 				cs::SetCameraExposureAuto(ctx.camera_h, &status);
 			} else {
 				cs::SetCameraExposureManual(ctx.camera_h, VRetro::SRC_EXPOSURE, &status);
@@ -874,7 +887,7 @@ void _update(CThread& ctx) {
 		}
 	} else
 #endif
-	if(_global.state.exposure_updated || _global.state.vretro_updated) {	// need to somehow detect when coming out of vretro and reset exposure
+	if(_global.state.exposure_updated || possible_exp_update) {
 		const int exp = _global.nt.exposure.Get();
 #if PATCH_LIFECAM_V4L_PROP_IDS > 0
 		if(exp < 0) {
@@ -1315,6 +1328,9 @@ void _retro_worker_inst(CThread& target, const cv::Mat* f) {
 	_buff.contours.clear();
 	_buff.centers.clear();
 	_buff.bboxes.clear();
+#if ESTIMATE_TAPE_DISTANCES
+	_buff.locations.clear();
+#endif
 
 	const cv::Mat* src = (f ? f : &target.vpipe.frame);
 	if constexpr(_DECIMATE_FACTOR > 1.f) {

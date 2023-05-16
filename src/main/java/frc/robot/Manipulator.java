@@ -25,16 +25,33 @@ public final class Manipulator implements Subsystem, Sendable {
 		 * Configure PIDF
 		 */
 
+		/* PHYSICAL CONSTANTS:
+		 * 	"PIVOT_X_METERS" -- how far forward from the robot's center is the pivot rod
+		 * 	"PIVOT_Z_METERS" -- how high from the ground is the pivot rod
+		 * ARM:
+		 * 	"TOP_ROTATION_ABSOLUTE" -- the absolute fb degree amount when the arm is triggering the top limit
+		 * 	"ARM_V1_LINKAGE_LENGTH" -- the arm (v1) distance between pivot points
+		 * 	"ARM_V2_LINKAGE_LENGTH" -- the arm (v2) distance between pivot points
+		 * 	"ARM_V2_ELBOW_HEIGHT" -- the arm (v2) height offset of the end pivot
+		 * 	"ARM_ANGLE_OFFSET_TO_TOP" -- the degree range between the top triggering angle and when hanging verticle, used to transform relative coord spaces
+		 * GRABBER:
+		 * 	
+		 */
+
 		public static final LimitSwitchSource LIMIT_SWITCH_SOURCE = LimitSwitchSource.FeedbackConnector;
 		public static final LimitSwitchNormal LIMIT_SWITCH_NORMALITY = LimitSwitchNormal.NormallyOpen;
 		public static final FeedbackDevice WINCH_FEEDBACK_TYPE = FeedbackDevice.Analog;
 		public static final int
-			FB_UNITS_PER_ROTATION = Constants.ANALOG_POT_UNITS_PER_REVOLUTION,
+			FB_UNITS_PER_RANGE = Constants.ANALOG_UNITS_PER_REVOLUTION,
 			CONTROL_LOOP_IDX = 0;
 		public static final boolean
-			INVERT_ARM_ANGLE_ENCODER = false,
+			INVERT_ARM_ENCODER = false,
 			CLEAR_ANGLE_ON_BOTTOM = false,
-			CLEAR_ANGLE_ON_TOP = false;
+			CLEAR_ANGLE_ON_TOP = false,
+			DISABLE_CONTINUOUS_ANGLE = true;
+		public static final double
+			FB_RANGE_DEGREES = 270.0,
+			TOP_ROTATION_ABSOLUTE = 0.0;
 
 		private final WPI_TalonSRX winch;
 		// private final WPI_TalonSRX extender;
@@ -44,8 +61,9 @@ public final class Manipulator implements Subsystem, Sendable {
 
 			this.winch.configFactoryDefault();
 			this.winch.configSelectedFeedbackSensor(WINCH_FEEDBACK_TYPE, CONTROL_LOOP_IDX, 0);
-			//this.winch.setSelectedSensorPosition(0.0, CONTROL_LOOP_IDX, 0);      // if the potentiometer is absolute, then we probably want the absolute value right?
-			this.winch.setSensorPhase(INVERT_ARM_ANGLE_ENCODER);
+			this.winch.configFeedbackNotContinuous(DISABLE_CONTINUOUS_ANGLE, 0);
+			this.winch.setSensorPhase(INVERT_ARM_ENCODER);
+			this.winch.setSelectedSensorPosition(this.winch.getSelectedSensorPosition() - TOP_ROTATION_ABSOLUTE, CONTROL_LOOP_IDX, 0);
 			this.winch.setNeutralMode(NeutralMode.Brake);
 			this.winch.configForwardLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
 			this.winch.configReverseLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
@@ -56,9 +74,9 @@ public final class Manipulator implements Subsystem, Sendable {
 			this.winch.config_kI(CONTROL_LOOP_IDX, Constants.ARM_ANGLE_KI);
 			this.winch.config_kD(CONTROL_LOOP_IDX, Constants.ARM_ANGLE_KD);
 			this.winch.configMotionAcceleration(
-				Constants.ARM_ANGLE_ACC_DEG_PER_SEC_SQRD / 360.0 * FB_UNITS_PER_ROTATION / 10.0);
+				Constants.ARM_ANGLE_ACC_DEG_PER_SEC_SQRD / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE / 10.0);
 			this.winch.configMotionCruiseVelocity(
-				Constants.ARM_ANGLE_CRUISE_DEG_PER_SEC / 360.0 * FB_UNITS_PER_ROTATION / 10.0);
+				Constants.ARM_ANGLE_CRUISE_DEG_PER_SEC / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE / 10.0);
 			// also see: config_IntegralZone(), configClosedLoopPeakOutput(), setStatusFramePeriod(), etc...
 		}
 
@@ -83,11 +101,11 @@ public final class Manipulator implements Subsystem, Sendable {
 		}
 		public void setWinchPosition(double deg) {
 			this.winch.set(ControlMode.Position,
-				deg / 360.0 * FB_UNITS_PER_ROTATION);
+				deg / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE);
 		}
 		public void setWinchPosition_MM(double deg) {
 			this.winch.set(ControlMode.MotionMagic,
-				deg / 360.0 * FB_UNITS_PER_ROTATION);
+				deg / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE);
 		}
 		public void resetPosition() {
 			this.winch.setSelectedSensorPosition(0.0);
@@ -101,16 +119,16 @@ public final class Manipulator implements Subsystem, Sendable {
 		}
 
 		public double getWinchRotPosition() {
-			return this.getWinchRawPosition() / FB_UNITS_PER_ROTATION;
+			return this.getWinchRawPosition() / FB_UNITS_PER_RANGE;
 		}
 		public double getWinchDegPosition() {
-			return this.getWinchRawPosition() / FB_UNITS_PER_ROTATION * 360.0;
+			return this.getWinchRawPosition() / FB_UNITS_PER_RANGE * FB_RANGE_DEGREES;
 		}
 		public double getWinchRotVelocity() {
-			return this.getWinchRawVelocity() * 10.0 / FB_UNITS_PER_ROTATION;
+			return this.getWinchRawVelocity() * 10.0 / FB_UNITS_PER_RANGE;
 		}
 		public double getWinchDegVelocity() {
-			return this.getWinchRawVelocity() * 10.0 / FB_UNITS_PER_ROTATION * 360;
+			return this.getWinchRawVelocity() * 10.0 / FB_UNITS_PER_RANGE * FB_RANGE_DEGREES;
 		}
 
 
@@ -261,15 +279,25 @@ public final class Manipulator implements Subsystem, Sendable {
 
 	public static final class Kinematics {
 
-		public static final double	// meters
+		/* All measurements adhere to the common robot coordinate system standard as outlined here:
+		 * https://docs.wpilib.org/en/stable/docs/software/advanced-controls/geometry/coordinate-systems.html (+Z is up)
+		 * The arm translations are in the same format but are transformed by whatever angle (pose) the arm is at. */
+
+		public static final double	// meters -- sourced from robot CAD model
+			PIVOT_X_METERS = 0.136808,
+			PIVOT_Z_METERS = 1.111005,
 			ARM_V1_LINKAGE_LENGTH = 0.742950,
 			ARM_V2_LINKAGE_LENGTH = 0.800100,
 			ARM_V2_ELBOW_HEIGHT = 0.044450;
 
 		public static final Translation3d
-			ROBOT_ORIGIN_TO_PIVOT = new Translation3d(0.136808, 0, 1.111005),
+			ROBOT_ORIGIN_TO_PIVOT = new Translation3d(PIVOT_X_METERS, 0, PIVOT_Z_METERS),
 			ARM_V1_LINKAGE_TRANSLATION = new Translation3d(0, 0, ARM_V1_LINKAGE_LENGTH),
 			ARM_V2_LINKAGE_TRANSLATION = new Translation3d(ARM_V2_ELBOW_HEIGHT, 0, ARM_V2_LINKAGE_LENGTH);
+
+
+		/* These functions assume a standard coordinate base of 0.0 degrees for the arm translating to when it is hanging vertical,
+		 * and a base of 0.0 degrees for the elbow when it is parallel with the arm. */
 
 		public static Rotation3d getArmRotation3d(double arm_angle) {
 			return new Rotation3d(0, Math.toRadians(180.0 - arm_angle), 0.0);
@@ -280,8 +308,15 @@ public final class Manipulator implements Subsystem, Sendable {
 		public static Rotation3d getHandRotation3d(double arm_angle, double elbow_angle) {
 			return getArmRotation3d(arm_angle).plus(new Rotation3d(0, Math.toRadians(180.0 - elbow_angle), 0.0));
 		}
-		public static Pose3d getHandPose3d(double arm_angle, double elbow_angle) {
-			return new Pose3d(ROBOT_ORIGIN_TO_PIVOT.plus(ARM_V2_LINKAGE_TRANSLATION.rotateBy(getArmRotation3d(arm_angle))), getHandRotation3d(arm_angle, elbow_angle));
+		public static Pose3d getHandV1Pose3d(double arm_angle, double elbow_angle) {
+			return new Pose3d(
+				ROBOT_ORIGIN_TO_PIVOT.plus(ARM_V1_LINKAGE_TRANSLATION.rotateBy(getArmRotation3d(arm_angle))),
+				getHandRotation3d(arm_angle, elbow_angle));
+		}
+		public static Pose3d getHandV2Pose3d(double arm_angle, double elbow_angle) {
+			return new Pose3d(
+				ROBOT_ORIGIN_TO_PIVOT.plus(ARM_V2_LINKAGE_TRANSLATION.rotateBy(getArmRotation3d(arm_angle))),
+				getHandRotation3d(arm_angle, elbow_angle));
 		}
 
 	}
@@ -306,7 +341,18 @@ public final class Manipulator implements Subsystem, Sendable {
 		public Rotation3d armRotation3d() { return Kinematics.getArmRotation3d(this.arm_angle); }
 		public Pose3d armPose3d() { return Kinematics.getArmPose3d(this.arm_angle); }
 		public Rotation3d handRotation3d() { return Kinematics.getHandRotation3d(this.arm_angle, this.elbow_angle); }
-		public Pose3d handPose3d() { return Kinematics.getHandPose3d(this.arm_angle, this.elbow_angle); }
+		public Pose3d handPose3d() { return Kinematics.getHandV2Pose3d(this.arm_angle, this.elbow_angle); }
+
+		public double[] getRawPoseData() {
+			Pose3d arm = this.armPose3d();
+			Pose3d hand = this.handPose3d();
+			Quaternion aq = arm.getRotation().getQuaternion();
+			Quaternion hq = hand.getRotation().getQuaternion();
+			return new double[]{
+				arm.getX(), arm.getY(), arm.getZ(), aq.getW(), aq.getX(), aq.getY(), aq.getZ(),
+				hand.getX(), hand.getY(), hand.getZ(), hq.getW(), hq.getX(), hq.getY(), hq.getZ()
+			};
+		}
 
 		@Override
 		public ManipulatorPose interpolate(ManipulatorPose end, double t) {
@@ -341,6 +387,9 @@ public final class Manipulator implements Subsystem, Sendable {
 	}
 
 
+	public static final double
+		ARM_ANGLE_OFFSET_TO_TOP = 102.0;
+
 	public final Arm arm;
 	public final Grabber grabber;
 
@@ -355,7 +404,8 @@ public final class Manipulator implements Subsystem, Sendable {
 	}
 	@Override
 	public void initSendable(SendableBuilder b) {
-
+		b.addDoubleProperty("Standardized Arm Angle", this::getStandardizedArmAngle, null);
+		b.addDoubleArrayProperty("Component Poses 3D", this.getDetectedPose()::getRawPoseData, null);
 	}
 
 	public void startLogging(String basekey) {
@@ -363,6 +413,31 @@ public final class Manipulator implements Subsystem, Sendable {
 		SmartDashboard.putData(basekey + "/Arm", this.arm);
 		SmartDashboard.putData(basekey + "/Grabber", this.grabber);
 	}
+
+
+
+	public double getStandardizedArmAngle() {
+		return this.arm.getWinchDegPosition() - ARM_ANGLE_OFFSET_TO_TOP;
+	}
+	public double getStandardizedHandAngle() {
+		return this.grabber.getWristAngle();
+	}
+	public ManipulatorPose getDetectedPose() {
+		return new ManipulatorPose(
+			this.getStandardizedArmAngle(),
+			this.getStandardizedHandAngle()
+		);
+	}
+
+	public void sendSetPoint(ManipulatorPose p) {
+		this.arm.setWinchPosition_MM(p.arm_angle);	// apply transform if necessary
+		this.grabber.setWristAngle(p.elbow_angle);	// apply transform if necessary
+	}
+	public void sendSetPoint(ManipulatorState s) {
+		this.sendSetPoint(s.aquisition_pose);
+		this.grabber.setGrabberVoltage(s.aquisition_voltage);
+	}
+
 
 
 	public ManipulatorControl controlManipulator(

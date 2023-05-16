@@ -159,7 +159,7 @@ public final class Runtime extends TimedRobot {
 			), "Commands/Climb Charging Pad"
 		);
 
-		this.robot.manipulator.grabber.setWristAngle(Manipulator.Grabber.WRIST_MAX_ANGLE);
+		// this.robot.manipulator.grabber.setWristAngle(Manipulator.Grabber.WRIST_MAX_ANGLE);
 
 	}
 	@Override
@@ -475,16 +475,7 @@ public final class Runtime extends TimedRobot {
 		@Override
 		public void initSendable(SendableBuilder b) {
 			b.addDoubleArrayProperty("Pose2d", ()->new double[]{ this.robot.getX(), this.robot.getY(), this.robot.getRotation().getDegrees() }, null);
-			b.addDoubleArrayProperty("Manipulator Poses", ()->{
-				Pose3d arm = this.mpose.armPose3d();
-				Pose3d hand = this.mpose.handPose3d();
-				Quaternion aq = arm.getRotation().getQuaternion();
-				Quaternion hq = hand.getRotation().getQuaternion();
-				return new double[]{
-					arm.getX(), arm.getY(), arm.getZ(), aq.getW(), aq.getX(), aq.getY(), aq.getZ(),
-					hand.getX(), hand.getY(), hand.getZ(), hq.getW(), hq.getX(), hq.getY(), hq.getZ()
-				};
-			}, null);
+			b.addDoubleArrayProperty("Manipulator Poses", this.mpose::getRawPoseData, null);
 		}
 
 	}

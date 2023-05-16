@@ -107,8 +107,8 @@ public final class Constants {
 	public static final int		// see: https://docs.ctre-phoenix.com/en/latest/ch14_MCSensor.html#sensor-resolution
 		SRX_MAG_UNITS_PER_REVOLUTION = 4096,
 		FALCON_UNITS_PER_REVOLUTION = 2048,
-		NEVEREST_UNITS_PER_REVOLUTION = (7 * 60 * 4),	// 7 pulse/rot * 60:1 gearing * 4 counts/pulse as counted by TalonSRX
-		ANALOG_POT_UNITS_PER_REVOLUTION = 1024
+		ANALOG_UNITS_PER_REVOLUTION = 1024,		// or for whatever range the analog device has
+		NEVEREST_UNITS_PER_REVOLUTION = (7 * 60 * 4)	// 7 pulse/rot * 60:1 gearing * 4 counts/pulse as counted by TalonSRX
 	;
 
 	public static final String

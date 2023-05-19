@@ -71,8 +71,7 @@ public final class Runtime extends TimedRobot {
 			SmartDashboard.putData("Robot/Power", this.power);
 			SmartDashboard.putData("Robot/IMU", this.imu_3x);
 			SmartDashboard.putData("Robot/Drivebase", this.drivebase);
-			SmartDashboard.putData("Robot/Manipulator/Arm", this.manipulator.arm);
-			SmartDashboard.putData("Robot/Manipulator/Grabber", this.manipulator.grabber);
+			this.manipulator.startLogging("Robot/Manipulator");
 		}
 	}
 	private final Robot robot = new Robot();
@@ -417,8 +416,8 @@ public final class Runtime extends TimedRobot {
 	) {
 		return new ArcadeSupplierLM(
 			()->((b.getAsBoolean() && !fc.getAsBoolean()) ? f.getAsDouble() * boost : f.getAsDouble()),
-			()->((fc.getAsBoolean() && !b.getAsBoolean()) ? t.getAsDouble() * fine : t.getAsDouble()),
-			()->((b.getAsBoolean() && !fc.getAsBoolean()) ? max * boost : max)
+			()->(((fc.getAsBoolean() && !b.getAsBoolean()) ? t.getAsDouble() * fine : t.getAsDouble()) * (f.getAsDouble() < 0 ? -1 : 1)),
+			()->((b.getAsBoolean() && !fc.getAsBoolean()) ? max * boost : max)							// ^^ invert turn if going backwards because otherwise it will be opposite that of the stick direction
 		);
 	}
 
@@ -475,7 +474,7 @@ public final class Runtime extends TimedRobot {
 		@Override
 		public void initSendable(SendableBuilder b) {
 			b.addDoubleArrayProperty("Pose2d", ()->new double[]{ this.robot.getX(), this.robot.getY(), this.robot.getRotation().getDegrees() }, null);
-			b.addDoubleArrayProperty("Manipulator Poses", this.mpose::getRawPoseData, null);
+			b.addDoubleArrayProperty("Manipulator Poses", this.mpose::getV1RawPoseData, null);
 		}
 
 	}

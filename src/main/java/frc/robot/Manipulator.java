@@ -8,6 +8,8 @@ import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.interpolation.Interpolatable;
+import edu.wpi.first.wpilibj.Counter;
+import edu.wpi.first.wpilibj.CounterBase;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.CommandBase;
@@ -19,13 +21,7 @@ import com.ctre.phoenix.motorcontrol.*;
 
 public final class Manipulator implements Subsystem, Sendable {
 
-	public static final class Arm implements Subsystem, Sendable {
-
-		/* TODO:
-		 * Configure PIDF
-		 */
-
-		/* PHYSICAL CONSTANTS:
+	/* PHYSICAL CONSTANTS:
 		 * 	"PIVOT_X_METERS" -- how far forward from the robot's center is the pivot rod
 		 * 	"PIVOT_Z_METERS" -- how high from the ground is the pivot rod
 		 * ARM:
@@ -38,6 +34,12 @@ public final class Manipulator implements Subsystem, Sendable {
 		 * 	
 		 */
 
+	public static final class Arm implements Subsystem, Sendable {
+
+		/* TODO:
+		 * Configure PIDF
+		 */
+
 		public static final LimitSwitchSource LIMIT_SWITCH_SOURCE = LimitSwitchSource.FeedbackConnector;
 		public static final LimitSwitchNormal LIMIT_SWITCH_NORMALITY = LimitSwitchNormal.NormallyOpen;
 		public static final FeedbackDevice WINCH_FEEDBACK_TYPE = FeedbackDevice.Analog;
@@ -47,14 +49,15 @@ public final class Manipulator implements Subsystem, Sendable {
 		public static final boolean
 			INVERT_ARM_ENCODER = false,
 			CLEAR_ANGLE_ON_BOTTOM = false,
-			CLEAR_ANGLE_ON_TOP = false,
+			CLEAR_ANGLE_ON_TOP = true,
 			DISABLE_CONTINUOUS_ANGLE = true;
 		public static final double
 			FB_RANGE_DEGREES = 270.0,
-			TOP_ROTATION_ABSOLUTE = 0.0;
+			TOP_ROTATION_ABSOLUTE = 821.0;	// << SET THIS TO THE ABSOLUTE MEASUREMENT WHEN TOP LIMIT IS TRIGGERED
 
 		private final WPI_TalonSRX winch;
 		// private final WPI_TalonSRX extender;
+
 
 		public Arm(int id) {
 			this.winch = new WPI_TalonSRX(id);
@@ -107,8 +110,8 @@ public final class Manipulator implements Subsystem, Sendable {
 			this.winch.set(ControlMode.MotionMagic,
 				deg / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE);
 		}
-		public void resetPosition() {
-			this.winch.setSelectedSensorPosition(0.0);
+		public void setPosition(double sval) {
+			this.winch.setSelectedSensorPosition(sval);
 		}
 
 		public double getWinchRawPosition() {
@@ -135,6 +138,27 @@ public final class Manipulator implements Subsystem, Sendable {
 	}
 	public static final class Grabber implements Subsystem, Sendable {
 
+		public static final class SeatMotorCounter {
+
+			private final Counter counter;
+
+			public SeatMotorCounter(int dio) {
+				this.counter = new Counter(dio);
+			}
+
+			public int update(boolean fwd, boolean reset) {
+				this.counter.setReverseDirection(!fwd);	// might not work
+				if(reset) {
+					this.counter.reset();
+				}
+				return this.counter.get();
+			}
+			public int get() {
+				return this.counter.get();
+			}
+
+		}
+
 		/* TODO:
 		 * Determine grabber angle convention
 		 * Determine homing location if any, soft limits, etc...
@@ -160,7 +184,7 @@ public final class Manipulator implements Subsystem, Sendable {
 		public static final boolean
 			INVERT_WRIST_OUTPUT = true,
 			INVERT_GRAB_ENCODER = false,
-			ENABLE_GRAB_SOFT_FWD_LIMIT = true,
+			ENABLE_GRAB_SOFT_FWD_LIMIT = false,
 			CLEAR_GRAB_ANGLE_ON_RLIMIT = true;
 
 		private final WPI_TalonSRX main;
@@ -341,17 +365,23 @@ public final class Manipulator implements Subsystem, Sendable {
 		public Rotation3d armRotation3d() { return Kinematics.getArmRotation3d(this.arm_angle); }
 		public Pose3d armPose3d() { return Kinematics.getArmPose3d(this.arm_angle); }
 		public Rotation3d handRotation3d() { return Kinematics.getHandRotation3d(this.arm_angle, this.elbow_angle); }
-		public Pose3d handPose3d() { return Kinematics.getHandV2Pose3d(this.arm_angle, this.elbow_angle); }
+		public Pose3d handV1Pose3d() { return Kinematics.getHandV1Pose3d(this.arm_angle, this.elbow_angle); }
+		public Pose3d handV2Pose3d() { return Kinematics.getHandV2Pose3d(this.arm_angle, this.elbow_angle); }
 
-		public double[] getRawPoseData() {
+		private double[] getRawPoseData(Pose3d hand) {
 			Pose3d arm = this.armPose3d();
-			Pose3d hand = this.handPose3d();
 			Quaternion aq = arm.getRotation().getQuaternion();
 			Quaternion hq = hand.getRotation().getQuaternion();
 			return new double[]{
 				arm.getX(), arm.getY(), arm.getZ(), aq.getW(), aq.getX(), aq.getY(), aq.getZ(),
 				hand.getX(), hand.getY(), hand.getZ(), hq.getW(), hq.getX(), hq.getY(), hq.getZ()
 			};
+		}
+		public double[] getV1RawPoseData() {
+			return this.getRawPoseData(this.handV1Pose3d());
+		}
+		public double[] getV2RawPoseData() {
+			return this.getRawPoseData(this.handV2Pose3d());
 		}
 
 		@Override
@@ -405,7 +435,7 @@ public final class Manipulator implements Subsystem, Sendable {
 	@Override
 	public void initSendable(SendableBuilder b) {
 		b.addDoubleProperty("Standardized Arm Angle", this::getStandardizedArmAngle, null);
-		b.addDoubleArrayProperty("Component Poses 3D", this.getDetectedPose()::getRawPoseData, null);
+		b.addDoubleArrayProperty("Component Poses 3D", this.getDetectedPose()::getV1RawPoseData, null);
 	}
 
 	public void startLogging(String basekey) {
@@ -604,10 +634,10 @@ public final class Manipulator implements Subsystem, Sendable {
 		}
 
 		public double getRelArmAngle() {
-			return super.manipulator.arm.getWinchDegPosition() + ARM_ANGLE_OFFSET;
+			return super.manipulator.getStandardizedArmAngle();
 		}
 		public double getRelWristAngle() {
-			return super.manipulator.grabber.getWristAngle();
+			return super.manipulator.getStandardizedHandAngle();
 		}
 
 		@Override

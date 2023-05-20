@@ -9,7 +9,6 @@ import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.interpolation.Interpolatable;
 import edu.wpi.first.wpilibj.Counter;
-import edu.wpi.first.wpilibj.CounterBase;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.CommandBase;
@@ -308,15 +307,16 @@ public final class Manipulator implements Subsystem, Sendable {
 		 * The arm translations are in the same format but are transformed by whatever angle (pose) the arm is at. */
 
 		public static final double	// meters -- sourced from robot CAD model
-			PIVOT_X_METERS = 0.136808,
-			PIVOT_Z_METERS = 1.111005,
-			ARM_V1_LINKAGE_LENGTH = 0.742950,
+			ARM_PIVOT_X = 0.143098,
+			ARM_PIVOT_Z = 1.127109,
+			ARM_V1_LINKAGE_LENGTH = 0.736541,
+			ARM_V1_ELBOW_SIM_OFFSET = -0.004563,
 			ARM_V2_LINKAGE_LENGTH = 0.800100,
 			ARM_V2_ELBOW_HEIGHT = 0.044450;
 
 		public static final Translation3d
-			ROBOT_ORIGIN_TO_PIVOT = new Translation3d(PIVOT_X_METERS, 0, PIVOT_Z_METERS),
-			ARM_V1_LINKAGE_TRANSLATION = new Translation3d(0, 0, ARM_V1_LINKAGE_LENGTH),
+			ROBOT_ORIGIN_TO_PIVOT = new Translation3d(ARM_PIVOT_X, 0, ARM_PIVOT_Z),
+			ARM_V1_LINKAGE_TRANSLATION = new Translation3d(ARM_V1_ELBOW_SIM_OFFSET, 0, ARM_V1_LINKAGE_LENGTH),
 			ARM_V2_LINKAGE_TRANSLATION = new Translation3d(ARM_V2_ELBOW_HEIGHT, 0, ARM_V2_LINKAGE_LENGTH);
 
 
@@ -330,7 +330,7 @@ public final class Manipulator implements Subsystem, Sendable {
 			return new Pose3d(ROBOT_ORIGIN_TO_PIVOT, getArmRotation3d(arm_angle));
 		}
 		public static Rotation3d getHandRotation3d(double arm_angle, double elbow_angle) {
-			return getArmRotation3d(arm_angle).plus(new Rotation3d(0, Math.toRadians(180.0 - elbow_angle), 0.0));
+			return getArmRotation3d(arm_angle).plus(new Rotation3d(0, Math.toRadians(90.0 - elbow_angle), 0.0));
 		}
 		public static Pose3d getHandV1Pose3d(double arm_angle, double elbow_angle) {
 			return new Pose3d(

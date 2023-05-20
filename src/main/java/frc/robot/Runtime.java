@@ -431,10 +431,10 @@ public final class Runtime extends TimedRobot {
 	public static class SimPoseDrive extends CommandBase {
 
 		public static final double
-			ARM_MIN_ANGLE = -10.0,
-			ARM_MAX_ANGLE = 110.0,
+			ARM_MIN_ANGLE = -8.0,
+			ARM_MAX_ANGLE = 102.0,
 			ELBOW_REL_MIN_ANGLE = -45.0,
-			ELBOW_REL_MAX_ANGLE = 180.0;
+			ELBOW_REL_MAX_ANGLE = 100.0;
 
 		private final DifferentialDriveSupplier dbsupplier;
 		private final DoubleSupplier arm_rate, elbow_rate;

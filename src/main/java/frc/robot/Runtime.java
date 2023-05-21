@@ -334,6 +334,13 @@ public final class Runtime extends TimedRobot {
 		);
 		if(controller != null) {
 			TeleopTrigger.OnTrue(send(
+				// this.robot.manipulator.controlManipulator(
+				// 	Xbox.Analog.RY.getDriveInputSupplier(controller,
+				// 		Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),
+				// 	()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),
+				// 	Xbox.Analog.LY.getDriveInputSupplier(controller,
+				// 		Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0)
+				// 	),
 				this.robot.manipulator.controlManipulatorAdv(
 					Xbox.Analog.RY.getDriveInputSupplier(controller,
 						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),		// right stick y-axis for the arm %-output
@@ -343,7 +350,8 @@ public final class Runtime extends TimedRobot {
 					Xbox.Digital.LS.getPressedSupplier(controller),			// press down left stick to reset wrist
 					Xbox.Digital.RB.getPressedSupplier(controller),			// RB for arm lock
 					Xbox.Digital.LB.getPressedSupplier(controller)			// LB for grabber lock
-				), "Commands/Manipulator Control")
+				), 
+				"Commands/Manipulator Control")
 			);
 			if(bbox == null) {
 				new Vision.CameraControl(

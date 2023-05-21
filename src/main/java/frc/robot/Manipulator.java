@@ -47,12 +47,13 @@ public final class Manipulator implements Subsystem, Sendable {
 			CONTROL_LOOP_IDX = 0;
 		public static final boolean
 			INVERT_ARM_ENCODER = false,
-			CLEAR_ANGLE_ON_BOTTOM = false,
+			CLEAR_ANGLE_ON_BOTTOM = true,
 			CLEAR_ANGLE_ON_TOP = true,
 			DISABLE_CONTINUOUS_ANGLE = true;
 		public static final double
 			FB_RANGE_DEGREES = 270.0,
-			TOP_ROTATION_ABSOLUTE = 821.0;	// << SET THIS TO THE ABSOLUTE MEASUREMENT WHEN TOP LIMIT IS TRIGGERED
+			TOP_ROTATION_ABSOLUTE = 625.0,	// << SET THIS TO THE ABSOLUTE MEASUREMENT WHEN TOP LIMIT IS TRIGGERED
+			TOP_ROTATION_DEGREES = TOP_ROTATION_ABSOLUTE / FB_UNITS_PER_RANGE * FB_RANGE_DEGREES;
 
 		private final WPI_TalonSRX winch;
 		// private final WPI_TalonSRX extender;
@@ -65,7 +66,7 @@ public final class Manipulator implements Subsystem, Sendable {
 			this.winch.configSelectedFeedbackSensor(WINCH_FEEDBACK_TYPE, CONTROL_LOOP_IDX, 0);
 			this.winch.configFeedbackNotContinuous(DISABLE_CONTINUOUS_ANGLE, 0);
 			this.winch.setSensorPhase(INVERT_ARM_ENCODER);
-			this.winch.setSelectedSensorPosition(this.winch.getSelectedSensorPosition() - TOP_ROTATION_ABSOLUTE, CONTROL_LOOP_IDX, 0);
+			// this.winch.setSelectedSensorPosition(this.winch.getSelectedSensorPosition() - TOP_ROTATION_ABSOLUTE, CONTROL_LOOP_IDX, 0);
 			this.winch.setNeutralMode(NeutralMode.Brake);
 			this.winch.configForwardLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
 			this.winch.configReverseLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
@@ -170,9 +171,9 @@ public final class Manipulator implements Subsystem, Sendable {
 			WRIST_TOTAL_INPUT_RANGE = 270.0,	// range before gearing
 			WRIST_GEARING = (3.0 / 2.0),
 			WRIST_TOTAL_OUTPUT_RANGE = (WRIST_TOTAL_INPUT_RANGE / WRIST_GEARING),
-			WRIST_PARALLEL_OFFSET = 40.0,	// should make setting wrist angle simpler if angles are based off of center (parallel to arm) angle
-			WRIST_MIN_ANGLE = -40.0,
-			WRIST_MAX_ANGLE = 90.0,
+			WRIST_PARALLEL_OFFSET = 65.0,	// translates the absolute rotation so that 0 deg is when the hand is parallel with the arm
+			WRIST_MIN_ANGLE = -40.0,		// in arm-standardized coord space
+			WRIST_MAX_ANGLE = 90.0,			// in arm-standardized coord space
 			WRIST_PARALLEL_PERCENT = WRIST_PARALLEL_OFFSET / WRIST_TOTAL_OUTPUT_RANGE,
 			WRIST_MIN_PERCENT = (WRIST_MIN_ANGLE + WRIST_PARALLEL_OFFSET) / WRIST_TOTAL_OUTPUT_RANGE,
 			WRIST_MAX_PERCENT = (WRIST_MAX_ANGLE + WRIST_PARALLEL_OFFSET) / WRIST_TOTAL_OUTPUT_RANGE,
@@ -435,7 +436,7 @@ public final class Manipulator implements Subsystem, Sendable {
 	@Override
 	public void initSendable(SendableBuilder b) {
 		b.addDoubleProperty("Standardized Arm Angle", this::getStandardizedArmAngle, null);
-		b.addDoubleArrayProperty("Component Poses 3D", this.getDetectedPose()::getV1RawPoseData, null);
+		b.addDoubleArrayProperty("Component Poses 3D", this::getRawComponentData, null);
 	}
 
 	public void startLogging(String basekey) {
@@ -447,16 +448,19 @@ public final class Manipulator implements Subsystem, Sendable {
 
 
 	public double getStandardizedArmAngle() {
-		return this.arm.getWinchDegPosition() - ARM_ANGLE_OFFSET_TO_TOP;
+		return this.arm.getWinchDegPosition() - Arm.TOP_ROTATION_DEGREES + ARM_ANGLE_OFFSET_TO_TOP;
 	}
 	public double getStandardizedHandAngle() {
-		return this.grabber.getWristAngle();
+		return this.grabber.getWristAngle();	// angle is already standardized to 0.0 when parallel with arm, see Grabber.WRIST_PARALLEL_OFFSET
 	}
 	public ManipulatorPose getDetectedPose() {
 		return new ManipulatorPose(
 			this.getStandardizedArmAngle(),
 			this.getStandardizedHandAngle()
 		);
+	}
+	private double[] getRawComponentData() {
+		return this.getDetectedPose().getV1RawPoseData();
 	}
 
 	public void sendSetPoint(ManipulatorPose p) {
@@ -608,7 +612,7 @@ public final class Manipulator implements Subsystem, Sendable {
 	public static class ManipulatorControl2 extends ManipulatorControl {
 
 		public static final double
-			ARM_ANGLE_OFFSET = -130.0,
+			// ARM_ANGLE_OFFSET = -130.0,
 			ARM_PARK_UPPER_ANGLE_REL = 15.0;
 		public static final boolean
 			ENABLE_WRIST_PARK_BOUND_LIMITING = true;

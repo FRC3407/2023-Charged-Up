@@ -441,7 +441,7 @@ public final class Runtime extends TimedRobot {
 		public static final double
 			ARM_MIN_ANGLE = -8.0,
 			ARM_MAX_ANGLE = 102.0,
-			ELBOW_REL_MIN_ANGLE = -45.0,
+			ELBOW_REL_MIN_ANGLE = -80.0,
 			ELBOW_REL_MAX_ANGLE = 100.0;
 
 		private final DifferentialDriveSupplier dbsupplier;
@@ -470,7 +470,9 @@ public final class Runtime extends TimedRobot {
 				tx = (rx - lx) / 0.509758; // radians
 			robot = robot.exp(new Twist2d(fx, 0.0, tx));
 			this.mpose.arm_angle = Math.min(ARM_MAX_ANGLE, Math.max(ARM_MIN_ANGLE, this.mpose.arm_angle + this.arm_rate.getAsDouble() * DT_s));
-			this.mpose.elbow_angle = Math.min(ELBOW_REL_MAX_ANGLE, Math.max(ELBOW_REL_MIN_ANGLE, this.mpose.elbow_angle + this.elbow_rate.getAsDouble() * DT_s));
+			this.mpose.elbow_angle = Math.min(ELBOW_REL_MAX_ANGLE, Math.max(
+				Math.max(ELBOW_REL_MIN_ANGLE, Manipulator2.Kinematics.HandBBox2d.handV1MinAngle(this.mpose.arm_angle)),
+				this.mpose.elbow_angle + this.elbow_rate.getAsDouble() * DT_s));
 		}
 		@Override
 		public boolean isFinished() { return false; }
@@ -483,6 +485,7 @@ public final class Runtime extends TimedRobot {
 		public void initSendable(SendableBuilder b) {
 			b.addDoubleArrayProperty("Pose2d", ()->new double[]{ this.robot.getX(), this.robot.getY(), this.robot.getRotation().getDegrees() }, null);
 			b.addDoubleArrayProperty("Manipulator Poses", this.mpose::getV1RawPoseData, null);
+			// b.addDoubleProperty("Min Angle Calculation", ()->Manipulator2.Kinematics.HandBBox2d.handV1MinAngle(this.mpose.arm_angle), null);
 		}
 
 	}

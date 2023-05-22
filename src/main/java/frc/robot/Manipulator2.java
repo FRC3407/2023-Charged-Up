@@ -7,6 +7,7 @@ import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.Counter;
 import edu.wpi.first.wpilibj.Servo;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 
 import com.ctre.phoenix.motorcontrol.*;
@@ -97,6 +98,53 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public static double getRequiredRotation(double width) {
 			double sine = ((width / 2.0) + GRAB_SURFACE_INSET_DIST - GRAB_PIVOT_CENTER_OFFSET) / GRAB_INITIAL_LINK_LENGTH;
 			return sine >= 1.0 ? 90.0 : Math.toDegrees(Math.asin(sine));
+		}
+
+		public static final class HandBBox2d {
+
+			/* This model is used for calculating a safe minimum hand angle (in arm coord space) such that the
+			 * bumpers and ground are always cleared. Within the computations, +x points forward and +y points
+			 * upward such that the robot is being viewed from the right side, and rotations follow the unit
+			 * circle (CCW). The origin is the robot's center (same as in 3d), and y=0 also represents the ground plane. */
+
+			public static final double	// in meters
+				HAND_LOWER_BOUND = 0.05,
+				HAND_LENGTH_BOUND = 0.5,
+				BUMPER_Z_HEIGHT = 0.191262,
+				BUMPER_X_LENGTH = 0.511937;
+			
+			public static final Translation2d
+				ROBOT_ORIGIN_TO_PIVOT_2D = new Translation2d(ARM_PIVOT_X, ARM_PIVOT_Z),
+				ARM_V1_LINKAGE_TRANSLATION_2D = new Translation2d(ARM_V1_ELBOW_SIM_OFFSET, ARM_V1_LINKAGE_LENGTH),
+				ARM_V2_LINKAGE_TRANSLATION_2D = new Translation2d(ARM_V2_ELBOW_HEIGHT, ARM_V2_LINKAGE_LENGTH),
+				BUMPER_CORNER_TRANSLATION_2D = new Translation2d(BUMPER_X_LENGTH, BUMPER_Z_HEIGHT);
+
+			private static double calcAngle(double arm_angle, Translation2d arm_translation) {
+
+				Rotation2d arm_rotation = Rotation2d.fromDegrees(180.0 + arm_angle);
+				Translation2d hand_pivot = ROBOT_ORIGIN_TO_PIVOT_2D.plus(arm_translation.rotateBy(arm_rotation));
+				Translation2d to_bumper = BUMPER_CORNER_TRANSLATION_2D.minus(hand_pivot);
+
+				double distance_to_bumpers = to_bumper.getNorm();	// direct distance from hand pivot to bumper corner
+				double lateral_distance = Math.sqrt(distance_to_bumpers * distance_to_bumpers - HAND_LOWER_BOUND * HAND_LOWER_BOUND);	// hand lateral distance along the direct distance (the direct distance is the hypotenuse of the hand bbox)
+				
+				if(lateral_distance >= HAND_LENGTH_BOUND &&		// if the lateral distance is greater than the hand's lateral bound, and the pivot is beyond the bumpers...
+					hand_pivot.getX() >= BUMPER_X_LENGTH) { return -180.0; }		// we can assume the hand will not hit anything.
+
+				double from_horizontal = to_bumper.getAngle().getRadians() + Math.acos(lateral_distance / distance_to_bumpers);		// calculate the hand's angle compared to the x-axis
+				if(HAND_LENGTH_BOUND * -Math.sin(from_horizontal) + HAND_LOWER_BOUND * -Math.cos(from_horizontal) > hand_pivot.getY()) {	// if the pivot is low enough that the hand could possibly hit the ground...
+					double to_ground = -Math.asin(hand_pivot.getY() / Math.hypot(HAND_LOWER_BOUND, HAND_LENGTH_BOUND))+ Math.atan2(HAND_LOWER_BOUND, HAND_LENGTH_BOUND);	// calculate the hand's angle to clear the ground
+					if(to_ground > from_horizontal) {	// we are finding a minimum angle, so use the higher value as it will be the most inclusive
+						from_horizontal = to_ground;
+					}
+				}
+				return 90.0 + Math.toDegrees(from_horizontal) - arm_angle;	// Add 90 degrees to convert to arm coord space, subtract the arm angle to make it relative.
+
+			}
+
+			public static double handV1MinAngle(double arm_angle) { return calcAngle(arm_angle, ARM_V1_LINKAGE_TRANSLATION_2D); }
+			public static double handV2MinAngle(double arm_angle) { return calcAngle(arm_angle, ARM_V2_LINKAGE_TRANSLATION_2D); }
+
 		}
 		
 	}
@@ -335,11 +383,11 @@ public class Manipulator2 implements Subsystem, Sendable {
 		// }
 	}
 
-	public static abstract class Intake implements Subsystem, Sendable {
+	public static abstract class Hand implements Subsystem, Sendable {
 
 		protected final WPI_TalonSRX main;
 
-		protected Intake(int canid) {
+		protected Hand(int canid) {
 			this.main = new WPI_TalonSRX(canid);
 			this.main.configFactoryDefault();
 		}
@@ -360,7 +408,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 		}
 
 
-		public static final class NeverestGrabber extends Intake {
+		public static final class NeverestGrabber extends Hand {
 
 			public static final int
 				CL_IDX = 0;
@@ -376,7 +424,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 			}
 
 		}
-		public static final class SeatMotorGrabber extends Intake {
+		public static final class SeatMotorGrabber extends Hand {
 
 			private final Counter counter;
 
@@ -409,14 +457,14 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 	public final Arm arm;
 	public final Wrist wrist;
-	public final Intake intake;
+	public final Hand hand;
 
 	private double dynamic_arm_transform = Arm.sensorUnitsToDegrees(ARM_TOP_ABSOLUTE_RAW_POSITION);
 
-	public Manipulator2(Arm a, Wrist w, Intake i) {
+	public Manipulator2(Arm a, Wrist w, Hand h) {
 		this.arm = a;
 		this.wrist = w;
-		this.intake = i;
+		this.hand = h;
 	}
 
 
@@ -424,7 +472,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 	public void periodic() {
 		this.arm.periodic();
 		this.wrist.periodic();
-		this.intake.periodic();
+		this.hand.periodic();
 		if(this.arm.winch.isFwdLimitSwitchClosed() > 0) {
 			this.dynamic_arm_transform = this.arm.getAbsoluteDegrees();
 		}
@@ -434,6 +482,13 @@ public class Manipulator2 implements Subsystem, Sendable {
 		b.addDoubleProperty("Transformed Arm Angle", this::getArmTransformedAngle, null);
 		b.addDoubleProperty("Transformed Wrist Angle", this::getWristTransformedAngle, null);
 		b.addDoubleArrayProperty("Components Pose3d", this::getComponentData, null);
+	}
+
+	public void beginLogging(String basekey) {
+		SmartDashboard.putData(basekey, this);
+		SmartDashboard.putData(basekey + "/Arm", this.arm);
+		SmartDashboard.putData(basekey + "/Wrist", this.wrist);
+		SmartDashboard.putData(basekey + "/Hand", this.hand);
 	}
 
 
@@ -474,7 +529,11 @@ public class Manipulator2 implements Subsystem, Sendable {
 	}
 	public void setTargetState(ManipulatorState s) {
 		this.setTargetPose(s.pose);
-		this.intake.setVoltage(s.intake_voltage);
+		this.hand.setVoltage(s.intake_voltage);
 	}
+
+
+
+	
 
 }

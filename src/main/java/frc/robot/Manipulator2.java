@@ -133,7 +133,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 				double from_horizontal = to_bumper.getAngle().getRadians() + Math.acos(lateral_distance / distance_to_bumpers);		// calculate the hand's angle compared to the x-axis
 				if(HAND_LENGTH_BOUND * -Math.sin(from_horizontal) + HAND_LOWER_BOUND * -Math.cos(from_horizontal) > hand_pivot.getY()) {	// if the pivot is low enough that the hand could possibly hit the ground...
-					double to_ground = -Math.asin(hand_pivot.getY() / Math.hypot(HAND_LOWER_BOUND, HAND_LENGTH_BOUND))+ Math.atan2(HAND_LOWER_BOUND, HAND_LENGTH_BOUND);	// calculate the hand's angle to clear the ground
+					double to_ground = -Math.asin(hand_pivot.getY() / Math.hypot(HAND_LOWER_BOUND, HAND_LENGTH_BOUND)) + Math.atan2(HAND_LOWER_BOUND, HAND_LENGTH_BOUND);	// calculate the hand's angle to clear the ground
 					if(to_ground > from_horizontal) {	// we are finding a minimum angle, so use the higher value as it will be the most inclusive
 						from_horizontal = to_ground;
 					}

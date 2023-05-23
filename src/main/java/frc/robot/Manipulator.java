@@ -308,14 +308,15 @@ public final class Manipulator implements Subsystem, Sendable {
 		 * The arm translations are in the same format but are transformed by whatever angle (pose) the arm is at. */
 
 		public static final double	// meters -- sourced from robot CAD model
-			PIVOT_X_METERS = 0.136808,
-			PIVOT_Z_METERS = 1.111005,
+			ARM_PIVOT_X = 0.136808,
+			ARM_PIVOT_Z = 1.111005,
 			ARM_V1_LINKAGE_LENGTH = 0.742950,
+			ARM_V1_ELBOW_SIM_OFFSET = -0.004563,	// not applicable on actual robot, but needed to align the simulated model
 			ARM_V2_LINKAGE_LENGTH = 0.800100,
 			ARM_V2_ELBOW_HEIGHT = 0.044450;
 
 		public static final Translation3d
-			ROBOT_ORIGIN_TO_PIVOT = new Translation3d(PIVOT_X_METERS, 0, PIVOT_Z_METERS),
+			ROBOT_ORIGIN_TO_PIVOT = new Translation3d(ARM_PIVOT_X, 0, ARM_PIVOT_Z),
 			ARM_V1_LINKAGE_TRANSLATION = new Translation3d(0, 0, ARM_V1_LINKAGE_LENGTH),
 			ARM_V2_LINKAGE_TRANSLATION = new Translation3d(ARM_V2_ELBOW_HEIGHT, 0, ARM_V2_LINKAGE_LENGTH);
 
@@ -341,6 +342,53 @@ public final class Manipulator implements Subsystem, Sendable {
 			return new Pose3d(
 				ROBOT_ORIGIN_TO_PIVOT.plus(ARM_V2_LINKAGE_TRANSLATION.rotateBy(getArmRotation3d(arm_angle))),
 				getHandRotation3d(arm_angle, elbow_angle));
+		}
+
+		public static final class HandBBox2d {
+
+			/* This model is used for calculating a safe minimum hand angle (in arm coord space) such that the
+			 * bumpers and ground are always cleared. Within the computations, +x points forward and +y points
+			 * upward such that the robot is being viewed from the right side, and rotations follow the unit
+			 * circle (CCW). The origin is the robot's center (same as in 3d), and y=0 also represents the ground plane. */
+
+			public static final double	// in meters
+				HAND_LOWER_BOUND = 0.05,
+				HAND_LENGTH_BOUND = 0.5,
+				BUMPER_Z_HEIGHT = 0.191262,
+				BUMPER_X_LENGTH = 0.511937;
+			
+			public static final Translation2d
+				ROBOT_ORIGIN_TO_PIVOT_2D = new Translation2d(ARM_PIVOT_X, ARM_PIVOT_Z),
+				ARM_V1_LINKAGE_TRANSLATION_2D = new Translation2d(ARM_V1_ELBOW_SIM_OFFSET, ARM_V1_LINKAGE_LENGTH),
+				ARM_V2_LINKAGE_TRANSLATION_2D = new Translation2d(ARM_V2_ELBOW_HEIGHT, ARM_V2_LINKAGE_LENGTH),
+				BUMPER_CORNER_TRANSLATION_2D = new Translation2d(BUMPER_X_LENGTH, BUMPER_Z_HEIGHT);
+
+			private static double calcAngle(double arm_angle, Translation2d arm_translation) {
+
+				Rotation2d arm_rotation = Rotation2d.fromDegrees(180.0 + arm_angle);
+				Translation2d hand_pivot = ROBOT_ORIGIN_TO_PIVOT_2D.plus(arm_translation.rotateBy(arm_rotation));
+				Translation2d to_bumper = BUMPER_CORNER_TRANSLATION_2D.minus(hand_pivot);
+
+				double distance_to_bumpers = to_bumper.getNorm();	// direct distance from hand pivot to bumper corner
+				double lateral_distance = Math.sqrt(distance_to_bumpers * distance_to_bumpers - HAND_LOWER_BOUND * HAND_LOWER_BOUND);	// hand lateral distance along the direct distance (the direct distance is the hypotenuse of the hand bbox)
+				
+				if(lateral_distance >= HAND_LENGTH_BOUND &&		// if the lateral distance is greater than the hand's lateral bound, and the pivot is beyond the bumpers...
+					hand_pivot.getX() >= BUMPER_X_LENGTH) { return -180.0; }		// we can assume the hand will not hit anything.
+
+				double from_horizontal = to_bumper.getAngle().getRadians() + Math.acos(lateral_distance / distance_to_bumpers);		// calculate the hand's angle compared to the x-axis
+				if(HAND_LENGTH_BOUND * -Math.sin(from_horizontal) + HAND_LOWER_BOUND * -Math.cos(from_horizontal) > hand_pivot.getY()) {	// if the pivot is low enough that the hand could possibly hit the ground...
+					double to_ground = -Math.asin(hand_pivot.getY() / Math.hypot(HAND_LOWER_BOUND, HAND_LENGTH_BOUND)) + Math.atan2(HAND_LOWER_BOUND, HAND_LENGTH_BOUND);	// calculate the hand's angle to clear the ground
+					if(to_ground > from_horizontal) {	// we are finding a minimum angle, so use the higher value as it will be the most inclusive
+						from_horizontal = to_ground;
+					}
+				}
+				return 90.0 + Math.toDegrees(from_horizontal) - arm_angle;	// Add 90 degrees to convert to arm coord space, subtract the arm angle to make it relative.
+
+			}
+
+			public static double handV1MinAngle(double arm_angle) { return calcAngle(arm_angle, ARM_V1_LINKAGE_TRANSLATION_2D); }
+			public static double handV2MinAngle(double arm_angle) { return calcAngle(arm_angle, ARM_V2_LINKAGE_TRANSLATION_2D); }
+
 		}
 
 	}
@@ -435,7 +483,7 @@ public final class Manipulator implements Subsystem, Sendable {
 	@Override
 	public void initSendable(SendableBuilder b) {
 		b.addDoubleProperty("Standardized Arm Angle", this::getStandardizedArmAngle, null);
-		b.addDoubleArrayProperty("Component Poses 3D", this.getDetectedPose()::getV1RawPoseData, null);
+		b.addDoubleArrayProperty("Component Poses 3D", ()->this.getDetectedPose().getV1RawPoseData(), null);
 	}
 
 	public void startLogging(String basekey) {
@@ -607,9 +655,9 @@ public final class Manipulator implements Subsystem, Sendable {
 
 	public static class ManipulatorControl2 extends ManipulatorControl {
 
-		public static final double
-			ARM_ANGLE_OFFSET = -130.0,
-			ARM_PARK_UPPER_ANGLE_REL = 15.0;
+		// public static final double
+		// 	ARM_ANGLE_OFFSET = -130.0,
+		// 	ARM_PARK_UPPER_ANGLE_REL = 15.0;
 		public static final boolean
 			ENABLE_WRIST_PARK_BOUND_LIMITING = true;
 
@@ -654,9 +702,15 @@ public final class Manipulator implements Subsystem, Sendable {
 				this.wrist_pos_offset = 0.0;
 			} else {
 				this.wrist_bounded_lower_limit = Grabber.WRIST_MIN_ANGLE;
-				if(ENABLE_WRIST_PARK_BOUND_LIMITING && this.arm_rel_angle < ARM_PARK_UPPER_ANGLE_REL) {
-					this.wrist_bounded_lower_limit = (ARM_PARK_UPPER_ANGLE_REL - this.arm_rel_angle) * 8.0 - 30.0;	// [inverted based on threshold] arm angle from vertical  / threshold range * 120 degrees wrist range - 30.0 degrees lowest wrist angle
+				if(ENABLE_WRIST_PARK_BOUND_LIMITING) {
+					double min_calc = Kinematics.HandBBox2d.handV1MinAngle(this.arm_rel_angle);
+					if(min_calc > this.wrist_bounded_lower_limit) {
+						this.wrist_bounded_lower_limit = min_calc;
+					}
 				}
+				// if(ENABLE_WRIST_PARK_BOUND_LIMITING && this.arm_rel_angle < ARM_PARK_UPPER_ANGLE_REL) {
+				// 	this.wrist_bounded_lower_limit = (ARM_PARK_UPPER_ANGLE_REL - this.arm_rel_angle) * 8.0 - 30.0;	// [inverted based on threshold] arm angle from vertical  / threshold range * 120 degrees wrist range - 30.0 degrees lowest wrist angle
+				// }
 				this.wrist_pos_offset = Math.max(
 					this.wrist_bounded_lower_limit - this.wrist_hz_angle, Math.min(
 						Grabber.WRIST_MAX_ANGLE - this.wrist_hz_angle, this.wrist_pos_offset));	// keep the offset inside the normal bounds, shifted by the hz angle

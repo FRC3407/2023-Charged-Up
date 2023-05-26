@@ -1,13 +1,58 @@
 package frc.robot;
 
+import java.util.function.BooleanSupplier;
+
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
+import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.*;
+import frc.robot.team3407.Util;
 import frc.robot.team3407.drive.DriveSupplier.*;
-import edu.wpi.first.wpilibj2.command.Commands;
 
 
-public class Auto {
+public final class Auto {
+
+	private static final SendableChooser<Command> selectable_auto = new SendableChooser<>();
+	private static Command option1, option2;
+	private static BooleanSupplier hardware_enable, hardware_select;
+
+
+	public static void setHardwareOptionA(Command a) { option1 = a; }
+	public static void setHardwareOptionB(Command b) { option2 = b; }
+	public static void setHardwareSelectors(BooleanSupplier enable, BooleanSupplier select) {
+		hardware_enable = enable;
+		hardware_select = select;
+	}
+	public static void clearHardwareSelectors() {
+		hardware_enable = hardware_select = null;
+	}
+	public static void addSelectableCommand(String n, Command c) { selectable_auto.addOption(n, c); }
+
+	public static void initialize() {
+		selectable_auto.setDefaultOption("No Auto", null);
+		SmartDashboard.putData("Autonomous Selector", selectable_auto);
+	}
+	public static void runSelected() {
+		if(hardware_enable != null && hardware_select != null && hardware_enable.getAsBoolean()) {
+			System.out.println("Running Hardware Selected Auto...");
+			if(hardware_select.getAsBoolean() && option1 != null) {
+				option1.schedule();
+			} else if(option2 != null) {
+				option2.schedule();
+			}
+		} else {
+			System.out.println("Running NT Selected Auto...");
+			Command c = selectable_auto.getSelected();
+			if(c != null) {
+				c.schedule();
+			} else {
+				System.out.println("No Auto Command Selected!");
+			}
+		}
+	}
+
+
 
 	/**
 	 * This runs an autonoumus command that drives a given distance at a given velocity.

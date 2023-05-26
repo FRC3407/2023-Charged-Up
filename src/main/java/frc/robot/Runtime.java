@@ -12,6 +12,7 @@ import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.PowerDistribution;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.*;
 import edu.wpi.first.wpilibj.util.WPILibVersion;
 
@@ -77,6 +78,7 @@ public final class Runtime extends TimedRobot {
 
 
 	private final Robot robot = new Robot();
+	private final Performance perf_counter = new Performance();
 	private final ControlSchemeManager controls = new ControlSchemeManager();
 
 	private static final Runtime runtime = new Runtime();
@@ -94,6 +96,7 @@ public final class Runtime extends TimedRobot {
 		System.out.println("Using Wpilib Version " + WPILibVersion.Version);
 
 		this.robot.initialize();
+		SmartDashboard.putData("Performance", this.perf_counter);
 		Vision.init();
 
 		if(isReal()) { DataLogManager.start(); } else { DataLogManager.start("logs/sim"); }
@@ -140,13 +143,16 @@ public final class Runtime extends TimedRobot {
 				"Commands/Auto Trajectories/" + n
 			));
 		}
+		Auto.initialize();
 
 	}
 	@Override
 	public void robotPeriodic() {
+		this.perf_counter.loopInit();
 		Controls.updateState();
 		CommandScheduler.getInstance().run();
 		Vision.PoseEstimation.fuseVision(this.robot.drivebase, true);
+		this.perf_counter.loopEnd();
 	}
 
 	@Override
@@ -180,6 +186,32 @@ public final class Runtime extends TimedRobot {
 	public void testExit() {}
 
 
+
+
+
+	private static final class Performance implements Sendable {
+
+		private double
+			last_loop = Timer.getFPGATimestamp(),
+			loop_dt = 0.0,
+			proc_dt = 0.0;
+
+		public void loopInit() {
+			double now = Timer.getFPGATimestamp();
+			this.loop_dt = (now - last_loop) * 1e3;
+			this.last_loop = now;
+		}
+		public void loopEnd() {
+			this.proc_dt = (Timer.getFPGATimestamp() - last_loop) * 1e3;
+		}
+
+		@Override
+		public void initSendable(SendableBuilder b) {
+			b.addDoubleProperty("Loop Time (ms)", ()->loop_dt, null);
+			b.addDoubleProperty("Utilized Time (ms)", ()->proc_dt, null);
+		}
+
+	}
 
 
 

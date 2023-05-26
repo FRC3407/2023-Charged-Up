@@ -70,6 +70,7 @@ public final class Controls {
 				for(ControlScheme sch : schemes) {
 					manager.addScheme(sch);
 				}
+				break;
 			}
 			case COMPETITION: {
 				ControlScheme[] schemes = getCompetitionSchemes(robot);
@@ -77,6 +78,7 @@ public final class Controls {
 				for(int i = 1; i < schemes.length; i++) {
 					manager.addScheme(schemes[i]);
 				}
+				break;
 			}
 		}
 		manager.setAmbiguousSolution(AmbiguousSolution.PREFER_COMPLEX);

@@ -10,11 +10,14 @@ import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.DataLogManager;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.PowerDistribution;
+import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj.Timer;
-import edu.wpi.first.wpilibj2.command.*;
+import edu.wpi.first.wpilibj.simulation.RoboRioSim;
+import edu.wpi.first.wpilibj.simulation.BatterySim;
 import edu.wpi.first.wpilibj.util.WPILibVersion;
+import edu.wpi.first.wpilibj2.command.*;
 
 import com.pathplanner.lib.server.PathPlannerServer;
 import com.pathplanner.lib.commands.PPRamseteCommand;
@@ -57,7 +60,9 @@ public final class Runtime extends TimedRobot {
 		private Robot() {}	// only the runtime class can construct a 'robot' object
 
 		@Override
-		public void initSendable(SendableBuilder b) {}
+		public void initSendable(SendableBuilder b) {
+			b.addDoubleProperty("Power/RoboRIO VIn", RobotController::getBatteryVoltage, null);
+		}
 		public void startLogging() {
 			SmartDashboard.putData("Robot", this);
 			SmartDashboard.putData("Robot/Power", this.power);
@@ -154,6 +159,13 @@ public final class Runtime extends TimedRobot {
 		Vision.PoseEstimation.fuseVision(this.robot.drivebase, true);
 		this.perf_counter.loopEnd();
 	}
+	@Override
+	public void simulationPeriodic() {
+		RoboRioSim.setVInVoltage(
+			BatterySim.calculateDefaultBatteryLoadedVoltage(
+				this.robot.drivebase.getSimCurrentDraw()	// add other systems when applicable...
+		));
+	}
 
 	@Override
 	public void disabledInit() {}
@@ -218,59 +230,59 @@ public final class Runtime extends TimedRobot {
 
 
 
-	public static class SimPoseDrive extends CommandBase {
+	// public static class SimPoseDrive extends CommandBase {
 
-		public static final double
-			ARM_MIN_ANGLE = -8.0,
-			ARM_MAX_ANGLE = 102.0,
-			ELBOW_REL_MIN_ANGLE = -80.0,
-			ELBOW_REL_MAX_ANGLE = 100.0;
+	// 	public static final double
+	// 		ARM_MIN_ANGLE = -8.0,
+	// 		ARM_MAX_ANGLE = 102.0,
+	// 		ELBOW_REL_MIN_ANGLE = -80.0,
+	// 		ELBOW_REL_MAX_ANGLE = 100.0;
 
-		private final DifferentialDriveSupplier dbsupplier;
-		private final DoubleSupplier arm_rate, elbow_rate;
+	// 	private final DifferentialDriveSupplier dbsupplier;
+	// 	private final DoubleSupplier arm_rate, elbow_rate;
 
-		private Pose2d robot;
-		private Manipulator.ManipulatorPose mpose;
+	// 	private Pose2d robot;
+	// 	private Manipulator.ManipulatorPose mpose;
 
-		public SimPoseDrive(DifferentialDriveSupplier dbs, DoubleSupplier arm, DoubleSupplier elbow) {
-			this.dbsupplier = dbs;
-			this.arm_rate = arm;
-			this.elbow_rate = elbow;
-			this.robot = new Pose2d();
-			this.mpose = new Manipulator.ManipulatorPose(0.0, 180.0);
-		}
+	// 	public SimPoseDrive(DifferentialDriveSupplier dbs, DoubleSupplier arm, DoubleSupplier elbow) {
+	// 		this.dbsupplier = dbs;
+	// 		this.arm_rate = arm;
+	// 		this.elbow_rate = elbow;
+	// 		this.robot = new Pose2d();
+	// 		this.mpose = new Manipulator.ManipulatorPose(0.0, 180.0);
+	// 	}
 
-		@Override
-		public void initialize() {}
-		@Override
-		public void execute() {
-			final double DT_s = 0.02;
-			double
-				lx = this.dbsupplier.leftOutput() * DT_s,
-				rx = this.dbsupplier.rightOutput() * DT_s,
-				fx = (rx + lx) / 2.0,
-				tx = (rx - lx) / 0.509758; // radians
-			robot = robot.exp(new Twist2d(fx, 0.0, tx));
-			this.mpose.arm_angle = Math.min(ARM_MAX_ANGLE, Math.max(ARM_MIN_ANGLE, this.mpose.arm_angle + this.arm_rate.getAsDouble() * DT_s));
-			this.mpose.elbow_angle = Math.min(ELBOW_REL_MAX_ANGLE, Math.max(
-				Math.max(ELBOW_REL_MIN_ANGLE, Manipulator2.Kinematics.HandBBox2d.handV1MinAngle(this.mpose.arm_angle)),
-				this.mpose.elbow_angle + this.elbow_rate.getAsDouble() * DT_s));
-		}
-		@Override
-		public boolean isFinished() { return false; }
-		@Override
-		public void end(boolean i) {}
-		@Override
-		public boolean runsWhenDisabled() { return true; }
+	// 	@Override
+	// 	public void initialize() {}
+	// 	@Override
+	// 	public void execute() {
+	// 		final double DT_s = 0.02;
+	// 		double
+	// 			lx = this.dbsupplier.leftOutput() * DT_s,
+	// 			rx = this.dbsupplier.rightOutput() * DT_s,
+	// 			fx = (rx + lx) / 2.0,
+	// 			tx = (rx - lx) / 0.509758; // radians
+	// 		robot = robot.exp(new Twist2d(fx, 0.0, tx));
+	// 		this.mpose.arm_angle = Math.min(ARM_MAX_ANGLE, Math.max(ARM_MIN_ANGLE, this.mpose.arm_angle + this.arm_rate.getAsDouble() * DT_s));
+	// 		this.mpose.elbow_angle = Math.min(ELBOW_REL_MAX_ANGLE, Math.max(
+	// 			Math.max(ELBOW_REL_MIN_ANGLE, Manipulator2.Kinematics.HandBBox2d.handV1MinAngle(this.mpose.arm_angle)),
+	// 			this.mpose.elbow_angle + this.elbow_rate.getAsDouble() * DT_s));
+	// 	}
+	// 	@Override
+	// 	public boolean isFinished() { return false; }
+	// 	@Override
+	// 	public void end(boolean i) {}
+	// 	@Override
+	// 	public boolean runsWhenDisabled() { return true; }
 
-		@Override
-		public void initSendable(SendableBuilder b) {
-			b.addDoubleArrayProperty("Pose2d", ()->new double[]{ this.robot.getX(), this.robot.getY(), this.robot.getRotation().getDegrees() }, null);
-			b.addDoubleArrayProperty("Manipulator Poses", this.mpose::getV1RawPoseData, null);
-			// b.addDoubleProperty("Min Angle Calculation", ()->Manipulator2.Kinematics.HandBBox2d.handV1MinAngle(this.mpose.arm_angle), null);
-		}
+	// 	@Override
+	// 	public void initSendable(SendableBuilder b) {
+	// 		b.addDoubleArrayProperty("Pose2d", ()->new double[]{ this.robot.getX(), this.robot.getY(), this.robot.getRotation().getDegrees() }, null);
+	// 		b.addDoubleArrayProperty("Manipulator Poses", this.mpose::getV1RawPoseData, null);
+	// 		// b.addDoubleProperty("Min Angle Calculation", ()->Manipulator2.Kinematics.HandBBox2d.handV1MinAngle(this.mpose.arm_angle), null);
+	// 	}
 
-	}
+	// }
 
 
 }

@@ -11,12 +11,17 @@ import edu.wpi.first.math.controller.*;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.kinematics.*;
 import edu.wpi.first.math.VecBuilder;
+import edu.wpi.first.math.system.plant.LinearSystemId;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.MotorSafety;
+import edu.wpi.first.wpilibj.RobotBase;
+import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.wpilibj.smartdashboard.FieldObject2d;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim;
+import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim.*;
 import edu.wpi.first.wpilibj2.command.*;
 
 import com.ctre.phoenix.motorcontrol.*;
@@ -130,6 +135,9 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	private final WPI_TalonSRX left, left2, right, right2;
 	private final Gyro gyro;
 
+	private final DifferentialDrivetrainSim simbase;
+	private final TalonSRXSimCollection simleft, simright;
+
 	private Pose2d delta_pose_init = new Pose2d();
 
 
@@ -164,6 +172,24 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		this.right.setSelectedSensorPosition(0.0);
 		this.left.setSensorPhase(parameters.encoder_inversions.left);
 		this.right.setSensorPhase(parameters.encoder_inversions.right);
+
+		// change to only init if needed
+		this.simbase = new DifferentialDrivetrainSim(
+			LinearSystemId.identifyDrivetrainSystem(		// use characterization values rather than MOI and mass theoretical sim
+				this.parameters.kV(), this.parameters.kA(),
+				2.3416, 0.50996
+			),
+			KitbotMotor.kDualCIMPerSide.value,
+			KitbotGearing.k7p31.value,
+			// 7.494227,	// Calculated using the CAD center of mass then manually setting the mass to be 90lbs
+			// 40.8233,		// 90lbs
+			0.51615848,	// from CAD
+			KitbotWheelSize.kSixInch.value,
+			// VecBuilder.fill(0.001, 0.001, 0.001, 0.1, 0.1, 0.005, 0.005)
+			null
+		);
+		this.simleft = this.left.getSimCollection();
+		this.simright = this.right.getSimCollection();
 	}
 
 
@@ -174,10 +200,34 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 	@Override
 	public void periodic() {
-		Rotation2d a = this.gyro.getRotation2d();
+		Rotation2d a = this.getRotation();
 		double l = this.getLeftPosition(), r = this.getRightPosition();
 		this.ov_fusion.update(a, l, r);
 		this.raw_odometry.update(a, l, r);
+	}
+	@Override
+	public void simulationPeriodic() {
+		this.simleft.setBusVoltage(RobotController.getBatteryVoltage());
+		this.simright.setBusVoltage(RobotController.getBatteryVoltage());
+		this.simbase.setInputs(
+			this.simleft.getMotorOutputLeadVoltage(),
+			-this.simright.getMotorOutputLeadVoltage()
+		);
+		this.simbase.update(0.02);
+
+		// the feedback values need to be inverted (compared to above where the right is inverted only), probably because we already invert both encoder outputs
+		this.simleft.setQuadratureRawPosition(
+			(int)(-this.simbase.getLeftPositionMeters()
+				/ this.parameters.wheel_diameter_meters / Math.PI * Constants.SRX_MAG_UNITS_PER_REVOLUTION));
+		this.simleft.setQuadratureVelocity(
+			(int)(-this.simbase.getLeftVelocityMetersPerSecond()
+				/ this.parameters.wheel_diameter_meters / Math.PI * Constants.SRX_MAG_UNITS_PER_REVOLUTION / 10.0));
+		this.simright.setQuadratureRawPosition(
+			(int)(this.simbase.getRightPositionMeters()
+				/ this.parameters.wheel_diameter_meters / Math.PI * Constants.SRX_MAG_UNITS_PER_REVOLUTION));
+		this.simright.setQuadratureVelocity(
+			(int)(this.simbase.getRightVelocityMetersPerSecond()
+				/ this.parameters.wheel_diameter_meters / Math.PI * Constants.SRX_MAG_UNITS_PER_REVOLUTION / 10.0));
 	}
 	@Override
 	public void initSendable(SendableBuilder b) {
@@ -426,13 +476,17 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		return this.gyro.getAngle();
 	}
 	public double getHeading() {			// from -180 to 180
-		return this.gyro.getRotation2d().getDegrees();
+		return this.getRotation().getDegrees();
 	}
-	public double getTurnRate() {	        // in degrees per second
+	public double getTurnRate() {			// in degrees per second
 		return -this.gyro.getRate();
 	}
 	public Rotation2d getRotation() {
-		return this.gyro.getRotation2d();
+		return RobotBase.isSimulation() ? this.simbase.getHeading() : this.gyro.getRotation2d();	// work around this
+	}
+
+	public double getSimCurrentDraw() {
+		return this.simbase.getCurrentDrawAmps();
 	}
 
 

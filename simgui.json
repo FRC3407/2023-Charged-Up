@@ -6,16 +6,6 @@
           "open": true
         }
       },
-      "Talon SRX[10]": {
-        "header": {
-          "open": true
-        }
-      },
-      "Talon SRX[11]": {
-        "header": {
-          "open": true
-        }
-      },
       "Talon SRX[1]": {
         "header": {
           "open": true
@@ -26,7 +16,12 @@
           "open": true
         }
       },
-      "Talon SRX[3]": {
+      "Talon SRX[2]/Quad Encoder": {
+        "header": {
+          "open": true
+        }
+      },
+      "Talon SRX[3]/Quad Encoder": {
         "header": {
           "open": true
         }
@@ -36,7 +31,17 @@
           "open": true
         }
       },
+      "Talon SRX[4]/Quad Encoder": {
+        "header": {
+          "open": true
+        }
+      },
       "Talon SRX[5]": {
+        "header": {
+          "open": true
+        }
+      },
+      "Talon SRX[5]/Quad Encoder": {
         "header": {
           "open": true
         }
@@ -138,9 +143,6 @@
           "open": true
         },
         "Commands": {
-          "Auto Trajectories": {
-            "open": true
-          },
           "Manipulator Control": {
             "open": true
           },

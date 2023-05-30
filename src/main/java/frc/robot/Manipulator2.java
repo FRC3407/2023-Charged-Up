@@ -1,14 +1,27 @@
 package frc.robot;
 
 import edu.wpi.first.math.MathUtil;
+import edu.wpi.first.math.Matrix;
+import edu.wpi.first.math.Nat;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.interpolation.Interpolatable;
+import edu.wpi.first.math.numbers.N1;
+import edu.wpi.first.math.numbers.N2;
+import edu.wpi.first.math.system.NumericalIntegration;
+import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.Counter;
+import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj.simulation.DCMotorSim;
+import edu.wpi.first.wpilibj.simulation.SingleJointedArmSim;
+import edu.wpi.first.wpilibj2.command.CommandBase;
 import edu.wpi.first.wpilibj2.command.Subsystem;
+
+import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
 
 import com.ctre.phoenix.motorcontrol.*;
 import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
@@ -28,7 +41,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 			ARM_PIVOT_X = 0.143098,
 			ARM_PIVOT_Z = 1.127109,
 			ARM_V1_LINKAGE_LENGTH = 0.736541,
-			ARM_V1_ELBOW_SIM_OFFSET = -0.004563,	// not applicable on actual robot, but needed to align the simulated model
+			ARM_V1_ELBOW_SIM_OFFSET = 0.004563,	// not applicable on actual robot, but needed to align the simulated model
 			ARM_V2_LINKAGE_LENGTH = 0.800100,
 			ARM_V2_ELBOW_HEIGHT = 0.044450;
 
@@ -115,13 +128,13 @@ public class Manipulator2 implements Subsystem, Sendable {
 			
 			public static final Translation2d
 				ROBOT_ORIGIN_TO_PIVOT_2D = new Translation2d(ARM_PIVOT_X, ARM_PIVOT_Z),
-				ARM_V1_LINKAGE_TRANSLATION_2D = new Translation2d(ARM_V1_ELBOW_SIM_OFFSET, ARM_V1_LINKAGE_LENGTH),
-				ARM_V2_LINKAGE_TRANSLATION_2D = new Translation2d(ARM_V2_ELBOW_HEIGHT, ARM_V2_LINKAGE_LENGTH),
+				ARM_V1_LINKAGE_TRANSLATION_2D = new Translation2d(ARM_V1_ELBOW_SIM_OFFSET, -ARM_V1_LINKAGE_LENGTH),
+				ARM_V2_LINKAGE_TRANSLATION_2D = new Translation2d(ARM_V2_ELBOW_HEIGHT, -ARM_V2_LINKAGE_LENGTH),
 				BUMPER_CORNER_TRANSLATION_2D = new Translation2d(BUMPER_X_LENGTH, BUMPER_Z_HEIGHT);
 
 			private static double calcAngle(double arm_angle, Translation2d arm_translation) {
 
-				Rotation2d arm_rotation = Rotation2d.fromDegrees(180.0 + arm_angle);
+				Rotation2d arm_rotation = Rotation2d.fromDegrees(arm_angle);
 				Translation2d hand_pivot = ROBOT_ORIGIN_TO_PIVOT_2D.plus(arm_translation.rotateBy(arm_rotation));
 				Translation2d to_bumper = BUMPER_CORNER_TRANSLATION_2D.minus(hand_pivot);
 
@@ -147,6 +160,111 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 		}
 		
+	}
+	public static final class Dynamics {
+
+		public static final double WINCH_GEARING = 20.0;
+		public static final DCMotor WINCH_MOTOR = DCMotor.getCIM(1).withReduction(WINCH_GEARING);
+		public static final Translation2d
+			ARM_LINKAGE_TRANSLATION = Kinematics.HandBBox2d.ARM_V1_LINKAGE_TRANSLATION_2D,
+			ARM_HOOK_TRANSLATION = new Translation2d(-0.0469178132, 0.1419520656),
+			ARM_CENTER_OF_MASS = new Translation2d(0.0028245562, -0.3750274694),
+			HAND_CENTER_OF_MASS = new Translation2d(0.152565735, -0.0249556524),		// relative to the wrist
+			ROPE_FEED_TRANSLATION = new Translation2d(-0.1492605854, -0.0870382562);
+		public static final double
+			ARM_MASS = 2.0995949,			// kg
+			ARM_MOI_PIVOT = 0.479428,		// kgm^2
+			HAND_MASS = 1.80632943,			// kg
+			HAND_MOI_CENTERED = 0.03043285,	// kgm^2
+			WINCH_SPOOL_RADIUS = 0.0127,
+			SPRING_PULL_RADIUS = 0.141456918,
+			SPRING_FORCE = 47.15115;		// newtons (10.6 lbs)
+
+		public static Translation2d getSysCOM(double wrist_angle) {	// the location returned will need to be rotated by the arm angle for the absolute (x, y) COM
+			Translation2d hand_com = ARM_LINKAGE_TRANSLATION.plus(HAND_CENTER_OF_MASS.rotateBy(Rotation2d.fromDegrees(wrist_angle - 90.0)));	// find the hand's COM in the arm's coordinate space
+			return hand_com.times(HAND_MASS).plus(ARM_CENTER_OF_MASS.times(ARM_MASS)).div(HAND_MASS + ARM_MASS);	// weighted average of the COMs using the component masses
+		}
+		public static double getSysMOI(double wrist_angle) {
+			return ARM_MOI_PIVOT + HAND_MOI_CENTERED + HAND_MASS * Math.pow(
+				HAND_CENTER_OF_MASS.rotateBy(Rotation2d.fromDegrees(wrist_angle - 90.0)).plus(ARM_LINKAGE_TRANSLATION).getNorm(), 2);
+					// ^ get the hand's center of mass (x, y) compared to the pivot point, then then normal will be the radius
+		}
+		public static double estimateSpringTorque(double arm_angle) {
+			return SPRING_FORCE * SPRING_PULL_RADIUS * Math.cos(Math.toRadians((arm_angle + 5.0) / 110.0 * 90.0));
+		}
+		public static double getGravitationalTorque(double arm_angle, double wrist_angle) {
+			Translation2d sys_com = getSysCOM(wrist_angle).rotateBy(Rotation2d.fromDegrees(arm_angle));
+			return 9.8 * (ARM_MASS + HAND_MASS) * sys_com.getX();	// multiply by radius, then multiply by cos(theta), which equals x/radius, so the radius cancels
+		}
+		public static double getEffectivePullRadius(double arm_angle) {
+			Translation2d hook = ARM_HOOK_TRANSLATION.rotateBy(Rotation2d.fromDegrees(arm_angle));
+			Translation2d delta = hook.minus(ROPE_FEED_TRANSLATION);
+			double cos = (hook.getX() * delta.getX() + hook.getY() * delta.getY()) / hook.getNorm() / delta.getNorm();
+			return ARM_HOOK_TRANSLATION.getNorm() * Math.sqrt(1 - cos * cos);
+		}
+
+		public static final class Integrator {
+
+			public static final double ARM_HOOK_RADIUS = ARM_HOOK_TRANSLATION.getNorm();
+
+			private Matrix<N1, N1> u_input;		// volts
+			private Matrix<N2, N1> x_state;
+			private Matrix<N2, N1> y_output;
+
+			// private Matrix<N2, N2> A_matrix;
+			private Matrix<N2, N1> B_matrix;
+			// The output is equal to the state, so we don't need a C or D matrix.
+
+			private double wrist_angle = 0.0;
+			private double sys_MOI = getSysMOI(0.0);
+
+
+			public Integrator(double init_angle) {
+				this.u_input = Matrix.mat(Nat.N1(), Nat.N1()).fill(0.0);
+				this.x_state = Matrix.mat(Nat.N2(), Nat.N1()).fill(init_angle, 0.0);	// initial theta of the provided angle, and omega of 0
+				this.y_output = this.x_state;
+				// this.A_matrix = new Matrix<>(Nat.N2(), Nat.N2());
+				this.B_matrix = Matrix.mat(Nat.N2(), Nat.N1()).fill(0.0, 0.0);
+			}
+
+			public void setInputs(double volts, double wrist_angle) {
+				this.u_input.set(0, 0, volts);	// limit to battery voltage?
+				this.wrist_angle = wrist_angle;
+				this.sys_MOI = getSysMOI(this.wrist_angle);
+			}
+			public void update(double dt_seconds) {
+				this.x_state = NumericalIntegration.rk4(this::dynamics, this.x_state, this.u_input, dt_seconds);
+				this.y_output = this.x_state;
+			}
+
+			public double getAngle() {
+				return Math.toDegrees(this.y_output.get(0, 0));
+			}
+			public double getVelocity() {
+				return Math.toDegrees(this.y_output.get(1, 0));
+			}
+			// method for simulated current draw
+
+
+			protected Matrix<N2, N1> dynamics(Matrix<N2, N1> x, Matrix<N1, N1> u) {
+
+				final double omega_grav = getGravitationalTorque(x.get(0, 0), this.wrist_angle) / sys_MOI;
+				final double omega_spring = estimateSpringTorque(x.get(0, 0)) / sys_MOI;
+				final double omega_w = -WINCH_MOTOR.KtNMPerAmp / (WINCH_MOTOR.KvRadPerSecPerVolt * WINCH_MOTOR.rOhms * sys_MOI)
+					* (ARM_HOOK_RADIUS / WINCH_SPOOL_RADIUS) * x.get(1, 0);
+
+				this.B_matrix.set(1, 0, WINCH_MOTOR.KtNMPerAmp / (WINCH_MOTOR.rOhms * sys_MOI));
+
+				var xdot = Matrix.mat(Nat.N2(), Nat.N1()).fill(
+					x.get(1, 0),	// pass omega to the output
+					omega_w - omega_grav - omega_spring
+				).plus(this.B_matrix.times(u));
+				return xdot;
+
+			}
+
+		}
+
 	}
 
 	public static class ManipulatorPose implements Interpolatable<ManipulatorPose> {
@@ -459,12 +577,16 @@ public class Manipulator2 implements Subsystem, Sendable {
 	public final Wrist wrist;
 	public final Hand hand;
 
+	private final TalonSRXSimCollection simwinch;
+	private final Dynamics.Integrator simarm = new Dynamics.Integrator(0.0);
+
 	private double dynamic_arm_transform = Arm.sensorUnitsToDegrees(ARM_TOP_ABSOLUTE_RAW_POSITION);
 
 	public Manipulator2(Arm a, Wrist w, Hand h) {
 		this.arm = a;
 		this.wrist = w;
 		this.hand = h;
+		this.simwinch = this.arm.winch.getSimCollection();
 	}
 
 
@@ -478,13 +600,26 @@ public class Manipulator2 implements Subsystem, Sendable {
 		}
 	}
 	@Override
+	public void simulationPeriodic() {
+		this.simwinch.setBusVoltage(RobotController.getBatteryVoltage());
+		double v = this.simwinch.getMotorOutputLeadVoltage();
+
+		this.simarm.setInputs(v, this.getWristTransformedAngle());
+		this.simarm.update(0.02);
+
+		this.simwinch.setAnalogPosition(
+			(int)Arm.degreesToSensorUnits( this.arm_toAbsolute(this.simarm.getAngle()) ));
+		this.simwinch.setAnalogVelocity(
+			(int)Arm.degreesToSensorUnits( this.simarm.getVelocity() / 10.0 ));
+	}
+	@Override
 	public void initSendable(SendableBuilder b) {
 		b.addDoubleProperty("Transformed Arm Angle", this::getArmTransformedAngle, null);
 		b.addDoubleProperty("Transformed Wrist Angle", this::getWristTransformedAngle, null);
 		b.addDoubleArrayProperty("Components Pose3d", this::getComponentData, null);
 	}
 
-	public void beginLogging(String basekey) {
+	public void startLogging(String basekey) {
 		SmartDashboard.putData(basekey, this);
 		SmartDashboard.putData(basekey + "/Arm", this.arm);
 		SmartDashboard.putData(basekey + "/Wrist", this.wrist);
@@ -534,6 +669,121 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 
 
-	
+	public BaseControl controlManipulatorAdv(
+		DoubleSupplier a, DoubleSupplier g, DoubleSupplier w
+	) {
+		return new BaseControl(this, a, g, w);
+	}
+	public BaseControl controlManipulatorAdv(
+		DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
+		BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl
+	) {
+		return new BaseControl(this, a, g, w, wr, al, gl);
+	}
+
+
+	public static class BaseControl extends CommandBase {
+
+		public static final double
+			ARM_WINCH_VOLTAGE_SCALE = 5.0,
+			ARM_WINCH_LOCK_VOLTS = 1.1,
+			GRAB_CLAW_VOLTAGE_SCALE = 7.0,
+			GRAB_CLAW_LOCK_VOLTAGE = 8.0,
+			WRIST_ACCUMULATION_RATE = 1.8;
+		public static final boolean
+			ENABLE_BBOX_LIMITING = true;
+
+		protected final Manipulator2
+			manipulator;
+		protected final DoubleSupplier
+			arm_rate,
+			grab_rate,
+			wrist_rate;
+		protected final BooleanSupplier
+			wrist_reset,
+			arm_lock,
+			grab_lock;
+
+		protected double
+			wrist_position = 0.0;
+		protected boolean
+			arm_locked_state = false,
+			intake_locked_state = false;
+
+		public BaseControl(
+			Manipulator2 m,
+			DoubleSupplier a, DoubleSupplier g, DoubleSupplier w
+		) {
+			this.manipulator = m;
+			this.arm_rate = a;
+			this.grab_rate = g;
+			this.wrist_rate = w;
+			this.wrist_reset = this.arm_lock = this.grab_lock = ()->false;
+			super.addRequirements(m.arm, m.wrist, m.hand);
+		}
+		public BaseControl(
+			Manipulator2 m,
+			DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
+			BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl
+		) {
+			this.manipulator = m;
+			this.arm_rate = a;
+			this.grab_rate = g;
+			this.wrist_rate = w;
+			this.wrist_reset = wr;
+			this.arm_lock = al;
+			this.grab_lock = gl;
+			super.addRequirements(m.arm, m.wrist, m.hand);
+		}
+
+		@Override
+		public void initialize() {
+			this.wrist_position = 0.0;
+			this.arm_locked_state = false;
+			this.intake_locked_state = false;
+		}
+		@Override
+		public void execute() {
+			this.wrist_position += this.wrist_rate.getAsDouble() * WRIST_ACCUMULATION_RATE;
+			if(this.wrist_reset.getAsBoolean()) {
+				this.wrist_position = 0.0;
+			} else {
+				this.wrist_position = Math.min(Math.max(-80.0, this.wrist_position), 100.0);
+			}
+			// ^ not complete
+			double
+				arate = this.arm_rate.getAsDouble(),
+				grate = this.grab_rate.getAsDouble();
+			if(this.arm_lock.getAsBoolean()) { this.arm_locked_state = !this.arm_locked_state; }
+			if(this.grab_lock.getAsBoolean()) { this.intake_locked_state = !this.intake_locked_state; }
+			if(arate != 0) { this.arm_locked_state = false; }
+			if(grate != 0) { this.intake_locked_state = false; }
+			this.manipulator.arm.setVoltage(this.arm_locked_state ? ARM_WINCH_LOCK_VOLTS : (arate * ARM_WINCH_VOLTAGE_SCALE));
+			this.manipulator.hand.setVoltage(this.intake_locked_state ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
+			this.manipulator.wrist.setDegrees(this.wrist_position);
+		}
+		@Override
+		public boolean isFinished() {
+			return false;
+		}
+		public void end(boolean isfinished) {
+			this.manipulator.arm.setVoltage(0);
+			this.manipulator.hand.setVoltage(0);
+			this.manipulator.wrist.setDisabled();
+		}
+
+		@Override
+		public void initSendable(SendableBuilder b) {
+			super.initSendable(b);
+			b.addDoubleProperty("Winch Voltage Setpoint",
+				()->this.arm_locked_state ? ARM_WINCH_LOCK_VOLTS : (this.arm_rate.getAsDouble() * ARM_WINCH_VOLTAGE_SCALE), null);
+			b.addDoubleProperty("Grabber Voltage Setpoint",
+				()->this.intake_locked_state ? GRAB_CLAW_LOCK_VOLTAGE : (this.grab_rate.getAsDouble() * GRAB_CLAW_VOLTAGE_SCALE), null);
+			b.addDoubleProperty("Wrist Position Setpoint", ()->this.wrist_position, null);
+			b.addBooleanProperty("Arm Locked", ()->this.arm_locked_state, null);
+			b.addBooleanProperty("Grab Locked", ()->this.intake_locked_state, null);
+		}
+
+	}
 
 }

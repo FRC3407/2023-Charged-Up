@@ -185,8 +185,8 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 			// 40.8233,		// 90lbs
 			0.51615848,	// from CAD
 			KitbotWheelSize.kSixInch.value,
-			// VecBuilder.fill(0.001, 0.001, 0.001, 0.1, 0.1, 0.005, 0.005)
-			null
+			VecBuilder.fill(0.001, 0.001, 0.001, 0.001, 0.001, 0.0005, 0.0005)
+			// null
 		);
 		this.simleft = this.left.getSimCollection();
 		this.simright = this.right.getSimCollection();
@@ -209,10 +209,12 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	public void simulationPeriodic() {
 		this.simleft.setBusVoltage(RobotController.getBatteryVoltage());
 		this.simright.setBusVoltage(RobotController.getBatteryVoltage());
-		this.simbase.setInputs(
-			this.simleft.getMotorOutputLeadVoltage(),
-			-this.simright.getMotorOutputLeadVoltage()
-		);
+		double
+			l_out = this.simleft.getMotorOutputLeadVoltage(),
+			r_out = this.simright.getMotorOutputLeadVoltage();
+		if(Math.abs(l_out) > this.parameters.kS()) l_out -= Math.copySign(this.parameters.kS(), l_out);
+		if(Math.abs(r_out) > this.parameters.kS()) r_out -= Math.copySign(this.parameters.kS(), r_out);
+		this.simbase.setInputs(l_out, -r_out);
 		this.simbase.update(0.02);
 
 		// the feedback values need to be inverted (compared to above where the right is inverted only), probably because we already invert both encoder outputs

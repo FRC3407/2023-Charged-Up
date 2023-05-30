@@ -48,12 +48,10 @@ public final class Runtime extends TimedRobot {
 			Constants.DRIVEBASE_NEUTRAL_MODE
 		);
 
-		public final Manipulator manipulator = new Manipulator(
-			new Manipulator.Arm(
-				Constants.ARM_WINCH_CAN_ID),
-			new Manipulator.Grabber(
-				Constants.GRABBER_CAN_ID,
-				Constants.GRABBER_WRIST_PWM_PORT)
+		public final Manipulator2 manipulator = new Manipulator2(
+			new Manipulator2.Arm(Constants.ARM_WINCH_CAN_ID),
+			new Manipulator2.Wrist.ServoImpl(Constants.GRABBER_WRIST_PWM_PORT),
+			new Manipulator2.Hand.NeverestGrabber(Constants.GRABBER_CAN_ID)
 		);
 
 

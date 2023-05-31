@@ -3,10 +3,10 @@ package frc.robot;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.Matrix;
 import edu.wpi.first.math.Nat;
+import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.interpolation.Interpolatable;
-import edu.wpi.first.math.numbers.N1;
-import edu.wpi.first.math.numbers.N2;
+import edu.wpi.first.math.numbers.*;
 import edu.wpi.first.math.system.NumericalIntegration;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.util.sendable.Sendable;
@@ -15,8 +15,6 @@ import edu.wpi.first.wpilibj.Counter;
 import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-import edu.wpi.first.wpilibj.simulation.DCMotorSim;
-import edu.wpi.first.wpilibj.simulation.SingleJointedArmSim;
 import edu.wpi.first.wpilibj2.command.CommandBase;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 
@@ -43,12 +41,12 @@ public class Manipulator2 implements Subsystem, Sendable {
 			ARM_V1_LINKAGE_LENGTH = 0.736541,
 			ARM_V1_ELBOW_SIM_OFFSET = 0.004563,	// not applicable on actual robot, but needed to align the simulated model
 			ARM_V2_LINKAGE_LENGTH = 0.800100,
-			ARM_V2_ELBOW_HEIGHT = 0.044450;
+			ARM_V2_ELBOW_HEIGHT = -0.044450;
 
 		public static final Translation3d
 			ROBOT_ORIGIN_TO_PIVOT = new Translation3d(ARM_PIVOT_X, 0, ARM_PIVOT_Z),
 			ARM_V1_LINKAGE_TRANSLATION = new Translation3d(ARM_V1_ELBOW_SIM_OFFSET, 0, ARM_V1_LINKAGE_LENGTH),
-			ARM_V2_LINKAGE_TRANSLATION = new Translation3d(ARM_V2_ELBOW_HEIGHT, 0, ARM_V2_LINKAGE_LENGTH);
+			ARM_V2_LINKAGE_TRANSLATION = new Translation3d(-ARM_V2_ELBOW_HEIGHT, 0, ARM_V2_LINKAGE_LENGTH);
 
 
 		/* These functions assume a standard coordinate base of 0.0 degrees for the arm translating to when it is hanging vertical,
@@ -167,18 +165,22 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public static final DCMotor WINCH_MOTOR = DCMotor.getCIM(1).withReduction(WINCH_GEARING);
 		public static final Translation2d
 			ARM_LINKAGE_TRANSLATION = Kinematics.HandBBox2d.ARM_V1_LINKAGE_TRANSLATION_2D,
-			ARM_HOOK_TRANSLATION = new Translation2d(-0.0469178132, 0.1419520656),
+			ARM_HOOK_TRANSLATION = new Translation2d(-0.0469178132, 0.1546520656),	// x=stick-out, y=length along arm
 			ARM_CENTER_OF_MASS = new Translation2d(0.0028245562, -0.3750274694),
 			HAND_CENTER_OF_MASS = new Translation2d(0.152565735, -0.0249556524),		// relative to the wrist
-			ROPE_FEED_TRANSLATION = new Translation2d(-0.1492605854, -0.0870382562);
+			ROPE_FEED_TRANSLATION = new Translation2d(-0.1492605854, -0.0870382562);	// the x,y where the rope is routed to the hook, relative to the pivot
 		public static final double
 			ARM_MASS = 2.0995949,			// kg
 			ARM_MOI_PIVOT = 0.479428,		// kgm^2
 			HAND_MASS = 1.80632943,			// kg
 			HAND_MOI_CENTERED = 0.03043285,	// kgm^2
+			WINCH_FREE_MOI = 0.0001,		// my best attempt at an educated guess - I have no idea if this is anywhere close to realistic, although this value doesn't really matter since the system will self-stabilize
+			ARM_HOOK_RADIUS = ARM_HOOK_TRANSLATION.getNorm(),
 			WINCH_SPOOL_RADIUS = 0.0127,
 			SPRING_PULL_RADIUS = 0.141456918,
-			SPRING_FORCE = 47.15115;		// newtons (10.6 lbs)
+			SPRING_FORCE = 47.15115,		// newtons (10.6 lbs)
+			MIN_REAL_ARM_ANGLE = -8.0,
+			MAX_REAL_ARM_ANGLE = 102.0;		// "Real" because sometimes the sensor readings go beyond these limits. These are the physically measured bounds.
 
 		public static Translation2d getSysCOM(double wrist_angle) {	// the location returned will need to be rotated by the arm angle for the absolute (x, y) COM
 			Translation2d hand_com = ARM_LINKAGE_TRANSLATION.plus(HAND_CENTER_OF_MASS.rotateBy(Rotation2d.fromDegrees(wrist_angle - 90.0)));	// find the hand's COM in the arm's coordinate space
@@ -200,12 +202,13 @@ public class Manipulator2 implements Subsystem, Sendable {
 			Translation2d hook = ARM_HOOK_TRANSLATION.rotateBy(Rotation2d.fromDegrees(arm_angle));
 			Translation2d delta = hook.minus(ROPE_FEED_TRANSLATION);
 			double cos = (hook.getX() * delta.getX() + hook.getY() * delta.getY()) / hook.getNorm() / delta.getNorm();
-			return ARM_HOOK_TRANSLATION.getNorm() * Math.sqrt(1 - cos * cos);
+			return ARM_HOOK_RADIUS * Math.sqrt(1 - cos * cos);
+		}
+		public static double feedToHookDistance(double arm_angle) {
+			return ARM_HOOK_TRANSLATION.rotateBy(Rotation2d.fromDegrees(arm_angle)).minus(ROPE_FEED_TRANSLATION).getNorm();
 		}
 
 		public static final class Integrator {
-
-			public static final double ARM_HOOK_RADIUS = ARM_HOOK_TRANSLATION.getNorm();
 
 			private Matrix<N1, N1> u_input;		// volts
 			private Matrix<N2, N1> x_state;
@@ -261,6 +264,112 @@ public class Manipulator2 implements Subsystem, Sendable {
 				).plus(this.B_matrix.times(u));
 				return xdot;
 
+			}
+
+		}
+		public static final class IntegratorV2 implements Sendable {
+
+			protected final double ROPE_INITIAL_DELTA = feedToHookDistance(0.0);
+
+			protected enum State {
+				ArmAngle			(0),
+				ArmVelocity			(1),
+				SpoolDisplacement	(2),
+				SpoolVelocity		(3);
+
+				public int idx;
+				private State(int i) { this.idx = i; }
+			}
+
+			private Matrix<N1, N1> u_input;
+			private Matrix<N4, N1> x_state, y_output;
+
+			private double
+				current_wrist_angle = 0.0,
+				current_system_MOI = getSysMOI(0.0);
+
+			public IntegratorV2() {
+				this.u_input = VecBuilder.fill(0.0);
+				this.x_state = Matrix.mat(Nat.N4(), Nat.N1()).fill(0.0, 0.0, 0.0, 0.0);
+				this.y_output = new Matrix<>(Nat.N4(), Nat.N1());
+			}
+
+			public void setInputs(double winch_volts, double wrist_angle) {
+				this.u_input.set(0, 0, winch_volts);
+				if(wrist_angle != this.current_wrist_angle) {
+					this.current_wrist_angle = wrist_angle;
+					this.current_system_MOI = getSysMOI(wrist_angle);
+				}
+			}
+			public void update(double dt_seconds) {
+				this.x_state = NumericalIntegration.rk4(this::dynamics, this.x_state, this.u_input, dt_seconds);
+				this.y_output = this.x_state;
+			}
+
+			public double getAngle() {
+				return Math.toDegrees(
+					this.y_output.get(State.ArmAngle.idx, 0));
+			}
+			public double getVelocity() {
+				return Math.toDegrees(
+					this.y_output.get(State.ArmVelocity.idx, 0));
+			}
+			public double getWinchCurrent() {
+				return WINCH_MOTOR.getCurrent(
+					this.y_output.get(State.SpoolVelocity.idx, 0),
+					this.u_input.get(0, 0)
+				);
+			}
+			public boolean getUpperLimit() {
+				return this.getAngle() >= MAX_REAL_ARM_ANGLE;
+			}
+
+			protected Matrix<N4, N1> dynamics(Matrix<N4, N1> x, Matrix<N1, N1> u) {
+
+				final double
+					arm_angle = Math.toDegrees(x.get(State.ArmAngle.idx, 0)),
+					tq_grav = getGravitationalTorque(arm_angle, this.current_wrist_angle),
+					tq_spring = estimateSpringTorque(arm_angle),
+					tq_motor = (WINCH_MOTOR.KtNMPerAmp / WINCH_MOTOR.rOhms) *
+						( u.get(0, 0) - (x.get(State.SpoolVelocity.idx, 0) / WINCH_MOTOR.KvRadPerSecPerVolt) ),
+					dx_rope = ROPE_INITIAL_DELTA - feedToHookDistance(arm_angle),		// the positive direction equates to the winch winding up and the rope getting shorter
+					dx_spool = x.get(State.SpoolDisplacement.idx, 0) * WINCH_SPOOL_RADIUS,
+					pull_radius = getEffectivePullRadius(arm_angle);
+				final int
+					f_norm_signum = (arm_angle >= MAX_REAL_ARM_ANGLE ? -1 : (arm_angle <= MIN_REAL_ARM_ANGLE ? 1 : 0));	// if the angle is past the bounds, apply the normal force in the opposite direction
+
+				double aa_arm, aa_spool;
+				// if(dx_rope >= dx_spool) {	// if there is tension in the rope
+				// 	final double tq_sys = (tq_motor / WINCH_SPOOL_RADIUS * pull_radius) - (tq_grav + tq_spring);
+				// 	aa_arm = tq_sys / (this.current_system_MOI + WINCH_FREE_MOI);
+				// 	aa_spool = aa_arm * pull_radius / WINCH_SPOOL_RADIUS;
+				// } else {	// else the arm and winch are independent systems
+				// 	aa_arm = -(tq_grav + tq_spring) / this.current_system_MOI;
+				// 	aa_spool = tq_motor / WINCH_FREE_MOI;
+				// }
+				// if(f_norm_signum != 0) {
+				// 	aa_arm = f_norm_signum * Math.abs(x.get(State.ArmVelocity.idx, 0) / 0.02);
+				// }
+				aa_arm = (tq_motor / WINCH_SPOOL_RADIUS * pull_radius) - (tq_grav + tq_spring) / this.current_system_MOI;
+				aa_spool = aa_arm * pull_radius / WINCH_SPOOL_RADIUS;
+
+				return Matrix.mat(Nat.N4(), Nat.N1()).fill(
+					x.get(State.ArmVelocity.idx, 0),
+					aa_arm,
+					x.get(State.SpoolVelocity.idx, 0),
+					aa_spool
+				);
+			}
+
+
+			@Override
+			public void initSendable(SendableBuilder b) {
+				b.addDoubleProperty("Arm COM Radius", ()->getSysCOM(this.current_system_MOI).getNorm(), null);
+				b.addDoubleProperty("Arm MOI", ()->getSysMOI(this.current_wrist_angle), null);
+				b.addDoubleProperty("Spring Torque", ()->estimateSpringTorque(this.getAngle()), null);
+				b.addDoubleProperty("Gravitational Torque", ()->getGravitationalTorque(this.getAngle(), this.current_wrist_angle), null);
+				b.addDoubleProperty("Pull Radius", ()->getEffectivePullRadius(this.getAngle()), null);
+				b.addDoubleProperty("Hook to Feed Distance", ()->feedToHookDistance(this.getAngle()), null);
 			}
 
 		}
@@ -578,7 +687,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 	public final Hand hand;
 
 	private final TalonSRXSimCollection simwinch;
-	private final Dynamics.Integrator simarm = new Dynamics.Integrator(0.0);
+	private final Dynamics.IntegratorV2 simarm = new Dynamics.IntegratorV2();
 
 	private double dynamic_arm_transform = Arm.sensorUnitsToDegrees(ARM_TOP_ABSOLUTE_RAW_POSITION);
 
@@ -602,15 +711,18 @@ public class Manipulator2 implements Subsystem, Sendable {
 	@Override
 	public void simulationPeriodic() {
 		this.simwinch.setBusVoltage(RobotController.getBatteryVoltage());
-		double v = this.simwinch.getMotorOutputLeadVoltage();
 
-		this.simarm.setInputs(v, this.getWristTransformedAngle());
+		this.simarm.setInputs(
+			this.simwinch.getMotorOutputLeadVoltage(),
+			this.getWristTransformedAngle()
+		);
 		this.simarm.update(0.02);
 
 		this.simwinch.setAnalogPosition(
 			(int)Arm.degreesToSensorUnits( this.arm_toAbsolute(this.simarm.getAngle()) ));
 		this.simwinch.setAnalogVelocity(
 			(int)Arm.degreesToSensorUnits( this.simarm.getVelocity() / 10.0 ));
+		this.simwinch.setLimitFwd(this.simarm.getUpperLimit());
 	}
 	@Override
 	public void initSendable(SendableBuilder b) {
@@ -624,11 +736,12 @@ public class Manipulator2 implements Subsystem, Sendable {
 		SmartDashboard.putData(basekey + "/Arm", this.arm);
 		SmartDashboard.putData(basekey + "/Wrist", this.wrist);
 		SmartDashboard.putData(basekey + "/Hand", this.hand);
+		SmartDashboard.putData(basekey + "/Sim", this.simarm);
 	}
 
 
-	private double arm_toTransformed(double a) { return a - this.dynamic_arm_transform + ARM_TOP_ABSOLUTE_RAW_POSITION; }
-	private double arm_toAbsolute(double t) { return t + this.dynamic_arm_transform - ARM_TOP_ABSOLUTE_RAW_POSITION; }
+	private double arm_toTransformed(double a) { return a - this.dynamic_arm_transform + ARM_TOP_LIMIT_TRANSLATION; }
+	private double arm_toAbsolute(double t) { return t + this.dynamic_arm_transform - ARM_TOP_LIMIT_TRANSLATION; }
 	private double wrist_toTransformed(double a) { return a - WRIST_PARALLEL_TRANSLATION; }
 	private double wrist_toAbsolute(double t) { return t + WRIST_PARALLEL_TRANSLATION; }
 
@@ -650,6 +763,10 @@ public class Manipulator2 implements Subsystem, Sendable {
 			this.getArmTransformedAngle(),
 			this.getWristTransformedAngle()
 		);
+	}
+
+	public double getSimCurrentDraw() {
+		return this.simarm.getWinchCurrent();
 	}
 
 	public void setArmStandardized(double degrees) {

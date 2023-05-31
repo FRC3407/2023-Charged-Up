@@ -161,7 +161,8 @@ public final class Runtime extends TimedRobot {
 	public void simulationPeriodic() {
 		RoboRioSim.setVInVoltage(
 			BatterySim.calculateDefaultBatteryLoadedVoltage(
-				this.robot.drivebase.getSimCurrentDraw()	// add other systems when applicable...
+				this.robot.drivebase.getSimCurrentDraw(),
+				this.robot.manipulator.getSimCurrentDraw()
 		));
 	}
 

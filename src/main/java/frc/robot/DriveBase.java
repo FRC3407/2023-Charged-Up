@@ -10,7 +10,9 @@ import edu.wpi.first.math.trajectory.*;
 import edu.wpi.first.math.controller.*;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.kinematics.*;
+import edu.wpi.first.math.numbers.N2;
 import edu.wpi.first.math.VecBuilder;
+import edu.wpi.first.math.system.LinearSystem;
 import edu.wpi.first.math.system.plant.LinearSystemId;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
@@ -135,6 +137,7 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 	private final WPI_TalonSRX left, left2, right, right2;
 	private final Gyro gyro;
 
+	private final LinearSystem<N2, N2, N2> simdifferential;
 	private final DifferentialDrivetrainSim simbase;
 	private final TalonSRXSimCollection simleft, simright;
 
@@ -174,11 +177,12 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 		this.right.setSensorPhase(parameters.encoder_inversions.right);
 
 		// change to only init if needed
+		this.simdifferential = LinearSystemId.identifyDrivetrainSystem(
+			this.parameters.kV(), this.parameters.kA(),
+			2.3416, 0.50996
+		);
 		this.simbase = new DifferentialDrivetrainSim(
-			LinearSystemId.identifyDrivetrainSystem(		// use characterization values rather than MOI and mass theoretical sim
-				this.parameters.kV(), this.parameters.kA(),
-				2.3416, 0.50996
-			),
+			this.simdifferential,
 			KitbotMotor.kDualCIMPerSide.value,
 			KitbotGearing.k7p31.value,
 			// 7.494227,	// Calculated using the CAD center of mass then manually setting the mass to be 90lbs
@@ -489,6 +493,16 @@ public final class DriveBase extends MotorSafety implements Subsystem, Sendable 
 
 	public double getSimCurrentDraw() {
 		return this.simbase.getCurrentDrawAmps();
+	}
+	public double getSimForwardAcceleration() {
+		var x = VecBuilder.fill(
+			this.simbase.getLeftVelocityMetersPerSecond(),
+			this.simbase.getRightVelocityMetersPerSecond());
+		var u = VecBuilder.fill(
+			this.simleft.getMotorOutputLeadVoltage(),
+			-this.simright.getMotorOutputLeadVoltage());
+		var xdot = this.simdifferential.getA().times(x).plus(this.simdifferential.getB().times(u));
+		return -(xdot.get(0, 0) + xdot.get(1, 0)) / 2.0;
 	}
 
 

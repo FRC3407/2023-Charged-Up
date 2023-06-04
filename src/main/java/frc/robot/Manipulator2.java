@@ -12,6 +12,7 @@ import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.Counter;
+import edu.wpi.first.wpilibj.RobotBase;
 import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
@@ -45,7 +46,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 		public static final Translation3d
 			ROBOT_ORIGIN_TO_PIVOT = new Translation3d(ARM_PIVOT_X, 0, ARM_PIVOT_Z),
-			ARM_V1_LINKAGE_TRANSLATION = new Translation3d(ARM_V1_ELBOW_SIM_OFFSET, 0, ARM_V1_LINKAGE_LENGTH),
+			ARM_V1_LINKAGE_TRANSLATION = new Translation3d(-ARM_V1_ELBOW_SIM_OFFSET, 0, ARM_V1_LINKAGE_LENGTH),
 			ARM_V2_LINKAGE_TRANSLATION = new Translation3d(-ARM_V2_ELBOW_HEIGHT, 0, ARM_V2_LINKAGE_LENGTH);
 
 
@@ -165,48 +166,97 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public static final DCMotor WINCH_MOTOR = DCMotor.getCIM(1).withReduction(WINCH_GEARING);
 		public static final Translation2d
 			ARM_LINKAGE_TRANSLATION = Kinematics.HandBBox2d.ARM_V1_LINKAGE_TRANSLATION_2D,
-			ARM_HOOK_TRANSLATION = new Translation2d(-0.0469178132, 0.1546520656),	// x=stick-out, y=length along arm
-			ARM_CENTER_OF_MASS = new Translation2d(0.0028245562, -0.3750274694),
-			HAND_CENTER_OF_MASS = new Translation2d(0.152565735, -0.0249556524),		// relative to the wrist
-			ROPE_FEED_TRANSLATION = new Translation2d(-0.1492605854, -0.0870382562);	// the x,y where the rope is routed to the hook, relative to the pivot
+			ARM_CENTER_OF_MASS = new Translation2d(0.002827, -0.3750491),
+			HAND_CENTER_OF_MASS = new Translation2d(0.152717, -0.024010),	// relative to the wrist
+			ARM_HOOK_TRANSLATION = new Translation2d(-0.046038, 0.142240),	// x=stick-out, y=length along arm
+			ROPE_FEED_TRANSLATION = new Translation2d(-0.141321, -0.085822),	// the x,y where the rope is routed to the hook, relative to the pivot
+			SPRING_BOLT_TRANSLATION = new Translation2d(-0.022225, -0.139700),
+			SPRING_CENTER_TRANSLATION = new Translation2d(-0.054873, -0.060991);
 		public static final double
-			ARM_MASS = 2.0995949,			// kg
-			ARM_MOI_PIVOT = 0.479428,		// kgm^2
-			HAND_MASS = 1.80632943,			// kg
-			HAND_MOI_CENTERED = 0.03043285,	// kgm^2
-			WINCH_FREE_MOI = 0.0001,		// my best attempt at an educated guess - I have no idea if this is anywhere close to realistic, although this value doesn't really matter since the system will self-stabilize
+			ARM_MASS = 2.099,			// kg
+			ARM_PIVOT_RI = 0.479,		// kgm^2
+			HAND_MASS = 1.806,			// kg
+			HAND_CG_RI = 0.039,			// kgm^2
+			WINCH_FREE_RI = 0.015,		// my best attempt at an educated guess - I have no idea if this is anywhere close to realistic, although this value doesn't really matter since the system will self-stabilize
 			ARM_HOOK_RADIUS = ARM_HOOK_TRANSLATION.getNorm(),
 			WINCH_SPOOL_RADIUS = 0.0127,
-			SPRING_PULL_RADIUS = 0.141456918,
-			SPRING_FORCE = 47.15115,		// newtons (10.6 lbs)
+			SPRING_PULL_RADIUS = SPRING_BOLT_TRANSLATION.getNorm(),
+			SPRING_FORCE = 73.4,		// newtons (16.5 lbs)
+			ARM_FRICTIONAL_TORQUE = 0.1,
 			MIN_REAL_ARM_ANGLE = -8.0,
 			MAX_REAL_ARM_ANGLE = 102.0;		// "Real" because sometimes the sensor readings go beyond these limits. These are the physically measured bounds.
 
-		public static Translation2d getSysCOM(double wrist_angle) {	// the location returned will need to be rotated by the arm angle for the absolute (x, y) COM
-			Translation2d hand_com = ARM_LINKAGE_TRANSLATION.plus(HAND_CENTER_OF_MASS.rotateBy(Rotation2d.fromDegrees(wrist_angle - 90.0)));	// find the hand's COM in the arm's coordinate space
-			return hand_com.times(HAND_MASS).plus(ARM_CENTER_OF_MASS.times(ARM_MASS)).div(HAND_MASS + ARM_MASS);	// weighted average of the COMs using the component masses
+
+		public static Translation2d getArmCG(double wrist_angle) {	// the location returned will need to be rotated by the arm angle for the absolute (x, y) COM
+			Translation2d hand_cg = ARM_LINKAGE_TRANSLATION.plus(		// find the hand's COM in the arm's coordinate space
+				HAND_CENTER_OF_MASS.rotateBy(Rotation2d.fromDegrees(wrist_angle - 90.0)));
+			return hand_cg.times(HAND_MASS).plus(ARM_CENTER_OF_MASS.times(ARM_MASS)).div(HAND_MASS + ARM_MASS);	// weighted average of the COMs using the component masses
 		}
-		public static double getSysMOI(double wrist_angle) {
-			return ARM_MOI_PIVOT + HAND_MOI_CENTERED + HAND_MASS * Math.pow(
+		public static Translation2d getArmCG(double arm_angle, double wrist_angle) {	// this returns the CG position x,y (x,z in 3d) considering the arm's angle
+			return getArmCG(wrist_angle).rotateBy(Rotation2d.fromDegrees(arm_angle));
+		}
+		public static double getArmRI(double wrist_angle) {
+			return ARM_PIVOT_RI + HAND_CG_RI + HAND_MASS * Math.pow(
 				HAND_CENTER_OF_MASS.rotateBy(Rotation2d.fromDegrees(wrist_angle - 90.0)).plus(ARM_LINKAGE_TRANSLATION).getNorm(), 2);
 					// ^ get the hand's center of mass (x, y) compared to the pivot point, then then normal will be the radius
 		}
+
 		public static double estimateSpringTorque(double arm_angle) {
 			return SPRING_FORCE * SPRING_PULL_RADIUS * Math.cos(Math.toRadians((arm_angle + 5.0) / 110.0 * 90.0));
 		}
-		public static double getGravitationalTorque(double arm_angle, double wrist_angle) {
-			Translation2d sys_com = getSysCOM(wrist_angle).rotateBy(Rotation2d.fromDegrees(arm_angle));
-			return 9.8 * (ARM_MASS + HAND_MASS) * sys_com.getX();	// multiply by radius, then multiply by cos(theta), which equals x/radius, so the radius cancels
+		public static double getSpringTorque(double arm_angle) {
+			Translation2d bolt = SPRING_BOLT_TRANSLATION.rotateBy(Rotation2d.fromDegrees(arm_angle));
+			Translation2d delta = bolt.minus(SPRING_CENTER_TRANSLATION);
+			double cos = (bolt.getX() * delta.getX() + bolt.getY() * delta.getY()) / (bolt.getNorm() * delta.getNorm());
+			return SPRING_FORCE * SPRING_PULL_RADIUS * Math.sqrt(1 - cos * cos);
 		}
+		public static double getGravitationalTorque(Translation2d cg) {
+			return 9.8 * (ARM_MASS + HAND_MASS) * cg.getX();	// multiply by radius, then multiply by cos(theta), which equals x/radius, so the radius cancels
+		}
+		public static double getGravitationalTorque(double arm_angle, double wrist_angle) {
+			return getGravitationalTorque(getArmCG(arm_angle, wrist_angle));
+		}
+		public static double getForwardAccTorque(double acc, Translation2d cg) {
+			return -acc * (ARM_MASS + HAND_MASS) * cg.getY();
+		}
+		public static double getForwardAccTorque(double acc, double arm_angle, double wrist_angle) {
+			return getForwardAccTorque(acc, getArmCG(arm_angle, wrist_angle));
+		}
+
 		public static double getEffectivePullRadius(double arm_angle) {
 			Translation2d hook = ARM_HOOK_TRANSLATION.rotateBy(Rotation2d.fromDegrees(arm_angle));
 			Translation2d delta = hook.minus(ROPE_FEED_TRANSLATION);
-			double cos = (hook.getX() * delta.getX() + hook.getY() * delta.getY()) / hook.getNorm() / delta.getNorm();
+			double cos = (hook.getX() * delta.getX() + hook.getY() * delta.getY()) / (hook.getNorm() * delta.getNorm());
 			return ARM_HOOK_RADIUS * Math.sqrt(1 - cos * cos);
 		}
-		public static double feedToHookDistance(double arm_angle) {
+
+		public static double ropeDelta(double arm_angle) {
 			return ARM_HOOK_TRANSLATION.rotateBy(Rotation2d.fromDegrees(arm_angle)).minus(ROPE_FEED_TRANSLATION).getNorm();
 		}
+		/** See here for derivation: https://www.derivative-calculator.net/#expr=%5Csqrt%7B%5Cleft%28c%5Ccos%5Cleft%28%5Ctheta%5Cright%29-d%5Csin%5Cleft%28%5Ctheta%5Cright%29-a%5Cright%29%5E%7B2%7D%2B%5Cleft%28c%5Csin%5Cleft%28%5Ctheta%5Cright%29%2Bd%5Ccos%5Cleft%28%5Ctheta%5Cright%29-b%5Cright%29%5E%7B2%7D%7D&diffvar=theta&difforder=2&simplify=1 */
+		public static double ropeDeltaPrimePrime(double arm_angle) {
+			final double
+				sin = Math.sin(Math.toRadians(arm_angle)),
+				cos = Math.cos(Math.toRadians(arm_angle)),
+				a = ROPE_FEED_TRANSLATION.getX(),
+				b = ROPE_FEED_TRANSLATION.getY(),
+				c = ARM_HOOK_TRANSLATION.getX(),
+				d = ARM_HOOK_TRANSLATION.getY(),
+
+				sin2 = (sin * sin),
+				cos2 = (cos * cos),
+				c2 = (c * c),
+				d2 = (d * d),
+
+				m = (a*d*sin - b*c*sin - a*(c*cos - a) - b*(d*cos - b)),
+				n = (d2*sin2 + c2*sin2 + a*d*sin - b*c*sin + d2*cos2 + c2*cos2 - b*d*cos - a*c*cos),
+				j = (d*sin - c*cos + a),
+				k = (c*sin + d*cos - b),
+				o = (j*j + k*k);
+
+			return -(m * n) / Math.pow(o, 1.5);
+		}
+
 
 		public static final class Integrator {
 
@@ -219,7 +269,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 			// The output is equal to the state, so we don't need a C or D matrix.
 
 			private double wrist_angle = 0.0;
-			private double sys_MOI = getSysMOI(0.0);
+			private double sys_MOI = getArmRI(0.0);
 
 
 			public Integrator(double init_angle) {
@@ -233,7 +283,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 			public void setInputs(double volts, double wrist_angle) {
 				this.u_input.set(0, 0, volts);	// limit to battery voltage?
 				this.wrist_angle = wrist_angle;
-				this.sys_MOI = getSysMOI(this.wrist_angle);
+				this.sys_MOI = getArmRI(this.wrist_angle);
 			}
 			public void update(double dt_seconds) {
 				this.x_state = NumericalIntegration.rk4(this::dynamics, this.x_state, this.u_input, dt_seconds);
@@ -269,7 +319,11 @@ public class Manipulator2 implements Subsystem, Sendable {
 		}
 		public static final class IntegratorV2 implements Sendable {
 
-			protected final double ROPE_INITIAL_DELTA = feedToHookDistance(0.0);
+			protected final double
+				ROPE_INITIAL_DELTA = ropeDelta(0.0),
+				VEL_EPSILON = 0.1,
+				ACC_EPSILON = 10.0,
+				TQ_EPSILON = 0.01;
 
 			protected enum State {
 				ArmAngle			(0),
@@ -279,27 +333,49 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 				public int idx;
 				private State(int i) { this.idx = i; }
+
+				public double from(Matrix<N4, N1> x) {
+					return x.get(this.idx, 0);
+				}
+			}
+			protected enum Input {
+				Voltage		(0),
+				ForwardAcc	(1);
+
+				public int idx;
+				private Input(int i) { this.idx = i; }
+
+				public double from(Matrix<N2, N1> x) {
+					return x.get(this.idx, 0);
+				}
 			}
 
-			private Matrix<N1, N1> u_input;
+			private Matrix<N2, N1> u_input;
 			private Matrix<N4, N1> x_state, y_output;
 
 			private double
 				current_wrist_angle = 0.0,
-				current_system_MOI = getSysMOI(0.0);
+				current_arm_RI = getArmRI(0.0);
 
 			public IntegratorV2() {
-				this.u_input = VecBuilder.fill(0.0);
-				this.x_state = Matrix.mat(Nat.N4(), Nat.N1()).fill(0.0, 0.0, 0.0, 0.0);
+				this.u_input = VecBuilder.fill(0.0, 0.0);
+				this.x_state = Matrix.mat(Nat.N4(), Nat.N1()).fill(1.5, 0.0, 0.0, 0.0);
 				this.y_output = new Matrix<>(Nat.N4(), Nat.N1());
 			}
 
+			public void applyForwardAcceleration(double robot_acc_fb) {
+				this.u_input.set(Input.ForwardAcc.idx, 0, robot_acc_fb);
+			}
 			public void setInputs(double winch_volts, double wrist_angle) {
-				this.u_input.set(0, 0, winch_volts);
+				this.u_input.set(Input.Voltage.idx, 0, winch_volts);
 				if(wrist_angle != this.current_wrist_angle) {
 					this.current_wrist_angle = wrist_angle;
-					this.current_system_MOI = getSysMOI(wrist_angle);
+					this.current_arm_RI = getArmRI(wrist_angle);
 				}
+			}
+			public void setInputs(double winch_volts, double wrist_angle, double robot_acc_fb) {
+				this.setInputs(winch_volts, wrist_angle);
+				this.applyForwardAcceleration(robot_acc_fb);
 			}
 			public void update(double dt_seconds) {
 				this.x_state = NumericalIntegration.rk4(this::dynamics, this.x_state, this.u_input, dt_seconds);
@@ -307,69 +383,108 @@ public class Manipulator2 implements Subsystem, Sendable {
 			}
 
 			public double getAngle() {
-				return Math.toDegrees(
-					this.y_output.get(State.ArmAngle.idx, 0));
+				return Math.toDegrees(State.ArmAngle.from(this.y_output));
 			}
 			public double getVelocity() {
-				return Math.toDegrees(
-					this.y_output.get(State.ArmVelocity.idx, 0));
+				return Math.toDegrees(State.ArmVelocity.from(this.y_output));
 			}
 			public double getWinchCurrent() {
-				return WINCH_MOTOR.getCurrent(
-					this.y_output.get(State.SpoolVelocity.idx, 0),
-					this.u_input.get(0, 0)
-				);
+				return Math.abs(WINCH_MOTOR.getCurrent(
+					State.SpoolVelocity.from(this.y_output),
+					Input.Voltage.from(this.u_input)
+				));
 			}
 			public boolean getUpperLimit() {
 				return this.getAngle() >= MAX_REAL_ARM_ANGLE;
 			}
 
-			protected Matrix<N4, N1> dynamics(Matrix<N4, N1> x, Matrix<N1, N1> u) {
+			protected double frictSignum(double vel, double tq) {
+				double v = Math.signum(vel < VEL_EPSILON && vel > -VEL_EPSILON ? 0.0 : vel);
+				if(v != 0.0) { return -v * ARM_FRICTIONAL_TORQUE; }
+				else { return -Math.copySign(Math.min(Math.abs(tq), ARM_FRICTIONAL_TORQUE), tq); }
+			}
+			protected Matrix<N4, N1> dynamics(Matrix<N4, N1> x, Matrix<N2, N1> u) {
 
 				final double
-					arm_angle = Math.toDegrees(x.get(State.ArmAngle.idx, 0)),
-					tq_grav = getGravitationalTorque(arm_angle, this.current_wrist_angle),
-					tq_spring = estimateSpringTorque(arm_angle),
-					tq_motor = (WINCH_MOTOR.KtNMPerAmp / WINCH_MOTOR.rOhms) *
-						( u.get(0, 0) - (x.get(State.SpoolVelocity.idx, 0) / WINCH_MOTOR.KvRadPerSecPerVolt) ),
-					dx_rope = ROPE_INITIAL_DELTA - feedToHookDistance(arm_angle),		// the positive direction equates to the winch winding up and the rope getting shorter
-					dx_spool = x.get(State.SpoolDisplacement.idx, 0) * WINCH_SPOOL_RADIUS,
-					pull_radius = getEffectivePullRadius(arm_angle);
-				final int
-					f_norm_signum = (arm_angle >= MAX_REAL_ARM_ANGLE ? -1 : (arm_angle <= MIN_REAL_ARM_ANGLE ? 1 : 0));	// if the angle is past the bounds, apply the normal force in the opposite direction
+					arm_angle = Math.toDegrees(State.ArmAngle.from(x)),
+					arm_velocity = State.ArmVelocity.from(x),
+					spool_velocity = State.SpoolVelocity.from(x),
+					voltage = Input.Voltage.from(u),
+					forward_acc = Input.ForwardAcc.from(u);
+				final Translation2d
+					arm_CG = getArmCG(arm_angle, this.current_wrist_angle);
+				final double
+					tq_motor = WINCH_MOTOR.getTorque(WINCH_MOTOR.getCurrent(spool_velocity, voltage)),
+					tq_grav = getGravitationalTorque(arm_CG),
+					tq_spring = getSpringTorque(arm_angle),
+					tq_dbase = getForwardAccTorque(forward_acc, arm_CG),
+					tq_static = tq_dbase - (tq_grav + tq_spring),
+					tq_friction = frictSignum(arm_velocity, tq_static),
+					tq_total = tq_static + tq_friction,
 
-				double aa_arm, aa_spool;
-				// if(dx_rope >= dx_spool) {	// if there is tension in the rope
-				// 	final double tq_sys = (tq_motor / WINCH_SPOOL_RADIUS * pull_radius) - (tq_grav + tq_spring);
-				// 	aa_arm = tq_sys / (this.current_system_MOI + WINCH_FREE_MOI);
-				// 	aa_spool = aa_arm * pull_radius / WINCH_SPOOL_RADIUS;
-				// } else {	// else the arm and winch are independent systems
-				// 	aa_arm = -(tq_grav + tq_spring) / this.current_system_MOI;
-				// 	aa_spool = tq_motor / WINCH_FREE_MOI;
+					dx2_rope = ropeDeltaPrimePrime(arm_angle),
+					r_pull = getEffectivePullRadius(arm_angle),
+
+					lf_motor = tq_motor / WINCH_SPOOL_RADIUS,
+					lf_static = tq_static / r_pull,		// the linear force from each component on the rope
+					lf_sys = lf_motor + lf_static;
+
+				double
+					a_norm = 0.0,
+					av_arm = arm_velocity,
+					aa_arm = (tq_total) / this.current_arm_RI,
+					aa_spool = tq_motor / WINCH_FREE_RI;
+
+				// aa_arm = lf_sys / (
+				// 	(dx2_rope * WINCH_FREE_MOI / (WINCH_SPOOL_RADIUS * WINCH_SPOOL_RADIUS))
+				// 		+ (this.current_arm_MOI / r_pull));
+
+				if(arm_angle <= MIN_REAL_ARM_ANGLE) {
+					a_norm = -Math.min(aa_arm, 0.0)
+						- Math.min(arm_velocity, 0.0) / 0.02		// remove this term for a perfectly ellastic collision
+						+ Math.toRadians(Math.abs(MIN_REAL_ARM_ANGLE - arm_angle)) / 0.0008;
+				} else if(arm_angle >= MAX_REAL_ARM_ANGLE) {
+					a_norm = -Math.max(aa_arm, 0.0)
+						- Math.max(arm_velocity, 0.0) / 0.02		// ^^
+						- Math.toRadians(Math.abs(MIN_REAL_ARM_ANGLE - arm_angle)) / 0.0008;
+				}
+				aa_arm += a_norm;
+				// aa_spool = aa_arm * dx2_rope / WINCH_SPOOL_RADIUS;
+
+				// if(
+				// 	av_arm < VEL_EPSILON && av_arm > -VEL_EPSILON &&
+				// 	aa_arm < ACC_EPSILON && aa_arm > -ACC_EPSILON &&
+				// 	tq_total < TQ_EPSILON && tq_total > -TQ_EPSILON
+				// ) {
+				// 	av_arm = 0.0;
+				// 	aa_arm = 0.0;
 				// }
-				// if(f_norm_signum != 0) {
-				// 	aa_arm = f_norm_signum * Math.abs(x.get(State.ArmVelocity.idx, 0) / 0.02);
-				// }
-				aa_arm = (tq_motor / WINCH_SPOOL_RADIUS * pull_radius) - (tq_grav + tq_spring) / this.current_system_MOI;
-				aa_spool = aa_arm * pull_radius / WINCH_SPOOL_RADIUS;
 
 				return Matrix.mat(Nat.N4(), Nat.N1()).fill(
-					x.get(State.ArmVelocity.idx, 0),
+					av_arm,
 					aa_arm,
-					x.get(State.SpoolVelocity.idx, 0),
+					spool_velocity,
 					aa_spool
 				);
+
 			}
 
 
 			@Override
 			public void initSendable(SendableBuilder b) {
-				b.addDoubleProperty("Arm COM Radius", ()->getSysCOM(this.current_system_MOI).getNorm(), null);
-				b.addDoubleProperty("Arm MOI", ()->getSysMOI(this.current_wrist_angle), null);
-				b.addDoubleProperty("Spring Torque", ()->estimateSpringTorque(this.getAngle()), null);
+				b.addDoubleProperty("Arm Angle", this::getAngle, null);
+				b.addDoubleProperty("Arm Velocity", this::getVelocity, null);
+				b.addDoubleProperty("Arm CG Radius", ()->getArmCG(this.current_wrist_angle).getNorm(), null);
+				b.addDoubleProperty("Arm RI", ()->getArmRI(this.current_wrist_angle), null);
+				// b.addDoubleProperty("Estimated Spring Torque", ()->estimateSpringTorque(this.getAngle()), null);
+				b.addDoubleProperty("Spring Torque", ()->getSpringTorque(this.getAngle()), null);
 				b.addDoubleProperty("Gravitational Torque", ()->getGravitationalTorque(this.getAngle(), this.current_wrist_angle), null);
+				b.addDoubleProperty("Ext Acceleration Torque", ()->getForwardAccTorque(Input.ForwardAcc.from(this.u_input), this.getAngle(), this.current_wrist_angle), null);
 				b.addDoubleProperty("Pull Radius", ()->getEffectivePullRadius(this.getAngle()), null);
-				b.addDoubleProperty("Hook to Feed Distance", ()->feedToHookDistance(this.getAngle()), null);
+				b.addDoubleProperty("Hook to Feed Distance", ()->ropeDelta(this.getAngle()), null);
+				b.addDoubleProperty("Rope Delta 2nd Derivative", ()->ropeDeltaPrimePrime(this.getAngle()), null);
+				b.addDoubleProperty("Spool Velocity", ()->State.SpoolVelocity.from(this.y_output), null);
+				b.addDoubleProperty("Spool Rotations", ()->State.SpoolDisplacement.from(this.y_output) / 2 / Math.PI, null);
 			}
 
 		}
@@ -464,7 +579,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 			this.winch.configFactoryDefault();
 			this.winch.setNeutralMode(NeutralMode.Brake);
 			this.winch.configSelectedFeedbackSensor(FB_TYPE, CL_IDX, 0);
-			this.winch.configFeedbackNotContinuous(DISABLE_CONINUOUS_FB, 0);
+			this.winch.configFeedbackNotContinuous(DISABLE_CONINUOUS_FB && RobotBase.isReal(), 0);
 			this.winch.setSensorPhase(INVERT_FB_RANGE);
 			this.winch.configForwardLimitSwitchSource(LMT_FB_SOURCE, LMT_FB_NORMALITY);
 			this.winch.configReverseLimitSwitchSource(LMT_FB_SOURCE, LMT_FB_NORMALITY);
@@ -544,7 +659,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public static final class ServoImpl extends Wrist {
 
 			public static final boolean
-				INVERT_OUTPUT_RANGE = true;
+				INVERT_OUTPUT_RANGE = true && RobotBase.isReal();
 			public static final double
 				MIN_PULSE_uS = 550.0,
 				MAX_PULSE_uS = 2450.0,
@@ -704,9 +819,9 @@ public class Manipulator2 implements Subsystem, Sendable {
 		this.arm.periodic();
 		this.wrist.periodic();
 		this.hand.periodic();
-		if(this.arm.winch.isFwdLimitSwitchClosed() > 0) {
-			this.dynamic_arm_transform = this.arm.getAbsoluteDegrees();
-		}
+		// if(this.arm.winch.isFwdLimitSwitchClosed() > 0) {
+		// 	this.dynamic_arm_transform = this.arm.getAbsoluteDegrees();
+		// }
 	}
 	@Override
 	public void simulationPeriodic() {
@@ -736,21 +851,23 @@ public class Manipulator2 implements Subsystem, Sendable {
 		SmartDashboard.putData(basekey + "/Arm", this.arm);
 		SmartDashboard.putData(basekey + "/Wrist", this.wrist);
 		SmartDashboard.putData(basekey + "/Hand", this.hand);
-		SmartDashboard.putData(basekey + "/Sim", this.simarm);
+		if(RobotBase.isSimulation()) {
+			SmartDashboard.putData(basekey + "/Sim", this.simarm);
+		}
 	}
 
 
 	private double arm_toTransformed(double a) { return a - this.dynamic_arm_transform + ARM_TOP_LIMIT_TRANSLATION; }
 	private double arm_toAbsolute(double t) { return t + this.dynamic_arm_transform - ARM_TOP_LIMIT_TRANSLATION; }
-	private double wrist_toTransformed(double a) { return a - WRIST_PARALLEL_TRANSLATION; }
-	private double wrist_toAbsolute(double t) { return t + WRIST_PARALLEL_TRANSLATION; }
+	private static double wrist_toTransformed(double a) { return a - WRIST_PARALLEL_TRANSLATION; }
+	private static double wrist_toAbsolute(double t) { return t + WRIST_PARALLEL_TRANSLATION; }
 
 
 	public double getArmTransformedAngle() {
 		return this.arm_toTransformed(this.arm.getAbsoluteDegrees());
 	}
 	public double getWristTransformedAngle() {
-		return this.wrist_toTransformed(this.wrist.getAbsoluteDegrees());
+		return wrist_toTransformed(this.wrist.getAbsoluteDegrees());
 	}
 	public ManipulatorPose getFeedbackPose() {
 		return new ManipulatorPose(
@@ -765,6 +882,9 @@ public class Manipulator2 implements Subsystem, Sendable {
 		);
 	}
 
+	public void setSimForwardAcc(double robot_acc) {
+		this.simarm.applyForwardAcceleration(robot_acc);
+	}
 	public double getSimCurrentDraw() {
 		return this.simarm.getWinchCurrent();
 	}
@@ -877,7 +997,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 			if(grate != 0) { this.intake_locked_state = false; }
 			this.manipulator.arm.setVoltage(this.arm_locked_state ? ARM_WINCH_LOCK_VOLTS : (arate * ARM_WINCH_VOLTAGE_SCALE));
 			this.manipulator.hand.setVoltage(this.intake_locked_state ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
-			this.manipulator.wrist.setDegrees(this.wrist_position);
+			this.manipulator.wrist.setDegrees(wrist_toAbsolute(this.wrist_position));
 		}
 		@Override
 		public boolean isFinished() {

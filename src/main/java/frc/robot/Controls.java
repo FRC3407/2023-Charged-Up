@@ -179,7 +179,7 @@ public final class Controls {
 		return ()->x.getValueOf(i) - y.getValueOf(i);
 	}
 	private static AnalogSupplier XMinusYScaled(AnalogMap x, AnalogMap y, InputDevice i, double scale) {
-		return ()->(x.getValueOf(i) - y.getValueOf(i)) * scale;
+		return ()->((x.getValueOf(i) - y.getValueOf(i)) * scale);
 	}
 	private static BooleanSupplier ANotB(DigitalMap a, DigitalMap b, InputDevice i) {
 		return ANotB(a, b, i, i);
@@ -224,7 +224,7 @@ public final class Controls {
 		// 	}
 		// }
 		dds = standardArcadeDriveSupreme(
-			XMinusYScaled(Xbox.Analog.RT, Xbox.Analog.LT, controller, MAX_DRIVE_VELOCITY),
+			XMinusYScaled(Xbox.Analog.RT, Xbox.Analog.LT, controller, -MAX_DRIVE_VELOCITY),
 			standardDriveSupplier(Xbox.Analog.LX, controller, MAX_DRIVE_VELOCITY * -1.0 * ROTATION_RATE_SCALE),
 			ANotB(Xbox.Digital.RB, Xbox.Digital.LB, controller),
 			ANotB(Xbox.Digital.LB, Xbox.Digital.RB, controller)

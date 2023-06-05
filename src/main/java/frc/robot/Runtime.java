@@ -1,7 +1,9 @@
 package frc.robot;
 
+import java.io.File;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
+import javax.swing.filechooser.FileSystemView;
 
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
@@ -27,6 +29,7 @@ import frc.robot.team3407.controls.Input.*;
 import frc.robot.team3407.drive.DriveSupplier.*;
 import frc.robot.team3407.controls.ControlSchemeManager;
 import frc.robot.team3407.ADIS16470_3X;
+import frc.robot.team3407.SenderNT;
 import frc.robot.team3407.Util;
 
 
@@ -81,8 +84,11 @@ public final class Runtime extends TimedRobot {
 
 
 	private final Robot robot = new Robot();
-	private final Performance perf_counter = new Performance();
+	private final Performance perf_main = new Performance();
 	private final ControlSchemeManager controls = new ControlSchemeManager();
+
+	private Performance perf_sim;
+	private SenderNT sim_sender;
 
 	private static final Runtime runtime = new Runtime();
 	public static Runtime Get() { return Runtime.runtime; }
@@ -99,10 +105,32 @@ public final class Runtime extends TimedRobot {
 		System.out.println("Using Wpilib Version " + WPILibVersion.Version);
 
 		this.robot.initialize();
-		SmartDashboard.putData("Performance", this.perf_counter);
+		SmartDashboard.putData("Performance", this.perf_main);
 		Vision.init();
 
-		if(isReal()) { DataLogManager.start(); } else { DataLogManager.start("logs/sim"); }
+		if(isReal()) {
+			DataLogManager.start();
+		} else {
+			File docs_dir = new File(FileSystemView.getFileSystemView().getDefaultDirectory(), "Robot Simulation Logs");
+			if(docs_dir.exists()) {
+				DataLogManager.start(docs_dir.getPath());
+			} else {
+				DataLogManager.start("logs/sim");
+			}
+			this.perf_sim = new Performance();
+			this.sim_sender = new SenderNT("Sim++");
+			this.sim_sender.putData("Performance", this.perf_sim);
+			this.robot.manipulator.logSim(this.sim_sender);
+			this.addPeriodic(
+				()->{
+					this.perf_sim.loopInit();
+					this.robot.manipulator.simTick(0.002);
+					this.sim_sender.updateValues();
+					this.perf_sim.loopEnd();
+				},
+				0.002
+			);
+		}
 		DriverStation.startDataLog(DataLogManager.getLog());
 		PathPlannerServer.startServer(5811);
 		PPRamseteCommand.setLoggingCallbacks(null,
@@ -151,11 +179,11 @@ public final class Runtime extends TimedRobot {
 	}
 	@Override
 	public void robotPeriodic() {
-		this.perf_counter.loopInit();
+		this.perf_main.loopInit();
 		Controls.updateState();
 		CommandScheduler.getInstance().run();
 		Vision.PoseEstimation.fuseVision(this.robot.drivebase, true);
-		this.perf_counter.loopEnd();
+		this.perf_main.loopEnd();
 	}
 	@Override
 	public void simulationPeriodic() {

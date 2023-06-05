@@ -218,12 +218,47 @@ public final class Runtime extends TimedRobot {
 
 
 
+	public enum FeatureLevel {
+		DEFAULT		(
+			Constants.DRIVE_INPUT_VEL_SCALE,
+			Constants.DRIVE_ROT_RATE_SCALE,
+			Constants.DRIVE_BOOST_SCALE,
+			Constants.DRIVE_FINE_SCALE
+		),
+		SAFEMODE	(
+			-0.8,
+			0.4,
+			1.0,
+			1.0
+		);
+
+		public final double
+			MAX_VELOCITY,
+			ROT_SCALE,
+			BOOST_SCALE,
+			FINE_ROT_SCALE;
+
+		private FeatureLevel(double mv, double rs, double bs, double fs) {
+			MAX_VELOCITY = mv;
+			ROT_SCALE = rs;
+			BOOST_SCALE = bs;
+			FINE_ROT_SCALE = fs;
+		}
+	}
+
 	private void setupXbox(InputDevice... inputs) {
 		System.out.println("Initializing Xbox Controls!");
 		InputDevice
 			controller = inputs[0],
 			controller2 = inputs.length > 1 ? inputs[1] : null;
 		;
+		FeatureLevel features = FeatureLevel.DEFAULT;
+		if(Xbox.Digital.A.getValueOf(controller)) {
+			features = FeatureLevel.SAFEMODE;
+			System.out.println("Safe Mode ENABLED");
+		} else {
+			System.out.println("Safe Mode DISABLED");
+		}
 		TeleopTrigger.OnTrue(send(
 			this.robot.drivebase.tankDriveVelocityProfiled(
 				// tankDriveSupreme(
@@ -237,12 +272,12 @@ public final class Runtime extends TimedRobot {
 				// )
 				arcadeDriveSupreme(
 					Xbox.Analog.RY.getDriveInputSupplier(controller,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, features.MAX_VELOCITY, Constants.DRIVE_INPUT_EXP_POWER),
 					Xbox.Analog.LX.getDriveInputSupplier(controller,
-						Constants.DRIVE_INPUT_DEADZONE, -1.0 * Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, -1.0 * features.MAX_VELOCITY * features.ROT_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Xbox.Digital.RB.getSupplier(controller),
 					Xbox.Digital.LB.getSupplier(controller),
-					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+					features.MAX_VELOCITY, features.BOOST_SCALE, features.FINE_ROT_SCALE
 				)
 			), "Commands/Velocity Drive")
 		);
@@ -263,27 +298,28 @@ public final class Runtime extends TimedRobot {
 				new SimPoseDrive(
 					tankDriveSupreme(
 						Xbox.Analog.RY.getDriveInputSupplier(controller,
-							Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+							Constants.DRIVE_INPUT_DEADZONE, features.MAX_VELOCITY, Constants.DRIVE_INPUT_EXP_POWER),
 						Xbox.Analog.LY.getDriveInputSupplier(controller,
-							Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+							Constants.DRIVE_INPUT_DEADZONE, features.MAX_VELOCITY, Constants.DRIVE_INPUT_EXP_POWER),
 						Xbox.Digital.RB.getSupplier(controller),
 						Xbox.Digital.LB.getSupplier(controller),
-						Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+						features.MAX_VELOCITY, features.BOOST_SCALE, features.FINE_ROT_SCALE
 					),
 					Xbox.Analog.RY.getDriveInputSupplier(controller2, Constants.DRIVE_INPUT_DEADZONE, -120.0, 1.0),
 					Xbox.Analog.LY.getDriveInputSupplier(controller2, Constants.DRIVE_INPUT_DEADZONE, -120.0, 1.0)
 				), "Simulated Robot"
 			));
 		} else {
+			final double MAX_VEL = features.MAX_VELOCITY;
 			DisabledTrigger.OnTrue(send(
 				new SimPoseDrive(
 					arcadeDriveSupreme(
-						()->(Xbox.Analog.LT.getValueOf(controller) - Xbox.Analog.RT.getValueOf(controller)) * Constants.DRIVE_INPUT_VEL_SCALE,
+						()->(Xbox.Analog.LT.getValueOf(controller) - Xbox.Analog.RT.getValueOf(controller)) * MAX_VEL,
 						Xbox.Analog.LX.getDriveInputSupplier(controller,
-							Constants.DRIVE_INPUT_DEADZONE, -1.0 * Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+							Constants.DRIVE_INPUT_DEADZONE, -1.0 * features.MAX_VELOCITY * features.ROT_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 						Xbox.Digital.RB.getSupplier(controller),
 						Xbox.Digital.LB.getSupplier(controller),
-						Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+						features.MAX_VELOCITY, features.BOOST_SCALE, features.FINE_ROT_SCALE
 					),
 					Xbox.Analog.RY.getDriveInputSupplier(controller, Constants.DRIVE_INPUT_DEADZONE, -120.0, 1.0),
 					Xbox.Analog.LY.getDriveInputSupplier(controller, Constants.DRIVE_INPUT_DEADZONE, -120.0, 1.0)
@@ -310,31 +346,38 @@ public final class Runtime extends TimedRobot {
 			bbox = inputs.length > 2 ? inputs[2] : null,
 			controller = inputs.length > 3 ? inputs[3] : null
 		;
+		FeatureLevel features = FeatureLevel.DEFAULT;
+		if(bbox != null && ButtonBox.Digital.S1.getValueOf(bbox)) {
+			features = FeatureLevel.SAFEMODE;
+			System.out.println("Safe Mode ENABLED");
+		} else {
+			System.out.println("Safe Mode DISABLED");
+		}
 		TeleopTrigger.OnTrue(send(
 			this.robot.drivebase.tankDriveVelocityProfiled(
 				tdrive ? tankDriveSupreme(
 					Attack3.Analog.Y.getDriveInputSupplier(lstick,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, features.MAX_VELOCITY, Constants.DRIVE_INPUT_EXP_POWER),
 					Attack3.Analog.Y.getDriveInputSupplier(rstick,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, features.MAX_VELOCITY, Constants.DRIVE_INPUT_EXP_POWER),
 					()->{ return (Attack3.Digital.TRI.getValueOf(lstick) && Attack3.Digital.TRI.getValueOf(rstick)); },
 					()->{ return (Attack3.Digital.TB.getValueOf(lstick) && Attack3.Digital.TB.getValueOf(rstick)); },
-					Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+					features.ROT_SCALE, features.BOOST_SCALE, features.FINE_ROT_SCALE
 				) :
 				arcadeDriveSupreme(
 					Attack3.Analog.Y.getDriveInputSupplier(rstick,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, features.MAX_VELOCITY, Constants.DRIVE_INPUT_EXP_POWER),
 					Attack3.Analog.X.getDriveInputSupplier(lstick,
-						Constants.DRIVE_INPUT_DEADZONE, -1.0 * Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
+						Constants.DRIVE_INPUT_DEADZONE, -1.0 * features.MAX_VELOCITY * features.ROT_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
 					Attack3.Digital.TRI.getSupplier(rstick),
 					Attack3.Digital.TRI.getSupplier(lstick),
-					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
+					features.MAX_VELOCITY, features.BOOST_SCALE, features.FINE_ROT_SCALE
 				)
 			), "Commands/Velocity Drive")
 		);
 		if(controller != null) {
 			TeleopTrigger.OnTrue(send(
-				this.robot.manipulator.controlManipulatorAdv(
+				this.robot.manipulator.controlManipulator(
 					Xbox.Analog.RY.getDriveInputSupplier(controller,
 						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),		// right stick y-axis for the arm %-output
 					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
@@ -360,7 +403,7 @@ public final class Runtime extends TimedRobot {
 				ButtonBox.Digital.B4.getPressedSupplier(bbox),
 				ButtonBox.Digital.B5.getPressedSupplier(bbox)
 			).schedule();
-			this.auto_enable = ButtonBox.Digital.S1.getSupplier(bbox);
+			// this.auto_enable = ButtonBox.Digital.S1.getSupplier(bbox);
 			this.auto_select = ButtonBox.Digital.S2.getSupplier(bbox);
 		}
 	}

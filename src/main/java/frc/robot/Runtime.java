@@ -227,7 +227,7 @@ public final class Runtime extends TimedRobot {
 		),
 		SAFEMODE	(
 			-0.8,
-			0.4,
+			0.6,
 			1.0,
 			1.0
 		);

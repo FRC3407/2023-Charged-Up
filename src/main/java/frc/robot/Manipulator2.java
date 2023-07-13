@@ -436,12 +436,25 @@ public class Manipulator2 implements Subsystem, Sendable {
 					tq_spring = getSpringTorque(arm_angle),
 					tq_dbase = getForwardAccTorque(forward_acc, arm_CG),
 					tq_static = tq_dbase - (tq_grav + tq_spring),
-					tq_line = voltage != 0.0 ? tq_motor / WINCH_SPOOL_RADIUS * r_pull : 0.0,
-					tq_friction = frictSignum(arm_velocity, tq_static + tq_line),
+					tq_rope = voltage != 0.0 ? tq_motor / WINCH_SPOOL_RADIUS * r_pull : 0.0,
+					tq_friction = frictSignum(arm_velocity, tq_static + tq_rope),
 					tq_mfriction = voltage == 0.0 ? Math.copySign(Math.min(Math.abs(tq_motor), Math.abs(tq_static)), tq_motor) : 0.0,
-					tq_total = applyFrict(tq_static + tq_line, tq_friction + tq_mfriction),
+					tq_total = applyFrict(tq_static + tq_rope, tq_friction + tq_mfriction),
 
 					lf_sys = tq_total / r_pull;
+
+				boolean rope_tight = true;
+				if(rope_tight) {
+					boolean motor_pull = true;
+					if(motor_pull) {
+						final double
+							tq_sys = tq_motor + tq_static;
+					} else {
+						// subtract arm friction from natural -> total arm torque, then use that for the motor interaction
+					}
+				} else {
+
+				}
 
 				double
 					aa_norm = 0.0,

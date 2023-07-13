@@ -238,6 +238,12 @@ public final class Vision {
 				sel_under,
 				sel_upper;
 
+			public DirectSwitching(BooleanSupplier und, BooleanSupplier up) { this(()->false, ()->false, ()->false, und, up); }
+			public DirectSwitching(BooleanSupplier und, BooleanSupplier up, BooleanSupplier vrb) { this(()->false, ()->false, vrb, und, up); }
+			public DirectSwitching(
+				BooleanSupplier inc, BooleanSupplier vrb,
+				BooleanSupplier und, BooleanSupplier up
+			) { this(inc, ()->false, vrb, und, up); }
 			public DirectSwitching(
 				BooleanSupplier inc, BooleanSupplier dec, BooleanSupplier vrb,
 				BooleanSupplier und, BooleanSupplier up
@@ -246,13 +252,6 @@ public final class Vision {
 				this.sel_under = und;
 				this.sel_upper = up;
 			}
-			public DirectSwitching(
-				BooleanSupplier inc, BooleanSupplier vrb,
-				BooleanSupplier und, BooleanSupplier up
-			) { this(inc, ()->false, vrb, und, up); }
-			public DirectSwitching(
-				BooleanSupplier inc, BooleanSupplier und, BooleanSupplier up
-			) { this(inc, ()->false, ()->false, und, up); }
 
 			@Override
 			public void execute() {
@@ -451,7 +450,7 @@ public final class Vision {
 		public static void fuseVision(DriveBase db, boolean filter_bounds) {
 			RawEstimationBuffer rbuff = PoseEstimation.readEstimationQueue(null);
 			EstimationFrame[] frames = PoseEstimation.extractEstimations(rbuff, null);
-			if(frames == null) { return; }
+			if(frames == null || frames.length == 0) { return; }
 			TimestampedInteger apmode_ts = nt.aprilp_mode.getAtomic();
 			for(EstimationFrame frame : frames) {
 				if((frame.tstamp - apmode_ts.timestamp) * 1e6 < 0.15) {		// 150ms max delay between apmode change and detection up to date

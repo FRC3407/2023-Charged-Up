@@ -30,18 +30,14 @@ public final class Controls {
 		TANK,
 		ARCADE
 	}
-	public static class ControlProps {
-		public FeatureLevel features;
-		public DriveMode drivemode;
-	}
 
-	public static final FeatureLevel FEATURE_LEVEL = FeatureLevel.TESTING;
+	public static final FeatureLevel DEFAULT_FEATURE_LEVEL = FeatureLevel.TESTING;
 	public static final DriveMode DEFAULT_DRIVE_MODE = DriveMode.ARCADE;
 
 	private static final EventLoop loop = new EventLoop();
 	private static final Trigger
-		enabled_trigger = EnabledTrigger.makeWithLoop(loop),
-		disabled_trigger = DisabledTrigger.makeWithLoop(loop),
+		// enabled_trigger = EnabledTrigger.makeWithLoop(loop),		// uncomment if these actually ever get used
+		// disabled_trigger = DisabledTrigger.makeWithLoop(loop),
 		teleop_trigger = TeleopTrigger.makeWithLoop(loop);
 	private static Command[] active_commands;
 
@@ -62,9 +58,11 @@ public final class Controls {
 	}
 
 
-	public static ControlSchemeManager setupControls(Robot robot, ControlSchemeManager manager) {
+	public static ControlSchemeManager setupControls(Robot robot, ControlSchemeManager manager) { return setupControls(robot, manager, null); }
+	public static ControlSchemeManager setupControls(Robot robot, ControlSchemeManager manager, FeatureLevel features) {
 		if(manager == null) { manager = new ControlSchemeManager(); }
-		switch(FEATURE_LEVEL) {
+		if(features == null) { features = DEFAULT_FEATURE_LEVEL; }
+		switch(features) {
 			case TESTING: {
 				ControlScheme[] schemes = getAllSchemes(robot);
 				for(ControlScheme sch : schemes) {

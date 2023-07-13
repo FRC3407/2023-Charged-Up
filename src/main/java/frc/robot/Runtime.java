@@ -150,8 +150,11 @@ public final class Runtime extends TimedRobot {
 				SmartDashboard.putNumber("Active Trajectory/Rotation Error", rx.getDegrees()); }
 		);
 
-		Controls.setupControls(this.robot, this.controls);
-		this.controls.runContinuous();
+		Controls.setupControls(this.robot, this.controls, Controls.FeatureLevel.COMPETITION);
+		this.addPeriodic(
+			this.controls.genLoopableRunContinuous(),
+			0.5
+		);
 
 		Auto.setHardwareOptionA(new SequentialCommandGroup(
 			Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),

@@ -331,17 +331,17 @@ public final class Vision {
 		public static final Transform3d		// the inverses of the camera locations in robot coord space -- +x is "forward", +y is right, +z is up
 			UNDER_ARM_C2R = new Transform3d(
 				new Translation3d(
-					0.075431,	// forward amount
+					+0.075431,	// forward amount
 					-0.004467,	// rightward amount
-					0.936205),	// upward amount
+					+0.936205),	// upward amount
 				new Rotation3d(0.0, 10.927535, 0.0)
 			).inverse(),
 			UPPER_C2R = new Transform3d(
 				new Translation3d(
-					0.274732,	// forward amount
-					0.149606,	// rightward amount
-					1.067760),	// upward amount
-				new Rotation3d(0.0, 15.0, 0.0)
+					+0.271950,	// forward amount
+					-0.106706,	// rightward amount
+					+0.994151),	// upward amount
+				new Rotation3d(0.0, 12.0, 0.0)
 			).inverse();
 
 		public static final double getXYDeviation(double dx) {

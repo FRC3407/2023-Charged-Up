@@ -766,15 +766,31 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public void setVoltage(double v) {
 			this.main.setVoltage(v);
 		}
+		public double getVoltage() {
+			return this.main.getMotorOutputVoltage();
+		}
+		public double getCurrent() {
+			return this.main.getStatorCurrent();
+		}
+		public boolean getOpenLimit() {
+			return this.main.isRevLimitSwitchClosed() > 0;
+		}
+		public boolean getClosedLimit() {
+			return this.main.isFwdLimitSwitchClosed() > 0;
+		}
+		public abstract double getActuatorDegrees();
 
 		@Override
 		public void initSendable(SendableBuilder b) {
-			b.addDoubleProperty("Output Volts", this.main::getMotorOutputVoltage, null);
+			b.addDoubleProperty("Output Volts", this::getVoltage, null);
 			b.addDoubleArrayProperty("Current [In:Out]", ()->{
 				return new double[]{
 					this.main.getSupplyCurrent(),
 					this.main.getStatorCurrent()
 				}; }, null);
+			b.addBooleanProperty("Open Limit", this::getOpenLimit, null);
+			b.addBooleanProperty("Closed Limit", this::getClosedLimit, null);
+			b.addDoubleProperty("Actuator Angle", this::getActuatorDegrees, null);
 			// b.addDoubleProperty("MC Temp", this.main::getTemperature, null);
 		}
 
@@ -782,6 +798,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public static final class NeverestGrabber extends Hand {
 
 			public static final int
+				FB_UNITS_PER_REVOLUTION = (int)(Constants.NEVEREST_UNITS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT),
 				CL_IDX = 0;
 			public static final boolean
 				INVERT_ENCODER_RANGE = false,
@@ -792,17 +809,49 @@ public class Manipulator2 implements Subsystem, Sendable {
 				super.main.configSelectedFeedbackSensor(FeedbackDevice.QuadEncoder, CL_IDX, 0);
 				super.main.setSelectedSensorPosition(0.0, CL_IDX, 0);
 				super.main.setSensorPhase(INVERT_ENCODER_RANGE);
+				super.main.configClearPositionOnLimitR(CLEAR_ANGLE_ON_LIMIT, 0);
+			}
+
+			public double getActuatorDegrees() {
+				return this.main.getSelectedSensorPosition(CL_IDX) / FB_UNITS_PER_REVOLUTION * 360.0;
 			}
 
 		}
 		public static final class SeatMotorGrabber extends Hand {
 
+			public static final double FB_UNITS_PER_REVOLUTION =
+				(Constants.SEAT_MOTOR_COUNTS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT);
+
 			private final Counter counter;
+			private int v_sign = 0, count = 0;
 
 			public SeatMotorGrabber(int canid, int dio) {
 				super(canid);
 				this.counter = new Counter(dio);
-				this.counter.setUpDownCounterMode();
+			}
+
+			@Override
+			public void setVoltage(double v) {
+				this.v_sign = (int)Math.signum(v);
+				super.setVoltage(v);
+			}
+			public double getActuatorDegrees() {
+				return this.count / FB_UNITS_PER_REVOLUTION * 360.0;
+			}
+
+			@Override
+			public void periodic() {
+				this.count += this.counter.get() * this.v_sign;
+				if(super.getOpenLimit()) {
+					this.count = 0;
+				}	// set the count to equivelent amount of degrees when closed
+				this.counter.reset();
+			}
+
+			@Override
+			public  void initSendable(SendableBuilder b) {
+				super.initSendable(b);
+				b.addIntegerProperty("Total Counts", ()->this.count, null);
 			}
 
 		}
@@ -858,6 +907,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 	}
 	@Override
 	public void initSendable(SendableBuilder b) {
+		b.addDoubleProperty("Dynamic Transform", ()->this.dynamic_arm_transform, null);
 		b.addDoubleProperty("Transformed Arm Angle", this::getArmTransformedAngle, null);
 		b.addDoubleProperty("Transformed Wrist Angle", this::getWristTransformedAngle, null);
 		b.addDoubleArrayProperty("Components Pose3d", this::getComponentData, null);

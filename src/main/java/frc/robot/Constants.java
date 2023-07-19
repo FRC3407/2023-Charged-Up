@@ -108,7 +108,8 @@ public final class Constants {
 		SRX_MAG_UNITS_PER_REVOLUTION = 4096,
 		FALCON_UNITS_PER_REVOLUTION = 2048,
 		ANALOG_UNITS_PER_REVOLUTION = 1024,		// or for whatever range the analog device has
-		NEVEREST_UNITS_PER_REVOLUTION = (7 * 60 * 4)	// 7 pulse/rot * 60:1 gearing * 4 counts/pulse as counted by TalonSRX
+		NEVEREST_UNITS_PER_REVOLUTION = (7 * 60 * 4),	// 7 pulse/rot * 60:1 gearing * 4 counts/pulse as counted by TalonSRX
+		SEAT_MOTOR_COUNTS_PER_REVOLUTION = 175
 	;
 
 	public static final String

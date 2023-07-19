@@ -357,12 +357,13 @@ public final class Controls {
 		CommandBase
 			drive_control = robot.drivebase.tankDriveVelocityProfiled(dds),
 			mpl_control = robot.manipulator.controlManipulatorAdv(
-				Xbox.Analog.RY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),
-				XMinusY(Xbox.Analog.RT, Xbox.Analog.LT, controller),
-				Xbox.Analog.LY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),
-				Xbox.Digital.LS.getPressedSupplier(controller),
-				Xbox.Digital.RB.getPressedSupplier(controller),
-				Xbox.Digital.LB.getPressedSupplier(controller)
+				Xbox.Analog.RY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),		// arm output
+				XMinusY(Xbox.Analog.RT, Xbox.Analog.LT, controller),							// grabber output
+				Xbox.Analog.LY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),		// wrist range
+				Xbox.Digital.LS.getPressedSupplier(controller),		// reset the wrist
+				Xbox.Digital.RB.getPressedSupplier(controller),		// arm lock
+				()->false
+				// Xbox.Digital.LB.getPressedSupplier(controller)	// grab lock
 			);
 
 		setupBaseTeleopControls(drive_control, mpl_control);

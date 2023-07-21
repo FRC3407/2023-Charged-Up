@@ -545,7 +545,104 @@ public final class Vision {
 			}
 			return buff;
 		}
+		public static Translation3d[][] extractTranslations(double[][] raw, Translation3d[][] buff) {
+			if(buff == null || buff.length != raw.length) {
+				buff = new Translation3d[raw.length][];
+			}
+			for(int i = 0; i < raw.length; i++) {
+				buff[i] = extractTranslations(raw[i], buff[i]);
+			}
+			return buff;
+		}
+		public static Translation2d[] extractCenters(double[] raw, Translation2d[] buff) {
+			final int len = raw.length / 2;
+			if(buff == null || buff.length != len) {
+				buff = new Translation2d[len];
+			}
+			for(int i = 0; i / 2 < buff.length;) {
+				buff[i / 2] = new Translation2d(
+					raw[i++],
+					raw[i++]
+				);
+			}
+			return buff;
+		}
+		public static Translation2d[][] extractCenters(double[][] raw, Translation2d[][] buff) {
+			if(buff == null || buff.length != raw.length) {
+				buff = new Translation2d[raw.length][];
+			}
+			for(int i = 0; i < raw.length; i++) {
+				buff[i] = extractCenters(raw[i], buff[i]);
+			}
+			return buff;
+		}
 
+		public static Translation3d[] getTranslations(Translation3d[] buff) {
+			return extractTranslations(Vision.nt.retrorefl_locations.get(), buff);
+		}
+		public static Translation3d[] getTranslations() {
+			return getTranslations(null);
+		}
+		public static Translation3d[][] getQueuedTranslations(Translation3d[][] buff) {
+			return extractTranslations(Vision.nt.retrorefl_locations.readQueueValues(), buff);
+		}
+		public static Translation3d[][] getQueuedTranslations() {
+			return getQueuedTranslations(null);
+		}
+		public static Translation2d[] getCenters(Translation2d[] buff) {
+			return extractCenters(Vision.nt.retrorefl_centers.get(), buff);
+		}
+		public static Translation2d[] getCenters() {
+			return getCenters(null);
+		}
+		public static Translation2d[][] getQueuedCenters(Translation2d[][] buff) {
+			return extractCenters(Vision.nt.retrorefl_centers.readQueueValues(), buff);
+		}
+		public static Translation2d[][] getQueuedCenters() {
+			return getQueuedCenters(null);
+		}
+
+	}
+
+
+	public enum OperationMode {
+		EstimatePose	(0b00001),	// run AP detection on the top camera
+		EstimatePoseUA	(0b00010),	// run AP detection on the underarm camera
+		DetectTape		(0b00100),
+		ViewActive		(0b01000),	// apply viewing priority
+		DebugView		(0b10000);	// prioritize multistream and complex annotations
+
+		private int value = 0;
+		private OperationMode(int v) { this.value = v; }
+
+		public OperationMode plus(OperationMode x) {
+			this.value |= x.value;
+			return this;
+		}
+		public boolean has(OperationMode x) {
+			return (this.value & x.value) > 0;
+		}
+		public boolean nhas(OperationMode x) {
+			return !this.has(x);
+		}
+		public int val() {
+			return this.value;
+		}
+	}
+
+	public static void applyOps(OperationMode... modes) {
+		OperationMode mask;
+		if(modes.length > 0) {
+			mask = modes[0];
+			if(modes.length > 1) {
+				for(int i = 1; i < modes.length; i++) {
+					mask = mask.plus(modes[i]);
+				}
+			}
+		} else {
+			return;
+		}
+		// eval the ops
 	}
 
 }

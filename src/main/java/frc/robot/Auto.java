@@ -218,6 +218,7 @@ public final class Auto {
 		private double
 			pitch_init = 0.0,
 			climb_init_pos = 0.0,
+			start_pos = 0.0,
 			fwdvel = 0.0;
 		private State
 			state = State.STABLE;
@@ -239,13 +240,17 @@ public final class Auto {
 		private double getAvgWheelPos() {
 			return (this.drivebase.getLeftPosition() + this.drivebase.getRightPosition()) / 2.0;
 		}
+		private boolean tooFar() {
+			double pos = this.getAvgWheelPos();
+			return (pos - this.start_pos) > 5 || (pos - this.climb_init_pos) > 3;
+		}
 
 		@Override
 		public void initialize() {
 			this.driver.initialize();
 			this.state = State.ENGAGING;
 			this.pitch_init = this.pitch.getAngle();
-			this.climb_init_pos = this.getAvgWheelPos();
+			this.start_pos = this.climb_init_pos = this.getAvgWheelPos();
 			this.fwdvel = 0.0;
 		}
 		@Override
@@ -300,7 +305,7 @@ public final class Auto {
 		}
 		@Override
 		public boolean isFinished() {
-			return this.state == State.STABLE;
+			return this.state == State.STABLE || this.tooFar();
 		}
 		@Override
 		public void end(boolean i) {

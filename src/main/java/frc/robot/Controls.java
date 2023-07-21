@@ -51,10 +51,11 @@ public final class Controls {
 		};
 	}
 	private static ControlScheme[] getCompetitionSchemes(Robot robot) {
-		return new ControlScheme[]{
-			buildScheme("Competition Controls (Tank Drive)",		(InputDevice... i)->competitionBoard(robot, DriveMode.TANK, i),		Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map),
-			buildScheme("Competition Controls (Arcade Drive)",	(InputDevice... i)->competitionBoard(robot, DriveMode.ARCADE, i),	Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map)
-		};
+		ControlScheme
+			tank = buildScheme("Competition Controls (Tank Drive)",		(InputDevice... i)->competitionBoard(robot, DriveMode.TANK, i),		Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map),
+			arcade = buildScheme("Competition Controls (Arcade Drive)",	(InputDevice... i)->competitionBoard(robot, DriveMode.ARCADE, i),	Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map);
+		return DEFAULT_DRIVE_MODE == DriveMode.TANK ?
+			new ControlScheme[]{tank, arcade} : new ControlScheme[]{arcade, tank};
 	}
 
 
@@ -138,7 +139,7 @@ public final class Controls {
 			()->((boost_state.getAsBoolean() && !limited_state.getAsBoolean()) ?
 				fwd_rate.getAsDouble() * boost_scale : fwd_rate.getAsDouble()),
 			()->(((limited_state.getAsBoolean() && !boost_state.getAsBoolean()) ?
-				turn_rate.getAsDouble() * limited_scale : turn_rate.getAsDouble()) * (fwd_rate.getAsDouble() < 0 ? -1 : 1)),
+				turn_rate.getAsDouble() * limited_scale : turn_rate.getAsDouble()) /* (fwd_rate.getAsDouble() < 0 ? -1 : 1)*/),
 			()->((boost_state.getAsBoolean() && !limited_state.getAsBoolean()) ?		// ^^ invert turn if going backwards because otherwise it will be opposite that of the stick direction
 				max_rate * boost_scale : max_rate)
 		);
@@ -230,9 +231,10 @@ public final class Controls {
 		CommandBase
 			drive_control = robot.drivebase.tankDriveVelocityProfiled(dds),
 			mpl_control = robot.manipulator.controlManipulatorAdv(
+				()->0.0,
 				Xbox.Analog.RY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),
 				// XMinusY(Xbox.Analog.RT, Xbox.Analog.LT, controller),
-				()->0.0,
+				// ()->0.0,
 				Xbox.Analog.LY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),
 				Xbox.Digital.LS.getPressedSupplier(controller),
 				// Xbox.Digital.RB.getPressedSupplier(controller),

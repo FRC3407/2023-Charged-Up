@@ -9,6 +9,7 @@ import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
+import edu.wpi.first.wpilibj.AnalogPotentiometer;
 import edu.wpi.first.wpilibj.DataLogManager;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.PowerDistribution;
@@ -37,6 +38,8 @@ public final class Runtime extends TimedRobot {
 
 	public final class Robot implements Sendable {
 
+		public final AnalogPotentiometer pot = new AnalogPotentiometer(0, 270, 0);
+
 		public final PowerDistribution power = new PowerDistribution(
 			Constants.PDH_CAN_ID,
 			Constants.PDH_MODULE_TYPE
@@ -55,7 +58,7 @@ public final class Runtime extends TimedRobot {
 			new Manipulator2.Arm(Constants.ARM_WINCH_CAN_ID),
 			new Manipulator2.Wrist.ServoImpl(Constants.GRABBER_WRIST_PWM_PORT),
 			// new Manipulator2.Hand.NeverestGrabber(Constants.GRABBER_CAN_ID)
-			new Manipulator2.Hand.SeatMotorGrabber(Constants.GRABBER_WRIST_PWM_PORT, 0)
+			new Manipulator2.Hand.SeatMotorGrabber(Constants.GRABBER_CAN_ID, 0)
 		);
 
 
@@ -64,6 +67,7 @@ public final class Runtime extends TimedRobot {
 		@Override
 		public void initSendable(SendableBuilder b) {
 			b.addDoubleProperty("Power/RoboRIO VIn", RobotController::getBatteryVoltage, null);
+			b.addDoubleProperty("Test/Pot Value", this.pot::get, null);
 		}
 		public void startLogging() {
 			SmartDashboard.putData("Robot", this);
@@ -157,19 +161,19 @@ public final class Runtime extends TimedRobot {
 			0.5
 		);
 
-		Auto.setHardwareOptionA(new SequentialCommandGroup(
-			Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),
-			new WaitCommand(0.3),
-			Auto.driveStraight(this.robot.drivebase, 0.5, 0.6),
-			new WaitCommand(0.5),
-			Auto.driveStraight(this.robot.drivebase, -4.0, -1.2)
-		));
-		Auto.setHardwareOptionB(Util.send(
+		Auto.setHardwareOptionA(Util.send(
 			Auto.climbPad(
 				this.robot.drivebase, this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS),
 				Constants.AUTO_PAD_ENGAGE_VELOCITY,
 				Constants.AUTO_PAD_INCLINE_VELOCITY
 			), "Commands/Climb Charging Pad"
+		));
+		Auto.setHardwareOptionB(new SequentialCommandGroup(
+			Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),
+			new WaitCommand(0.3),
+			Auto.driveStraight(this.robot.drivebase, 0.5, 0.6),
+			new WaitCommand(0.5),
+			Auto.driveStraight(this.robot.drivebase, -4.0, -1.2)
 		));
 		for(String t : Constants.TRAJECTORIES) {
 			String n = t + " [Trajectory]";

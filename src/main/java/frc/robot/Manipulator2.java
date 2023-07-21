@@ -11,6 +11,7 @@ import edu.wpi.first.math.system.NumericalIntegration;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
+import edu.wpi.first.wpilibj.AnalogPotentiometer;
 import edu.wpi.first.wpilibj.Counter;
 import edu.wpi.first.wpilibj.RobotBase;
 import edu.wpi.first.wpilibj.RobotController;
@@ -602,17 +603,23 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 		private final WPI_TalonSRX winch;
 
-		public Arm(int id) {
+		private Arm(int id, int x) {
 			this.winch = new WPI_TalonSRX(id);
 
 			this.winch.configFactoryDefault();
 			this.winch.setNeutralMode(NeutralMode.Brake);
+			this.winch.configForwardLimitSwitchSource(LMT_FB_SOURCE, LMT_FB_NORMALITY);
+			this.winch.configReverseLimitSwitchSource(LMT_FB_SOURCE, LMT_FB_NORMALITY);
+		}
+		public Arm(int id) {
+			this(id, 0);
+			this.initIntegratedSensor();
+		}
+
+		private void initIntegratedSensor() {
 			this.winch.configSelectedFeedbackSensor(FB_TYPE, CL_IDX, 0);
 			this.winch.configFeedbackNotContinuous(DISABLE_CONINUOUS_FB && RobotBase.isReal(), 0);
 			this.winch.setSensorPhase(INVERT_FB_RANGE);
-			this.winch.configForwardLimitSwitchSource(LMT_FB_SOURCE, LMT_FB_NORMALITY);
-			this.winch.configReverseLimitSwitchSource(LMT_FB_SOURCE, LMT_FB_NORMALITY);
-
 			// this.winch.config_kF(CL_IDX, Constants.ARM_ANGLE_KF);
 			// this.winch.config_kP(CL_IDX, Constants.ARM_ANGLE_KP);
 			// this.winch.config_kI(CL_IDX, Constants.ARM_ANGLE_KI);
@@ -669,6 +676,15 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public double getVelocity() {
 			return sensorUnitsToDegrees(this.rawSensorVelocity()) * 10.0;
 		}
+
+
+		// public static class ExtSensorArm extends Arm {
+
+		// 	public ExtSensorArm(int id, AnalogPotentiometer sensor) {
+				
+		// 	}
+
+		// }
 
 	}
 
@@ -1007,7 +1023,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public static final double
 			ARM_WINCH_VOLTAGE_SCALE = 5.0,
 			ARM_WINCH_LOCK_VOLTS = 1.1,
-			GRAB_CLAW_VOLTAGE_SCALE = 7.0,
+			GRAB_CLAW_VOLTAGE_SCALE = 12.0,
 			GRAB_CLAW_LOCK_VOLTAGE = 8.0,
 			WRIST_ACCUMULATION_RATE = 1.8;
 		public static final boolean

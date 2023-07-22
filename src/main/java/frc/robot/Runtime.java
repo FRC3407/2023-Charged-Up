@@ -17,6 +17,7 @@ import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.interfaces.Gyro;
 import edu.wpi.first.wpilibj.simulation.RoboRioSim;
 import edu.wpi.first.wpilibj.simulation.BatterySim;
 import edu.wpi.first.wpilibj.util.WPILibVersion;
@@ -161,27 +162,39 @@ public final class Runtime extends TimedRobot {
 			0.5
 		);
 
-		Auto.setHardwareOptionA(Util.send(
+		final Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
+		Auto.setDefaultOptionA(Util.send(
 			Auto.climbPad(
-				this.robot.drivebase, this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS),
+				this.robot.drivebase, pitch,
 				Constants.AUTO_PAD_ENGAGE_VELOCITY,
 				Constants.AUTO_PAD_INCLINE_VELOCITY
 			), "Commands/Climb Charging Pad"
 		));
-		Auto.setHardwareOptionB(new SequentialCommandGroup(
+		Auto.addSelectableOptionA(
+			Auto.taxiClimb(
+				this.robot.drivebase, -3, -1, pitch,
+				Constants.AUTO_PAD_ENGAGE_VELOCITY,
+				Constants.AUTO_PAD_INCLINE_VELOCITY
+			),
+			"Taxi Climb"
+		);
+		Auto.setDefaultOptionB(
+			Auto.driveStraight(this.robot.drivebase, -3.5, -1.2)
+		);
+		Auto.addSelectableOptionB(new SequentialCommandGroup(
 			Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),
 			new WaitCommand(0.3),
 			Auto.driveStraight(this.robot.drivebase, 0.5, 0.6),
 			new WaitCommand(0.5),
-			Auto.driveStraight(this.robot.drivebase, -4.0, -1.2)
-		));
-		for(String t : Constants.TRAJECTORIES) {
-			String n = t + " [Trajectory]";
-			Auto.addSelectableCommand(n, Util.send(
-				this.robot.drivebase.followEventTrajectory(t, Constants.AUTO_EVENTS, DriverStation.getAlliance()),
-				"Commands/Auto Trajectories/" + n
-			));
-		}
+			Auto.driveStraight(this.robot.drivebase, -3.5, -1.2)
+		), "Push and Taxi");
+		// for(String t : Constants.TRAJECTORIES) {
+		// 	String n = t + " [Trajectory]";
+		// 	Auto.addSelectableCommand(n, Util.send(
+		// 		this.robot.drivebase.followEventTrajectory(t, Constants.AUTO_EVENTS, DriverStation.getAlliance()),
+		// 		"Commands/Auto Trajectories/" + n
+		// 	));
+		// }
 		Auto.initialize();
 
 	}

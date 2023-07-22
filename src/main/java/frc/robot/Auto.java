@@ -13,13 +13,18 @@ import frc.robot.team3407.drive.DriveSupplier.*;
 
 public final class Auto {
 
-	private static final SendableChooser<Command> selectable_auto = new SendableChooser<>();
-	private static Command option1, option2;
+	private static final SendableChooser<Command>
+		selectable_A = new SendableChooser<>(),
+		selectable_B = new SendableChooser<>();
 	private static BooleanSupplier hardware_enable, hardware_select;
 
 
-	public static void setHardwareOptionA(Command a) { option1 = a; }
-	public static void setHardwareOptionB(Command b) { option2 = b; }
+	public static void setDefaultOptionA(Command a, String n) { selectable_A.setDefaultOption(n, a); }
+	public static void setDefaultOptionA(Command a) { setDefaultOptionA(a, "Default"); }
+	public static void setDefaultOptionB(Command b, String n) { selectable_B.setDefaultOption(n, b); }
+	public static void setDefaultOptionB(Command b) { setDefaultOptionB(b, "Default"); }
+	public static void addSelectableOptionA(Command a, String n) { selectable_A.addOption(n, a); }
+	public static void addSelectableOptionB(Command b, String n) { selectable_B.addOption(n, b); }
 	public static void setHardwareSelectors(BooleanSupplier enable, BooleanSupplier select) {
 		hardware_enable = enable;
 		hardware_select = select;
@@ -27,28 +32,23 @@ public final class Auto {
 	public static void clearHardwareSelectors() {
 		hardware_enable = hardware_select = null;
 	}
-	public static void addSelectableCommand(String n, Command c) { selectable_auto.addOption(n, c); }
 
 	public static void initialize() {
-		selectable_auto.setDefaultOption("No Auto", null);
-		SmartDashboard.putData("Autonomous Selector", selectable_auto);
+		SmartDashboard.putData("Auto Selector/Option A", selectable_A);
+		SmartDashboard.putData("Auto Selector/Option B", selectable_B);
 	}
 	public static void runSelected() {
 		if(hardware_enable != null && hardware_select != null && hardware_enable.getAsBoolean()) {
-			System.out.println("Running Hardware Selected Auto...");
-			if(hardware_select.getAsBoolean() && option1 != null) {
-				option1.schedule();
-			} else if(option2 != null) {
-				option2.schedule();
+			boolean _a = hardware_select.getAsBoolean();
+			Command _c = _a ? selectable_A.getSelected() : selectable_B.getSelected();
+			if(_c != null) {
+				System.out.println(_a ? "Running Selected Auto A..." : "Running Selected Auto B...");
+				_c.schedule();
+			} else {
+				System.out.println("Selected command was not valid. No auto was run.");
 			}
 		} else {
-			System.out.println("Running NT Selected Auto...");
-			Command c = selectable_auto.getSelected();
-			if(c != null) {
-				c.schedule();
-			} else {
-				System.out.println("No Auto Command Selected!");
-			}
+			System.out.println("Auto Disabled!");
 		}
 	}
 
@@ -220,6 +220,8 @@ public final class Auto {
 			climb_init_pos = 0.0,
 			start_pos = 0.0,
 			fwdvel = 0.0;
+		private int
+			dvec = 1;	// "direction vector"
 		private State
 			state = State.STABLE;
 
@@ -234,6 +236,14 @@ public final class Auto {
 			super.addRequirements(db);
 		}
 
+		public ClimbPad setReverse(boolean reverse) {
+			this.dvec = reverse ? -1 : 1;
+			return this;
+		}
+		private double vectorize(double in) {
+			return in * this.dvec;
+		}
+
 		private void driveVelocity(double v) {
 			this.fwdvel = v;
 		}
@@ -242,7 +252,7 @@ public final class Auto {
 		}
 		private boolean tooFar() {
 			double pos = this.getAvgWheelPos();
-			return (pos - this.start_pos) > 5 || (pos - this.climb_init_pos) > 3;
+			return this.vectorize(pos - this.start_pos) > 5 || this.vectorize(pos - this.climb_init_pos) > 3;
 		}
 
 		@Override
@@ -257,17 +267,17 @@ public final class Auto {
 		public void execute() {
 			switch(this.state) {
 				case ENGAGING: {
-					this.driveVelocity(this.engage_velocity);
-					if(this.pitch_init - this.pitch.getAngle() > DELTA_ANGLE_THRESH) {
+					this.driveVelocity(this.vectorize(this.engage_velocity));
+					if(this.vectorize(this.pitch_init - this.pitch.getAngle()) > DELTA_ANGLE_THRESH) {
 						this.state = State.CLIMBING;
 						this.climb_init_pos = this.getAvgWheelPos();
 					}
 					break;
 				}
 				case CLIMBING: {
-					this.driveVelocity(this.incline_velocity);
-					if(-this.pitch.getRate() < -DELTA_ANGLE_RATE_THRESH &&	// the actual rate is the inverse bc of CW <--> CCW weridness w/ Gyro interface so invert
-						(this.getAvgWheelPos() - this.climb_init_pos) >= CLIMB_DISPLACEMENT_THRESH
+					this.driveVelocity(this.vectorize(this.incline_velocity));
+					if(this.vectorize(this.pitch.getRate()) > DELTA_ANGLE_RATE_THRESH &&	// the actual rate is the inverse bc of CW <--> CCW weridness w/ Gyro interface so invert
+						this.vectorize(this.getAvgWheelPos() - this.climb_init_pos) >= CLIMB_DISPLACEMENT_THRESH
 					) {
 						this.state = State.STABILIZING;
 						// maybe store the position here, use position locking in the stabilization block?
@@ -276,7 +286,7 @@ public final class Auto {
 				}
 				case STABILIZING: {
 					this.driveVelocity(0.0);	// or use position lock
-					double da = this.pitch_init - this.pitch.getAngle();
+					double da = this.vectorize(this.pitch_init - this.pitch.getAngle());
 					if(Math.abs(da) < STABLE_ANGLE_THRESH && Math.abs(this.pitch.getRate()) < STABLE_ANGLE_RATE_THRESH &&
 						Math.abs(this.drivebase.getLeftVelocity()) < STABLE_VELOCITY_THRESH &&
 						Math.abs(this.drivebase.getRightVelocity()) < STABLE_VELOCITY_THRESH)
@@ -290,8 +300,8 @@ public final class Auto {
 					break;
 				}
 				case OVERSHOT: {
-					this.driveVelocity(-this.incline_velocity);
-					if(-this.pitch.getRate() > DELTA_ANGLE_RATE_THRESH) {	// see above for inverting rate
+					this.driveVelocity(this.vectorize(-this.incline_velocity));
+					if(this.vectorize(-this.pitch.getRate()) > DELTA_ANGLE_RATE_THRESH) {	// see above for inverting rate
 						this.state = State.STABILIZING;
 					}
 					break;

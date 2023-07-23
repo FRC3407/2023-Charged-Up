@@ -594,10 +594,10 @@ public class Manipulator2 implements Subsystem, Sendable {
 			FB_RANGE_DEGREES = 270.0;
 
 		public static double sensorUnitsToDegrees(double units) {
-			return units / FB_UNITS_PER_RANGE * FB_RANGE_DEGREES;
+			return (units / FB_UNITS_PER_RANGE) * FB_RANGE_DEGREES;
 		}
 		public static double degreesToSensorUnits(double degrees) {
-			return degrees / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE;
+			return (degrees / FB_RANGE_DEGREES) * FB_UNITS_PER_RANGE;
 		}
 
 

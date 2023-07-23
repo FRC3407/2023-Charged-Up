@@ -1,6 +1,7 @@
 package frc.robot;
 
 import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
 
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
@@ -83,7 +84,7 @@ public final class Auto {
 	 * @return The composed commaned
 	 */
 	public static CommandBase taxiClimb(DriveBase db, double d, double v, Gyro pitch, double envel, double icvel) {
-		return driveStraight(db, d, v).andThen(climbPad(db, pitch, envel, icvel));
+		return driveStraight(db, d, v).andThen(new WaitCommand(1.0)).andThen(climbPad(db, pitch, envel, icvel));
 	}
 	/** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
 	 * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
@@ -110,6 +111,12 @@ public final class Auto {
 	}
 	public static AutoGrabControl setGrabber(Manipulator m, double wa, double gv) {
 		return new AutoGrabControl(m, wa, gv);
+	}
+	public static CommandBase timedArm(Manipulator2 m, double v, double seconds) {
+		return new AutoArmControl(m, v).withTimeout(seconds);
+	}
+	public static CommandBase timedArmPush(Manipulator2 m, double v, double seconds) {
+		return timedArm(m, v, seconds).andThen(timedArm(m, -v, seconds));
 	}
 
 
@@ -403,10 +410,13 @@ public final class Auto {
 	}
 	public static class AutoArmControl extends CommandBase {
 
-		private final Manipulator.Arm arm;
-		private final double voltage;
+		private final Manipulator2.Arm arm;
+		private final DoubleSupplier voltage;
 
-		public AutoArmControl(Manipulator m, double volts) {
+		public AutoArmControl(Manipulator2 m, double volts) {
+			this(m, ()->volts);
+		}
+		public AutoArmControl(Manipulator2 m, DoubleSupplier volts) {
 			this.arm = m.arm;
 			this.voltage = volts;
 		}
@@ -415,7 +425,7 @@ public final class Auto {
 		public void initialize() {}
 		@Override
 		public void execute() {
-			this.arm.setWinchVoltage(this.voltage);
+			this.arm.setVoltage(this.voltage.getAsDouble());
 		}
 		@Override
 		public boolean isFinished() {
@@ -423,7 +433,7 @@ public final class Auto {
 		}
 		@Override
 		public void end(boolean i) {
-			
+			this.arm.setVoltage(0.0);
 		}
 
 	}

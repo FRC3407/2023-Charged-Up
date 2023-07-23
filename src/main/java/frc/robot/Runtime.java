@@ -39,7 +39,7 @@ public final class Runtime extends TimedRobot {
 
 	public final class Robot implements Sendable {
 
-		public final AnalogPotentiometer pot = new AnalogPotentiometer(0, 270, 0);
+		// public final AnalogPotentiometer pot = new AnalogPotentiometer(0, 270, 0);
 
 		public final PowerDistribution power = new PowerDistribution(
 			Constants.PDH_CAN_ID,
@@ -163,24 +163,24 @@ public final class Runtime extends TimedRobot {
 		);
 
 		final Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
-		Auto.setDefaultOptionA(Util.send(
+		Command balance = Util.send(
 			Auto.climbPad(
 				this.robot.drivebase, pitch,
 				Constants.AUTO_PAD_ENGAGE_VELOCITY,
 				Constants.AUTO_PAD_INCLINE_VELOCITY
 			), "Commands/Climb Charging Pad"
-		));
-		Auto.addSelectableOptionA(
-			Auto.taxiClimb(
-				this.robot.drivebase, -3, -1, pitch,
-				Constants.AUTO_PAD_ENGAGE_VELOCITY,
-				Constants.AUTO_PAD_INCLINE_VELOCITY
-			),
-			"Taxi Climb"
 		);
+		Command taxi_balance = Auto.taxiClimb(
+			this.robot.drivebase, -3.7, -1.0, pitch,
+			Constants.AUTO_PAD_ENGAGE_VELOCITY,
+			Constants.AUTO_PAD_INCLINE_VELOCITY
+		);
+		Auto.setDefaultOptionA(taxi_balance, "Taxi Climb");
+		Auto.addSelectableOptionA(balance, "Climb");
 		Auto.setDefaultOptionB(
-			Auto.driveStraight(this.robot.drivebase, -3.5, -1.2)
-		);
+			Auto.timedArmPush(this.robot.manipulator, 5.0, 1.0).andThen(
+			Auto.driveStraight(this.robot.drivebase, -3.5, -1.2)), "Taxi and Dump");
+		Auto.addSelectableOptionB(Auto.driveStraight(this.robot.drivebase, -3.5, -1.2), "Just Taxi");
 		Auto.addSelectableOptionB(new SequentialCommandGroup(
 			Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),
 			new WaitCommand(0.3),

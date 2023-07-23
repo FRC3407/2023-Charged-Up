@@ -68,7 +68,7 @@ public final class Runtime extends TimedRobot {
 		@Override
 		public void initSendable(SendableBuilder b) {
 			b.addDoubleProperty("Power/RoboRIO VIn", RobotController::getBatteryVoltage, null);
-			b.addDoubleProperty("Test/Pot Value", this.pot::get, null);
+			// b.addDoubleProperty("Test/Pot Value", this.pot::get, null);
 		}
 		public void startLogging() {
 			SmartDashboard.putData("Robot", this);

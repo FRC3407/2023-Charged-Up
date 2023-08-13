@@ -1,13 +1,59 @@
 package frc.robot;
 
+import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
+
 import edu.wpi.first.util.sendable.SendableBuilder;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
+import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.*;
+import frc.robot.team3407.Util;
 import frc.robot.team3407.drive.DriveSupplier.*;
-import edu.wpi.first.wpilibj2.command.Commands;
 
 
-public class Auto {
+public final class Auto {
+
+	private static final SendableChooser<Command>
+		selectable_A = new SendableChooser<>(),
+		selectable_B = new SendableChooser<>();
+	private static BooleanSupplier hardware_enable, hardware_select;
+
+
+	public static void setDefaultOptionA(Command a, String n) { selectable_A.setDefaultOption(n, a); }
+	public static void setDefaultOptionA(Command a) { setDefaultOptionA(a, "Default"); }
+	public static void setDefaultOptionB(Command b, String n) { selectable_B.setDefaultOption(n, b); }
+	public static void setDefaultOptionB(Command b) { setDefaultOptionB(b, "Default"); }
+	public static void addSelectableOptionA(Command a, String n) { selectable_A.addOption(n, a); }
+	public static void addSelectableOptionB(Command b, String n) { selectable_B.addOption(n, b); }
+	public static void setHardwareSelectors(BooleanSupplier enable, BooleanSupplier select) {
+		hardware_enable = enable;
+		hardware_select = select;
+	}
+	public static void clearHardwareSelectors() {
+		hardware_enable = hardware_select = null;
+	}
+
+	public static void initialize() {
+		SmartDashboard.putData("Auto Selector/Option A", selectable_A);
+		SmartDashboard.putData("Auto Selector/Option B", selectable_B);
+	}
+	public static void runSelected() {
+		if(hardware_enable != null && hardware_select != null && hardware_enable.getAsBoolean()) {
+			boolean _a = hardware_select.getAsBoolean();
+			Command _c = _a ? selectable_A.getSelected() : selectable_B.getSelected();
+			if(_c != null) {
+				System.out.println(_a ? "Running Selected Auto A..." : "Running Selected Auto B...");
+				_c.schedule();
+			} else {
+				System.out.println("Selected command was not valid. No auto was run.");
+			}
+		} else {
+			System.out.println("Auto Disabled!");
+		}
+	}
+
+
 
 	/**
 	 * This runs an autonoumus command that drives a given distance at a given velocity.
@@ -38,7 +84,7 @@ public class Auto {
 	 * @return The composed commaned
 	 */
 	public static CommandBase taxiClimb(DriveBase db, double d, double v, Gyro pitch, double envel, double icvel) {
-		return driveStraight(db, d, v).andThen(climbPad(db, pitch, envel, icvel));
+		return driveStraight(db, d, v).andThen(new WaitCommand(1.0)).andThen(climbPad(db, pitch, envel, icvel));
 	}
 	/** Get a active parking command - a routine where the robot attempts to stay in the same position using the encoder position and a negative feedback p-loop
 	 * @param p_gain The proportional gain in volts/meter that the robot will apply when any position error is accumulated
@@ -65,6 +111,12 @@ public class Auto {
 	}
 	public static AutoGrabControl setGrabber(Manipulator m, double wa, double gv) {
 		return new AutoGrabControl(m, wa, gv);
+	}
+	public static CommandBase timedArm(Manipulator2 m, double v, double seconds) {
+		return new AutoArmControl(m, v).withTimeout(seconds);
+	}
+	public static CommandBase timedArmPush(Manipulator2 m, double v, double seconds) {
+		return timedArm(m, v, seconds).andThen(timedArm(m, -v, seconds));
 	}
 
 
@@ -173,7 +225,10 @@ public class Auto {
 		private double
 			pitch_init = 0.0,
 			climb_init_pos = 0.0,
+			start_pos = 0.0,
 			fwdvel = 0.0;
+		private int
+			dvec = 1;	// "direction vector"
 		private State
 			state = State.STABLE;
 
@@ -188,11 +243,23 @@ public class Auto {
 			super.addRequirements(db);
 		}
 
+		public ClimbPad setReverse(boolean reverse) {
+			this.dvec = reverse ? -1 : 1;
+			return this;
+		}
+		private double vectorize(double in) {
+			return in * this.dvec;
+		}
+
 		private void driveVelocity(double v) {
 			this.fwdvel = v;
 		}
 		private double getAvgWheelPos() {
 			return (this.drivebase.getLeftPosition() + this.drivebase.getRightPosition()) / 2.0;
+		}
+		private boolean tooFar() {
+			double pos = this.getAvgWheelPos();
+			return this.vectorize(pos - this.start_pos) > 5 || this.vectorize(pos - this.climb_init_pos) > 3;
 		}
 
 		@Override
@@ -200,24 +267,24 @@ public class Auto {
 			this.driver.initialize();
 			this.state = State.ENGAGING;
 			this.pitch_init = this.pitch.getAngle();
-			this.climb_init_pos = this.getAvgWheelPos();
+			this.start_pos = this.climb_init_pos = this.getAvgWheelPos();
 			this.fwdvel = 0.0;
 		}
 		@Override
 		public void execute() {
 			switch(this.state) {
 				case ENGAGING: {
-					this.driveVelocity(this.engage_velocity);
-					if(this.pitch_init - this.pitch.getAngle() > DELTA_ANGLE_THRESH) {
+					this.driveVelocity(this.vectorize(this.engage_velocity));
+					if(this.vectorize(this.pitch_init - this.pitch.getAngle()) > DELTA_ANGLE_THRESH) {
 						this.state = State.CLIMBING;
 						this.climb_init_pos = this.getAvgWheelPos();
 					}
 					break;
 				}
 				case CLIMBING: {
-					this.driveVelocity(this.incline_velocity);
-					if(-this.pitch.getRate() < -DELTA_ANGLE_RATE_THRESH &&	// the actual rate is the inverse bc of CW <--> CCW weridness w/ Gyro interface so invert
-						(this.getAvgWheelPos() - this.climb_init_pos) >= CLIMB_DISPLACEMENT_THRESH
+					this.driveVelocity(this.vectorize(this.incline_velocity));
+					if(this.vectorize(this.pitch.getRate()) > DELTA_ANGLE_RATE_THRESH &&	// the actual rate is the inverse bc of CW <--> CCW weridness w/ Gyro interface so invert
+						this.vectorize(this.getAvgWheelPos() - this.climb_init_pos) >= CLIMB_DISPLACEMENT_THRESH
 					) {
 						this.state = State.STABILIZING;
 						// maybe store the position here, use position locking in the stabilization block?
@@ -226,7 +293,7 @@ public class Auto {
 				}
 				case STABILIZING: {
 					this.driveVelocity(0.0);	// or use position lock
-					double da = this.pitch_init - this.pitch.getAngle();
+					double da = this.vectorize(this.pitch_init - this.pitch.getAngle());
 					if(Math.abs(da) < STABLE_ANGLE_THRESH && Math.abs(this.pitch.getRate()) < STABLE_ANGLE_RATE_THRESH &&
 						Math.abs(this.drivebase.getLeftVelocity()) < STABLE_VELOCITY_THRESH &&
 						Math.abs(this.drivebase.getRightVelocity()) < STABLE_VELOCITY_THRESH)
@@ -240,8 +307,8 @@ public class Auto {
 					break;
 				}
 				case OVERSHOT: {
-					this.driveVelocity(-this.incline_velocity);
-					if(-this.pitch.getRate() > DELTA_ANGLE_RATE_THRESH) {	// see above for inverting rate
+					this.driveVelocity(this.vectorize(-this.incline_velocity));
+					if(this.vectorize(-this.pitch.getRate()) > DELTA_ANGLE_RATE_THRESH) {	// see above for inverting rate
 						this.state = State.STABILIZING;
 					}
 					break;
@@ -255,7 +322,7 @@ public class Auto {
 		}
 		@Override
 		public boolean isFinished() {
-			return this.state == State.STABLE;
+			return this.state == State.STABLE || this.tooFar();
 		}
 		@Override
 		public void end(boolean i) {
@@ -343,10 +410,13 @@ public class Auto {
 	}
 	public static class AutoArmControl extends CommandBase {
 
-		private final Manipulator.Arm arm;
-		private final double voltage;
+		private final Manipulator2.Arm arm;
+		private final DoubleSupplier voltage;
 
-		public AutoArmControl(Manipulator m, double volts) {
+		public AutoArmControl(Manipulator2 m, double volts) {
+			this(m, ()->volts);
+		}
+		public AutoArmControl(Manipulator2 m, DoubleSupplier volts) {
 			this.arm = m.arm;
 			this.voltage = volts;
 		}
@@ -355,7 +425,7 @@ public class Auto {
 		public void initialize() {}
 		@Override
 		public void execute() {
-			this.arm.setWinchVoltage(this.voltage);
+			this.arm.setVoltage(this.voltage.getAsDouble());
 		}
 		@Override
 		public boolean isFinished() {
@@ -363,7 +433,7 @@ public class Auto {
 		}
 		@Override
 		public void end(boolean i) {
-			
+			this.arm.setVoltage(0.0);
 		}
 
 	}

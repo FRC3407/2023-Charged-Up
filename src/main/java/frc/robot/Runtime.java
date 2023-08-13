@@ -1,140 +1,219 @@
 package frc.robot;
 
+import java.io.File;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
+import javax.swing.filechooser.FileSystemView;
 
-import edu.wpi.first.net.PortForwarder;
+import edu.wpi.first.math.geometry.*;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
-import edu.wpi.first.wpilibj.AddressableLED;
-import edu.wpi.first.wpilibj.AddressableLEDBuffer;
+import edu.wpi.first.wpilibj.AnalogPotentiometer;
 import edu.wpi.first.wpilibj.DataLogManager;
 import edu.wpi.first.wpilibj.DriverStation;
-import edu.wpi.first.wpilibj.PWM;
 import edu.wpi.first.wpilibj.PowerDistribution;
+import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.TimedRobot;
-import edu.wpi.first.wpilibj.interfaces.Gyro;
-import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.interfaces.Gyro;
+import edu.wpi.first.wpilibj.simulation.RoboRioSim;
+import edu.wpi.first.wpilibj.simulation.BatterySim;
+import edu.wpi.first.wpilibj.util.WPILibVersion;
 import edu.wpi.first.wpilibj2.command.*;
 
 import com.pathplanner.lib.server.PathPlannerServer;
+import com.pathplanner.lib.commands.PPRamseteCommand;
 
 import frc.robot.Constants.ButtonBox;
 import frc.robot.team3407.controls.Input.*;
 import frc.robot.team3407.drive.DriveSupplier.*;
 import frc.robot.team3407.controls.ControlSchemeManager;
-import frc.robot.team3407.controls.ControlSchemeManager.AutomatedTester;
-import frc.robot.team3407.commandbased.EventTriggers.*;
 import frc.robot.team3407.ADIS16470_3X;
+import frc.robot.team3407.SenderNT;
+import frc.robot.team3407.Util;
 
 
 public final class Runtime extends TimedRobot {
 
-	private static Runtime runtime = new Runtime();
-	public static Runtime Get() { return Runtime.runtime; }
+	public final class Robot implements Sendable {
 
-	private final class Robot implements Sendable {
-		private final PowerDistribution power = new PowerDistribution(
+		// public final AnalogPotentiometer pot = new AnalogPotentiometer(0, 270, 0);
+
+		public final PowerDistribution power = new PowerDistribution(
 			Constants.PDH_CAN_ID,
 			Constants.PDH_MODULE_TYPE
 		);
-		private final ADIS16470_3X imu_3x = new ADIS16470_3X();
-		private final DriveBase drivebase = new DriveBase(
+
+		public final ADIS16470_3X imu_3x = new ADIS16470_3X();
+
+		public final DriveBase drivebase = new DriveBase(
 			Constants.DRIVEBASE_LAYOUT,
 			this.imu_3x.getGyroAxis(Constants.IMU_YAW_AXIS),
-			Constants.DRIVEBASE_PARAMS
+			Constants.DRIVEBASE_PARAMS,
+			Constants.DRIVEBASE_NEUTRAL_MODE
 		);
-		private final Manipulator manipulator = new Manipulator(
-			new Manipulator.Arm(
-				Constants.ARM_WINCH_CAN_ID),
-			new Manipulator.Grabber(
-				Constants.GRABBER_CAN_ID,
-				Constants.GRABBER_WRIST_PWM_PORT)
+
+		public final Manipulator2 manipulator = new Manipulator2(
+			new Manipulator2.Arm(Constants.ARM_WINCH_CAN_ID),
+			new Manipulator2.Wrist.ServoImpl(Constants.GRABBER_WRIST_PWM_PORT),
+			// new Manipulator2.Hand.NeverestGrabber(Constants.GRABBER_CAN_ID)
+			new Manipulator2.Hand.SeatMotorGrabber(Constants.GRABBER_CAN_ID, 0)
 		);
+
+
+		private Robot() {}	// only the runtime class can construct a 'robot' object
 
 		@Override
 		public void initSendable(SendableBuilder b) {
-			this.power.resetTotalEnergy();
-			b.addDoubleProperty("Power/Temperature", this.power::getTemperature, null);
-			b.addDoubleProperty("Power/Total Power (W)", this.power::getTotalPower, null);
-			b.addDoubleProperty("Power/Total Energy Used (J)", this.power::getTotalEnergy, null);	// divide by 3600 for watt-hours
+			b.addDoubleProperty("Power/RoboRIO VIn", RobotController::getBatteryVoltage, null);
+			// b.addDoubleProperty("Test/Pot Value", this.pot::get, null);
 		}
 		public void startLogging() {
 			SmartDashboard.putData("Robot", this);
 			SmartDashboard.putData("Robot/Power", this.power);
 			SmartDashboard.putData("Robot/IMU", this.imu_3x);
 			SmartDashboard.putData("Robot/Drivebase", this.drivebase);
-			SmartDashboard.putData("Robot/Manipulator/Arm", this.manipulator.arm);
-			SmartDashboard.putData("Robot/Manipulator/Grabber", this.manipulator.grabber);
+			this.manipulator.startLogging("Robot/Manipulator");
 		}
+		public void initialize() {
+			this.drivebase.register();
+			this.manipulator.register();
+			this.startLogging();
+		}
+
 	}
+
+
+
+
+
 	private final Robot robot = new Robot();
-	// private final LEDTest leds = new LEDTest(2, 3, 4);
+	private final Performance perf_main = new Performance();
 	private final ControlSchemeManager controls = new ControlSchemeManager();
-	// private final SendableChooser<Command> auto = new SendableChooser<>();
-	private BooleanSupplier auto_enable = ()->false, auto_select = ()->false;
-	private CommandBase auto_driveforward, auto_balance;
 
+	private Performance perf_sim;
+	private SenderNT sim_sender;
 
+	private static final Runtime runtime = new Runtime();
+	public static Runtime Get() { return Runtime.runtime; }
 	private Runtime() {
 		this.robot.imu_3x.configRateFilter(Constants.IMU_RATE_FILTER);
 	}
 
+
+
+
 	@Override
 	public void robotInit() {
-		PortForwarder.add(1180, "10.34.7.12", 80);
-		PortForwarder.add(1181, "10.34.7.12", 1181);
+
+		System.out.println("Using Wpilib Version " + WPILibVersion.Version);
+
+		this.robot.initialize();
+		SmartDashboard.putData("Performance", this.perf_main);
 		Vision.init();
-		if(isReal()) { DataLogManager.start(); }
-		else { DataLogManager.start("logs/sim"); }
+
+		if(isReal()) {
+			DataLogManager.start();
+		} else {
+			File docs_dir = new File(FileSystemView.getFileSystemView().getDefaultDirectory(), "Robot Simulation Logs");
+			if(docs_dir.exists()) {
+				DataLogManager.start(docs_dir.getPath());
+			} else {
+				DataLogManager.start("logs/sim");
+			}
+			this.perf_sim = new Performance();
+			this.sim_sender = new SenderNT("Sim++");
+			this.sim_sender.putData("Performance", this.perf_sim);
+			this.robot.manipulator.logSim(this.sim_sender);
+			this.addPeriodic(
+				()->{
+					this.perf_sim.loopInit();
+					this.robot.manipulator.simTick(0.002);
+					this.sim_sender.updateValues();
+					this.perf_sim.loopEnd();
+				},
+				0.002
+			);
+		}
 		DriverStation.startDataLog(DataLogManager.getLog());
 		PathPlannerServer.startServer(5811);
-		this.robot.startLogging();
+		PPRamseteCommand.setLoggingCallbacks(null,
+			// (PathPlannerTrajectory ppt)->{},
+			(Pose2d target)->{ SmartDashboard.putNumberArray("Active Trajectory/Target Pose",
+				new double[]{
+					target.getX(), target.getY(),
+					target.getRotation().getDegrees()
+				}); },
+			(ChassisSpeeds setpoint)->{
+				SmartDashboard.putNumber("Active Trajectory/Setpoint Vx MpS", setpoint.vxMetersPerSecond);
+				SmartDashboard.putNumber("Active Trajectory/Setpoint Vy MpS", setpoint.vyMetersPerSecond);
+				SmartDashboard.putNumber("Active Trajectory/Setpoint Omega RadpS", setpoint.omegaRadiansPerSecond); },
+			(Translation2d tx, Rotation2d rx)->{
+				SmartDashboard.putNumber("Active Trajectory/X Error", tx.getX()); 
+				SmartDashboard.putNumber("Active Trajectory/Y Error", tx.getY()); 
+				SmartDashboard.putNumber("Active Trajectory/Rotation Error", rx.getDegrees()); }
+		);
 
-		this.controls.addScheme("Single Xbox Testing", new AutomatedTester(Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Dual Xbox Testing", new AutomatedTester(Xbox.Map, Xbox.Map), this::setupXbox, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Arcade Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Control Board Controls", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.addScheme("Competition Controls (AD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardAD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.setDefault("Competition Controls (TD)", new AutomatedTester(Attack3.Map, Attack3.Map, ButtonBox.Map, Xbox.Map), this::setupControlBoardTD, CommandScheduler.getInstance()::cancelAll);
-		this.controls.setAmbiguousSolution(ControlSchemeManager.AmbiguousSolution.PREFER_COMPLEX);
-		this.controls.publishSelector();
-		this.controls.runContinuous();
+		Controls.setupControls(this.robot, this.controls, Controls.FeatureLevel.COMPETITION);
+		this.addPeriodic(
+			this.controls.genLoopableRunContinuous(),
+			0.5
+		);
 
-		Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
-
-		// this.auto.addOption("Active Park (Demo)", Auto.activePark(this.robot.drivebase, Constants.ACTIVE_PARK_VOLTS_PER_METER));
-		// this.auto.addOption("Balance Park (Demo)", Auto.balancePark(this.robot.drivebase, pitch, Constants.BALANCE_PARK_VOLTS_PER_DEGREE));
+		final Gyro pitch = this.robot.imu_3x.getGyroAxis(Constants.IMU_PITCH_AXIS);
+		Command balance = Util.send(
+			Auto.climbPad(
+				this.robot.drivebase, pitch,
+				Constants.AUTO_PAD_ENGAGE_VELOCITY,
+				Constants.AUTO_PAD_INCLINE_VELOCITY
+			), "Commands/Climb Charging Pad"
+		);
+		Command taxi_balance = Auto.taxiClimb(
+			this.robot.drivebase, -3.7, -1.0, pitch,
+			Constants.AUTO_PAD_ENGAGE_VELOCITY,
+			Constants.AUTO_PAD_INCLINE_VELOCITY
+		);
+		Auto.setDefaultOptionA(taxi_balance, "Taxi Climb");
+		Auto.addSelectableOptionA(balance, "Climb");
+		Auto.setDefaultOptionB(
+			Auto.timedArmPush(this.robot.manipulator, 5.0, 1.0).andThen(
+			Auto.driveStraight(this.robot.drivebase, -3.5, -1.2)), "Taxi and Dump");
+		Auto.addSelectableOptionB(Auto.driveStraight(this.robot.drivebase, -3.5, -1.2), "Just Taxi");
+		Auto.addSelectableOptionB(new SequentialCommandGroup(
+			Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),
+			new WaitCommand(0.3),
+			Auto.driveStraight(this.robot.drivebase, 0.5, 0.6),
+			new WaitCommand(0.5),
+			Auto.driveStraight(this.robot.drivebase, -3.5, -1.2)
+		), "Push and Taxi");
 		// for(String t : Constants.TRAJECTORIES) {
-		// 	this.auto.addOption(
-		// 		t + " [Trajectory]",
-		// 		this.robot.drivebase.followAutoBuilderPathRelative(t)
-		// 	);
+		// 	String n = t + " [Trajectory]";
+		// 	Auto.addSelectableCommand(n, Util.send(
+		// 		this.robot.drivebase.followEventTrajectory(t, Constants.AUTO_EVENTS, DriverStation.getAlliance()),
+		// 		"Commands/Auto Trajectories/" + n
+		// 	));
 		// }
-		// this.auto.addOption("Drive Forward", Auto.driveStraight(this.robot.drivebase, 3.0, 1.5));
-		// this.auto.setDefaultOption("Climb Charging Pad",
-		// 	send(Auto.climbPad(this.robot.drivebase, pitch,
-		// 		Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY), "Commands/Climb Pad"));
-		// SmartDashboard.putData("Autonomous", this.auto);
+		Auto.initialize();
 
-		// CommandBase drivedump = send(Auto.driveStraight(this.robot.drivebase, -0.2, 0.8), "Commands/Auto/Dump Scube").andThen(
-		// 	send(Auto.driveStraight(this.robot.drivebase, 0.2, 0.4), "Commands/Auto/Push Scube"));
-		// .andThen(drivedump)
-
-		//this.auto_driveforward = (new WaitCommand(1.5)).andThen(send(Auto.driveStraight(this.robot.drivebase, -4.0, -1.2), "Commands/Auto/Taxi"));
-		this.auto_driveforward = new SequentialCommandGroup(Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),new WaitCommand(0.3),Auto.driveStraight(this.robot.drivebase, 0.5, 0.6),new WaitCommand(0.5),Auto.driveStraight(this.robot.drivebase, -4.0, -1.2));
-		this.auto_balance = Auto.climbPad(this.robot.drivebase, pitch,
-			Constants.AUTO_PAD_ENGAGE_VELOCITY, Constants.AUTO_PAD_INCLINE_VELOCITY);
-
-		// this.leds.setRGB(0.5, 0.5, 0.5);
-		// SmartDashboard.putData("Robot/LEDS", this.leds);
-
-		this.robot.manipulator.grabber.setWristAngle(Manipulator.Grabber.WRIST_MAX_ANGLE);
 	}
 	@Override
 	public void robotPeriodic() {
+		this.perf_main.loopInit();
+		Controls.updateState();
 		CommandScheduler.getInstance().run();
+		Vision.PoseEstimation.fuseVision(this.robot.drivebase, true);
+		this.perf_main.loopEnd();
+	}
+	@Override
+	public void simulationPeriodic() {
+		this.robot.manipulator.setSimForwardAcc(this.robot.drivebase.getSimForwardAcceleration());
+		RoboRioSim.setVInVoltage(
+			BatterySim.calculateDefaultBatteryLoadedVoltage(
+				this.robot.drivebase.getSimCurrentDraw(),
+				this.robot.manipulator.getSimCurrentDraw()
+		));
 	}
 
 	@Override
@@ -146,26 +225,7 @@ public final class Runtime extends TimedRobot {
 
 	@Override
 	public void autonomousInit() {
-		// Command a = this.auto.getSelected();
-		// if(a != null && this.auto_enable.getAsBoolean()) {
-		// 	AutonomousTrigger.WhileTrue(a);		// start now, end when auto ends
-		// } else {
-		// 	System.out.println("No auto command selected!");
-		// }
-		if(this.auto_enable.getAsBoolean()) {
-			//Auto.setGrabber(this.robot.manipulator, Manipulator.Grabber.WRIST_MAX_ANGLE, 5.0).schedule();
-			if(this.auto_select.getAsBoolean() && this.auto_balance != null) {
-				// this.auto_balance.until(AutonomousTrigger.Get().negate()).schedule();
-				Auto.driveStraight(this.robot.drivebase, -2.0, -1.2).andThen(Auto.driveStraight(this.robot.drivebase, -2.0, 0.7)).andThen(send(this.auto_balance, "Climb Charging Pad")).schedule();
-				System.out.println("Balance Auto Started!");
-			} else if(this.auto_driveforward != null) {
-				// this.auto_driveforward.until(AutonomousTrigger.Get().negate()).schedule();
-				this.auto_driveforward.schedule();
-				System.out.println("Drive Forward Auto Started!");
-			}
-		} else {
-			System.out.println("Auto Disabled!");
-		}
+		Auto.runSelected();
 	}
 	@Override
 	public void autonomousPeriodic() {}
@@ -190,276 +250,88 @@ public final class Runtime extends TimedRobot {
 
 
 
-	private void setupXbox(InputDevice... inputs) {
-		System.out.println("Initializing Xbox Controls!");
-		InputDevice
-			controller = inputs[0],
-			controller2 = inputs.length > 1 ? inputs[1] : null;
-		;
-		TeleopTrigger.OnTrue(send(
-			this.robot.drivebase.tankDriveVelocityProfiled(
-				// tankDriveSupreme(
-				// 	Xbox.Analog.LY.getDriveInputSupplier(controller,
-				// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-				// 	Xbox.Analog.RY.getDriveInputSupplier(controller,
-				// 		Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-				// 	()->{ return (Xbox.Digital.RB.getValueOf(controller) && Xbox.Digital.LB.getValueOf(controller)); },
-				// 	()->{ return false; },
-				// 	Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
-				// )
-				arcadeDriveSupreme(
-					Xbox.Analog.RY.getDriveInputSupplier(controller,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-					Xbox.Analog.LX.getDriveInputSupplier(controller,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-					Xbox.Digital.RB.getSupplier(controller),
-					Xbox.Digital.LB.getSupplier(controller),
-					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
-				)
-			), "Commands/Velocity Drive")
-		);
-		if(controller2 != null) {	// this function can be used whether 1 or 2 are connected
-			TeleopTrigger.OnTrue(send(
-				this.robot.manipulator.controlManipulatorAdv(
-					Xbox.Analog.RY.getDriveInputSupplier(controller2,
-						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),
-					()->Xbox.Analog.RT.getValueOf(controller2) - Xbox.Analog.LT.getValueOf(controller2),
-					Xbox.Analog.LY.getDriveInputSupplier(controller2,
-						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),
-					Xbox.Digital.LS.getPressedSupplier(controller2),
-					Xbox.Digital.RB.getPressedSupplier(controller2),
-					Xbox.Digital.LB.getPressedSupplier(controller2)
-				), "Commands/Manipulator Control")
-			);
+	private static final class Performance implements Sendable {
+
+		private double
+			last_loop = Timer.getFPGATimestamp(),
+			loop_dt = 0.0,
+			proc_dt = 0.0;
+
+		public void loopInit() {
+			double now = Timer.getFPGATimestamp();
+			this.loop_dt = (now - last_loop) * 1e3;
+			this.last_loop = now;
 		}
-		new Vision.CameraControl(
-			Xbox.Digital.A.getPressedSupplier(controller),
-			Xbox.Digital.B.getPressedSupplier(controller)
-		).schedule();
-	}
-
-
-
-
-
-	private void setupControlBoardTD(InputDevice... inputs) { setupControlBoard(true, inputs); }
-	private void setupControlBoardAD(InputDevice... inputs) { setupControlBoard(false, inputs); }
-	private void setupControlBoard(boolean tdrive, InputDevice... inputs) {
-		System.out.println("Initializing Control Board Controls!");
-		InputDevice
-			lstick = inputs[0],
-			rstick = inputs[1],
-			bbox = inputs.length > 2 ? inputs[2] : null,
-			controller = inputs.length > 3 ? inputs[3] : null
-		;
-		TeleopTrigger.OnTrue(send(
-			this.robot.drivebase.tankDriveVelocityProfiled(
-				tdrive ? tankDriveSupreme(
-					Attack3.Analog.Y.getDriveInputSupplier(lstick,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-					Attack3.Analog.Y.getDriveInputSupplier(rstick,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-					()->{ return (Attack3.Digital.TRI.getValueOf(lstick) && Attack3.Digital.TRI.getValueOf(rstick)); },
-					()->{ return (Attack3.Digital.TB.getValueOf(lstick) && Attack3.Digital.TB.getValueOf(rstick)); },
-					Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
-				) :
-				arcadeDriveSupreme(
-					Attack3.Analog.Y.getDriveInputSupplier(rstick,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-					Attack3.Analog.X.getDriveInputSupplier(lstick,
-						Constants.DRIVE_INPUT_DEADZONE, Constants.DRIVE_INPUT_VEL_SCALE * Constants.DRIVE_ROT_RATE_SCALE, Constants.DRIVE_INPUT_EXP_POWER),
-					Attack3.Digital.TRI.getSupplier(rstick),
-					Attack3.Digital.TRI.getSupplier(lstick),
-					Constants.DRIVE_INPUT_VEL_SCALE, Constants.DRIVE_BOOST_SCALE, Constants.DRIVE_FINE_SCALE
-				)
-			), "Commands/Velocity Drive")
-		);
-		if(controller != null) {
-			TeleopTrigger.OnTrue(send(
-				this.robot.manipulator.controlManipulatorAdv(
-					Xbox.Analog.RY.getDriveInputSupplier(controller,
-						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),		// right stick y-axis for the arm %-output
-					()->Xbox.Analog.RT.getValueOf(controller) - Xbox.Analog.LT.getValueOf(controller),	// triggers for the wrist --> right+, left-
-					Xbox.Analog.LY.getDriveInputSupplier(controller,
-						Constants.DRIVE_INPUT_DEADZONE, -1.0, 1.0),	// left stick y-axis for the grabber %-rate (integrated for position)
-					Xbox.Digital.LS.getPressedSupplier(controller),			// press down left stick to reset wrist
-					Xbox.Digital.RB.getPressedSupplier(controller),			// RB for arm lock
-					Xbox.Digital.LB.getPressedSupplier(controller)			// LB for grabber lock
-				), "Commands/Manipulator Control")
-			);
-			if(bbox == null) {
-				new Vision.CameraControl(
-					Xbox.Digital.A.getPressedSupplier(controller),
-					Xbox.Digital.B.getPressedSupplier(controller)
-				).schedule();
-			}
-		}
-		if(bbox != null) {
-			new Vision.CameraControl.DirectSwitching(
-				ButtonBox.Digital.B1.getPressedSupplier(bbox),
-				ButtonBox.Digital.B2.getPressedSupplier(bbox),
-				ButtonBox.Digital.B3.getPressedSupplier(bbox),
-				ButtonBox.Digital.B4.getPressedSupplier(bbox),
-				ButtonBox.Digital.B5.getPressedSupplier(bbox)
-			).schedule();
-			this.auto_enable = ButtonBox.Digital.S1.getSupplier(bbox);
-			this.auto_select = ButtonBox.Digital.S2.getSupplier(bbox);
-		}
-	}
-
-
-
-	/** Passthough for putting a sendable on SmartDashboard */
-	public static <T extends Sendable> T send(T t) {
-		SmartDashboard.putData(t);
-		return t;
-	}
-	/** Passthough for putting a sendable on SmartDashboard */
-	public static <T extends Sendable> T send(T t, String key) {
-		SmartDashboard.putData(key, t);
-		return t;
-	}
-
-
-
-
-
-
-
-
-
-	private static TankSupplierRS tankDriveSupreme(
-		DoubleSupplier l, DoubleSupplier r, BooleanSupplier b, BooleanSupplier f, double rs, double boost, double fine
-	) {
-		return new TankSupplierRS(
-			()->{
-				if(b.getAsBoolean() && !f.getAsBoolean()) {
-					return l.getAsDouble() * boost;
-				}
-				if(!b.getAsBoolean() && f.getAsBoolean()) {
-					return l.getAsDouble() * fine;
-				}
-				return l.getAsDouble();
-			},
-			()->{
-				if(b.getAsBoolean() && !f.getAsBoolean()) {
-					return r.getAsDouble() * boost;
-				}
-				if(!b.getAsBoolean() && f.getAsBoolean()) {
-					return r.getAsDouble() * fine;
-				}
-				return r.getAsDouble();
-			},
-			()->rs
-		);
-	}
-	private static ArcadeSupplierLM arcadeDriveSupreme(
-		DoubleSupplier f, DoubleSupplier t, BooleanSupplier b, BooleanSupplier fc, double max, double boost, double fine
-	) {
-		return new ArcadeSupplierLM(
-			()->((b.getAsBoolean() && !fc.getAsBoolean()) ? f.getAsDouble() * boost : f.getAsDouble()),
-			()->((fc.getAsBoolean() && !b.getAsBoolean()) ? t.getAsDouble() * fine : t.getAsDouble()),
-			()->((b.getAsBoolean() && !fc.getAsBoolean()) ? max * boost : max)
-		);
-	}
-
-
-
-
-
-
-
-
-	// private AddressableLED ledTester(AddressableLED addrl, AddressableLEDBuffer buff, int pwmp, int len) {
-	// 	addrl = new AddressableLED(pwmp);
-	// 	buff = new AddressableLEDBuffer(len);
-	// 	addrl.setLength(len);
-
-	// 	for(int i = 0; i < len; i++) {
-	// 		buff.setRGB(i, 0, 255, 0);
-	// 	}
-	// 	addrl.setData(buff);
-	// 	addrl.start();
-	// 	return addrl;
-	// }
-
-
-	public static class LEDTest implements Sendable {
-
-		private final static double
-			MIN_OUTPUT_uS = 0.005,
-			MAX_OUTPUT_uS = 5.005
-		;
-		private final static boolean
-			INVERT_RANGE = false
-		;
-		private final PWM r, g, b;
-		private double rs, gs, bs;
-
-		public LEDTest(int rp, int gp, int bp) {
-			this.r = new PWM(rp);
-			this.g = new PWM(gp);
-			this.b = new PWM(bp);
-			this.r.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
-			this.g.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
-			this.b.setBounds(MAX_OUTPUT_uS, 0, 0, 0, MIN_OUTPUT_uS);
-			this.r.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
-			this.g.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
-			this.b.setPeriodMultiplier(PWM.PeriodMultiplier.k1X);
-		}
-
-		public void setRGB(double r, double g, double b) {
-			if(INVERT_RANGE) {
-				this.r.setPosition(1.0 - r);
-				this.g.setPosition(1.0 - g);
-				this.b.setPosition(1.0 - b);
-			} else {
-				this.r.setPosition(r);
-				this.g.setPosition(g);
-				this.b.setPosition(b);
-			}
-			this.rs = r;
-			this.gs = g;
-			this.bs = b;
-		}
-		public void setR(double r) {
-			if(INVERT_RANGE) {
-				this.r.setPosition(1.0 - r);
-			} else {
-				this.r.setPosition(r);
-			}
-			this.rs = r;
-		}
-		public void setG(double g) {
-			if(INVERT_RANGE) {
-				this.g.setPosition(1.0 - g);
-			} else {
-				this.g.setPosition(g);
-			}
-			this.gs = g;
-		}
-		public void setB(double b) {
-			if(INVERT_RANGE) {
-				this.b.setPosition(1.0 - b);
-			} else {
-				this.b.setPosition(b);
-			}
-			this.bs = b;
-		}
-		public void stop() {
-			this.r.setDisabled();
-			this.g.setDisabled();
-			this.b.setDisabled();
+		public void loopEnd() {
+			this.proc_dt = (Timer.getFPGATimestamp() - last_loop) * 1e3;
 		}
 
 		@Override
 		public void initSendable(SendableBuilder b) {
-			b.addDoubleProperty("Red channel setpoint", ()->this.rs, this::setR);
-			b.addDoubleProperty("Green channel setpoint", ()->this.gs, this::setG);
-			b.addDoubleProperty("Blue channel setpoint", ()->this.bs, this::setB);
+			b.addDoubleProperty("Loop Time (ms)", ()->loop_dt, null);
+			b.addDoubleProperty("Utilized Time (ms)", ()->proc_dt, null);
 		}
 
 	}
+
+
+
+
+
+
+	// public static class SimPoseDrive extends CommandBase {
+
+	// 	public static final double
+	// 		ARM_MIN_ANGLE = -8.0,
+	// 		ARM_MAX_ANGLE = 102.0,
+	// 		ELBOW_REL_MIN_ANGLE = -80.0,
+	// 		ELBOW_REL_MAX_ANGLE = 100.0;
+
+	// 	private final DifferentialDriveSupplier dbsupplier;
+	// 	private final DoubleSupplier arm_rate, elbow_rate;
+
+	// 	private Pose2d robot;
+	// 	private Manipulator.ManipulatorPose mpose;
+
+	// 	public SimPoseDrive(DifferentialDriveSupplier dbs, DoubleSupplier arm, DoubleSupplier elbow) {
+	// 		this.dbsupplier = dbs;
+	// 		this.arm_rate = arm;
+	// 		this.elbow_rate = elbow;
+	// 		this.robot = new Pose2d();
+	// 		this.mpose = new Manipulator.ManipulatorPose(0.0, 180.0);
+	// 	}
+
+	// 	@Override
+	// 	public void initialize() {}
+	// 	@Override
+	// 	public void execute() {
+	// 		final double DT_s = 0.02;
+	// 		double
+	// 			lx = this.dbsupplier.leftOutput() * DT_s,
+	// 			rx = this.dbsupplier.rightOutput() * DT_s,
+	// 			fx = (rx + lx) / 2.0,
+	// 			tx = (rx - lx) / 0.509758; // radians
+	// 		robot = robot.exp(new Twist2d(fx, 0.0, tx));
+	// 		this.mpose.arm_angle = Math.min(ARM_MAX_ANGLE, Math.max(ARM_MIN_ANGLE, this.mpose.arm_angle + this.arm_rate.getAsDouble() * DT_s));
+	// 		this.mpose.elbow_angle = Math.min(ELBOW_REL_MAX_ANGLE, Math.max(
+	// 			Math.max(ELBOW_REL_MIN_ANGLE, Manipulator2.Kinematics.HandBBox2d.handV1MinAngle(this.mpose.arm_angle)),
+	// 			this.mpose.elbow_angle + this.elbow_rate.getAsDouble() * DT_s));
+	// 	}
+	// 	@Override
+	// 	public boolean isFinished() { return false; }
+	// 	@Override
+	// 	public void end(boolean i) {}
+	// 	@Override
+	// 	public boolean runsWhenDisabled() { return true; }
+
+	// 	@Override
+	// 	public void initSendable(SendableBuilder b) {
+	// 		b.addDoubleArrayProperty("Pose2d", ()->new double[]{ this.robot.getX(), this.robot.getY(), this.robot.getRotation().getDegrees() }, null);
+	// 		b.addDoubleArrayProperty("Manipulator Poses", this.mpose::getV1RawPoseData, null);
+	// 		// b.addDoubleProperty("Min Angle Calculation", ()->Manipulator2.Kinematics.HandBBox2d.handV1MinAngle(this.mpose.arm_angle), null);
+	// 	}
+
+	// }
 
 
 }

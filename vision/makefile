@@ -4,6 +4,8 @@ OPT ?= release
 ifeq ($(filter $(OPT),release debug),)
 $(error invalid 'OPT' option - choose from {release/debug})
 endif
+PATCH_V4L ?= 1
+USE_CAMERASERVER ?= 0
 
 CROSS_PREFIX := aarch64-bullseye-linux-gnu-
 CXX := g++
@@ -15,24 +17,26 @@ OUT_DIR := out
 VS_DIR := VisionServer/lib-vs
 
 NAME := charged-up-vision
-PROGRAM := $(OUT_DIR)/$(NAME)
-#PROGRAM_VS1 := $(PROGRAM)-vs1
+VISION := $(OUT_DIR)/$(NAME)
+STREAMING := $(OUT_DIR)/$(NAME)-raw
 VISIONSERVER := $(VS_DIR)/out/libvs3407.so
 PACKAGE_DEPS := $(VS_DIR)/lib/libtensorflowlite.so $(VS_DIR)/lib/libedgetpu.so $(VISIONSERVER)
 
 # SRCS := $(call rwildcard,$(SRC_DIR)/,*.cpp *.c *.S *.s)
-SRCS := src/chargedup-raw.cpp
-OBJS := $(SRCS:$(SRC_DIR)/%=$(OBJ_DIR)/%.o)
-#SRCS_VS1 := main.cpp $(call rwildcard,$(SRC_DIR)/additions-compile/,*.cpp *.c) $(call rwildcard,$(VS_DIR)/src/vs1-legacy/,*.cpp *.c *.S *.s)
-#SRCS_VS1 := $(SRCS:%=$(OBJ_DIR)/%.o)
+VISION_SRCS := src/chargedup.cpp
+STREAMING_SRCS := src/chargedup-raw.cpp
+VISION_OBJS := $(VISION_SRCS:$(SRC_DIR)/%=$(OBJ_DIR)/%.o)
+STREAMING_OBJS := $(STREAMING_SRCS:$(SRC_DIR)/%=$(OBJ_DIR)/%.o)
+
+DEFINES := -D"PATCH_LIFECAM_V4L_PROP_IDS=$(PATCH_V4L)" -D"ENABLE_CAMERASERVER=$(USE_CAMERASERVER)"
 
 ifeq ($(OPT),release)
 #release options for Compiling and Linking
-COPTS := -O3 -D__RELEASE__
+COPTS := -O3 -D__RELEASE__ $(DEFINES)
 LOPTS :=
 else
 #debug options for Compiling and Linking
-COPTS := -g -Og -D__DEBUG__
+COPTS := -g -Og -D__DEBUG__ $(DEFINES)
 LOPTS := -g
 endif
 
@@ -54,8 +58,11 @@ LDFLAGS := -pthread -Wall -L$(VS_DIR)/out -L$(VS_DIR)/lib -L$(SRC_DIR)/libpixy/o
 # 	-lopencv_flann -lopencv_videoio -lopencv_imgcodecs \
 # 	-lopencv_imgproc -lopencv_core -lvs3407 -lcameraserver \
 # 	-lntcore -lcscore -lwpiutil -lwpimath -lwpilibc -lopencv_aruco -lpigpio
-LDLIBS := -lcscore -lntcore -lwpiutil -lwpilibc -lcameraserver -lopencv_core -lopencv_imgproc \
-# -lapriltag -lwpimath -lopencv_aruco -lopencv_calib3d
+LDLIBS := -lcscore -lntcore -lwpiutil -lwpilibc -lopencv_core -lopencv_imgproc
+LDLIBS_VPROC := -lapriltag -lwpimath -lopencv_aruco -lopencv_calib3d -lvs3407
+ifneq ($(USE_CAMERASERVER),0)
+LDLIBS += -lcameraserver
+endif
 
 
 ifeq ($(OS),Windows_NT)
@@ -85,26 +92,24 @@ $(OBJ_DIR)/%.s.o : $(SRC_DIR)/%.s | $(OBJ_DIR)
 	$(CXX) $(COPTS) -c -o $(OBJ_DIR)/$(@F) -std=$(STD) $(ASMFLAGS) $(CPPFLAGS) $(CFLAGS) $<
 
 
-$(PROGRAM): $(OBJS) | $(OUT_DIR)
+$(VISION): $(VISION_OBJS) | $(OUT_DIR)
+	$(CXX) $(LOPTS) -o $@ $(LDFLAGS) $(foreach file,$(^F),$(OBJ_DIR)/$(file)) $(LDLIBS) $(LDLIBS_VPROC)
+
+$(STREAMING): $(STREAMING_OBJS) | $(OUT_DIR)
 	$(CXX) $(LOPTS) -o $@ $(LDFLAGS) $(foreach file,$(^F),$(OBJ_DIR)/$(file)) $(LDLIBS)
 
-$(VISIONSERVER):
-	$(MAKE) -C $(VS_DIR)/lib-vs shared
+# $(VISIONSERVER):
+# 	$(MAKE) -C $(VS_DIR)/lib-vs shared
 
 $(OUT_DIR) $(OBJ_DIR):
 	mkdir $@
 
 
-.PHONY: build package clean rebuild with-lib
+.PHONY: vision streaming clean rebuild
 
-build: $(PROGRAM)
+vision: $(VISION)
 
-with-lib: $(VISIONSERVER) build
-
-package: build	#fix this
-	$(CP) $(subst /,\,$(VS_DIR)/lib/libtensorflowlite.so) $(OUT_DIR)
-	$(CP) $(subst /,\,$(VS_DIR)/lib/libedgetpu.so $(OUT_DIR)/libedgetpu.so.1)
-	$(CP) $(subst /,\,$(VISIONSERVER)) $(OUT_DIR)
+streaming: $(STREAMING)
 
 clean:
 	$(RM-R) $(OBJ_DIR)

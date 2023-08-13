@@ -1,29 +1,54 @@
 package frc.robot;
 
-import java.util.List;
 import java.util.function.BooleanSupplier;
 
+// import edu.wpi.first.math.util.Units;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.networktables.*;
 import edu.wpi.first.wpilibj2.command.CommandBase;
-
-import org.photonvision.PhotonCamera;
-import org.photonvision.targeting.*;
+import frc.robot.Constants.Field;
 
 
-public class Vision {
+public final class Vision {
 
-	public static PubSubOption NT_ENTRY_DEFAULT = PubSubOption.periodic(0.02);
+	public static final PubSubOption
+		NT_ENTRY_DEFAULT = PubSubOption.periodic(0.02);
+	public static final PubSubOption[]
+		NT_DATA_SUBSCRIBER = new PubSubOption[]{ NT_ENTRY_DEFAULT,
+			PubSubOption.keepDuplicates(true),
+			PubSubOption.pollStorage(10)
+		};
 
 	public static class NT {
 		private NT() {
 			this.vbase = NetworkTableInstance.getDefault().getTable("Vision");
-			this.avail_cams = this.vbase.getIntegerTopic("Available Outputs").getEntry(
-				0, Vision.NT_ENTRY_DEFAULT);
-			this.active_cam = this.vbase.getIntegerTopic("Active Camera Thread").getEntry(
-				0, Vision.NT_ENTRY_DEFAULT);
-			this.overlay_verbosity = this.vbase.getIntegerTopic("Overlay Verbosity").getEntry(
-				0, Vision.NT_ENTRY_DEFAULT);
+			this.active_cam =			this.vbase.getIntegerTopic("Active Camera Thread")
+											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
+			this.overlay_verbosity =	this.vbase.getIntegerTopic("Overlay Verbosity")
+											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
+			this.cam_exposure =			this.vbase.getIntegerTopic("Camera Exposure")
+											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
+			this.downscaling =			this.vbase.getIntegerTopic("Output Downscale")
+											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
+			this.aprilp_mode =			this.vbase.getIntegerTopic("AprilTag Mode")
+											.getEntry(-2, Vision.NT_ENTRY_DEFAULT);
+			this.retror_mode =			this.vbase.getIntegerTopic("RetroRefl Mode")
+											.getEntry(-2, Vision.NT_ENTRY_DEFAULT);
+			this.perf_override = 		this.vbase.getIntegerTopic("Performance Mode")
+											.getEntry(0, Vision.NT_ENTRY_DEFAULT);
+
+			this.all_estimations =		this.vbase.getDoubleArrayTopic("Pose Estimations/Individual")
+											.subscribe(new double[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.combined_estimations =	this.vbase.getDoubleArrayTopic("Pose Estimations/Combined")
+											.subscribe(new double[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.estimate_errors =		this.vbase.getFloatArrayTopic("Pose Estimations/RMSE")
+											.subscribe(new float[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.tag_distances =		this.vbase.getFloatArrayTopic("Pose Estimations/Tag Distances")
+											.subscribe(new float[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.retrorefl_centers =	this.vbase.getDoubleArrayTopic("RetroReflective Detections/Centers")
+											.subscribe(new double[]{}, Vision.NT_DATA_SUBSCRIBER);
+			this.retrorefl_locations =	this.vbase.getDoubleArrayTopic("RetroReflective Detections/Translations")
+											.subscribe(new double[]{}, Vision.NT_DATA_SUBSCRIBER);
 		}
 		private static NT global;
 		public static NT get() {
@@ -34,9 +59,22 @@ public class Vision {
 		}
 
 		public final NetworkTable vbase;
-		public final IntegerEntry avail_cams;
-		public final IntegerEntry active_cam;
-		public final IntegerEntry overlay_verbosity;
+		public final IntegerEntry
+			active_cam,
+			overlay_verbosity,
+			cam_exposure,
+			downscaling,
+			aprilp_mode,
+			retror_mode,
+			perf_override;
+		public final DoubleArraySubscriber
+			all_estimations,
+			combined_estimations,
+			retrorefl_centers,
+			retrorefl_locations;
+		public final FloatArraySubscriber
+			estimate_errors,
+			tag_distances;
 	}
 
 	public static NT nt = null;
@@ -45,17 +83,18 @@ public class Vision {
 		nt = NT.get();
 	}
 
+
 	public static enum CameraSelect {
-		FORWARD		(0, "Forward Facing Camera"),
-		ARM			(1, "Arm Camera"),
-		TOP			(2, "Top Camera")/*,
-		PIXY2		(3, "PixyCam")*/;
+		UNDERARM		(0, "Under Arm Camera", PoseEstimation.UNDER_ARM_C2R),
+		UPPER			(1, "Upper Camera", PoseEstimation.UPPER_C2R);
 
 		public final int id;
 		public final String name;
-		private CameraSelect(int id, String n) {
+		public final Transform3d c2r;
+		private CameraSelect(int id, String n, Transform3d c2r) {
 			this.id = id;
 			this.name = n;
+			this.c2r = c2r;
 		}
 
 		public void set() { selectCamera(this); }
@@ -70,6 +109,20 @@ public class Vision {
 			return vals[idx];
 		}
 	}
+	public static void selectCamera(CameraSelect c) {
+		nt.active_cam.set(c.id);
+	}
+	public static void selectCamera(int c) {
+		nt.active_cam.set(c);
+	}
+	public static int getSelectedCamID() {
+		return (int)nt.active_cam.get();
+	}
+	public static CameraSelect selectedCameraFromID(int id) {
+		final CameraSelect[] vals = CameraSelect.values();
+		return (id < 0 || id >= vals.length) ? null : vals[id];
+	}
+
 	public static enum Verbosity {
 		NONE	(0),
 		SIMPLE	(1),
@@ -78,17 +131,7 @@ public class Vision {
 		public final int val;
 		private Verbosity(int v) { this.val = v; }
 
-		public void set() { setVerbosity(this); }
-	}
-
-	public static void selectCamera(CameraSelect c) {
-		nt.active_cam.set(c.id);
-	}
-	public static void selectCamera(int c) {
-		nt.active_cam.set(c);
-	}
-	public static int getSelectedCamera() {
-		return (int)nt.active_cam.get();
+		public void setActive() { setVerbosity(this); }
 	}
 	public static void setVerbosity(Verbosity v) {
 		nt.overlay_verbosity.set(v.val);
@@ -96,6 +139,52 @@ public class Vision {
 	public static int getVerbosity() {
 		return (int)nt.overlay_verbosity.get();
 	}
+
+
+	public static void setExposure(int ex) {
+		nt.cam_exposure.set(ex);
+	}
+	public static int getExposure() {
+		return (int)nt.cam_exposure.get();
+	}
+	public static void setStreamDownscale(int ds) {
+		nt.downscaling.set(ds);
+	}
+	public static int getStreamDownscale() {
+		return (int)nt.downscaling.get();
+	}
+
+	public static enum PerfMode {
+		STREAM_ONLY			(-1),
+		NONE				(0),
+		RAW_MULTISTREAM		(1),
+		SINGLESTREAM		(2),
+		RAW_SINGLESTREAM	(3),
+		VPP_ONLY			(4),
+		APRIL_ONLY			(5),
+		RETRO_ONLY			(6);
+
+		public final int val;
+		private PerfMode(int v) { this.val = v; }
+
+		public void setActive() { setPerfMode(this.val); }
+	}
+	public static void setPerfMode(PerfMode p) {
+		nt.perf_override.set(p.val);
+	}
+	public static void setPerfMode(int m) {
+		nt.perf_override.set(m);
+	}
+	public static int getPerfMode() {
+		return (int)nt.perf_override.get();
+	}
+	public static PerfMode perfModeFromVal(int v) {
+		final PerfMode[] vals = PerfMode.values();
+		if(v < -1) { return PerfMode.STREAM_ONLY; }
+		else if(v <= PerfMode.RETRO_ONLY.val) { return vals[v + 1]; }
+		return null;
+	}
+
 
 
 	public static class CameraControl extends CommandBase {
@@ -119,7 +208,7 @@ public class Vision {
 		public void initialize() {
 			// System.out.println("Initialized Camera Control Command.");
 			CameraSelect[] vals = CameraSelect.values();
-			int id = getSelectedCamera();
+			int id = getSelectedCamID();
 			selected = vals[id >= vals.length ? vals.length - 1 : id];
 		}
 		
@@ -146,34 +235,29 @@ public class Vision {
 		public static class DirectSwitching extends CameraControl {
 
 			protected final BooleanSupplier
-				sel_forward,
-				sel_arm,
-				sel_top;
+				sel_under,
+				sel_upper;
 
-			public DirectSwitching(
-				BooleanSupplier inc, BooleanSupplier dec, BooleanSupplier vrb,
-				BooleanSupplier fwd, BooleanSupplier arm, BooleanSupplier top
-			) {
-				super(inc, dec, vrb);
-				this.sel_forward = fwd;
-				this.sel_arm = arm;
-				this.sel_top = top;
-			}
+			public DirectSwitching(BooleanSupplier und, BooleanSupplier up) { this(()->false, ()->false, ()->false, und, up); }
+			public DirectSwitching(BooleanSupplier und, BooleanSupplier up, BooleanSupplier vrb) { this(()->false, ()->false, vrb, und, up); }
 			public DirectSwitching(
 				BooleanSupplier inc, BooleanSupplier vrb,
-				BooleanSupplier fwd, BooleanSupplier arm, BooleanSupplier top
-			) { this(inc, ()->false, vrb, fwd, arm, top); }
+				BooleanSupplier und, BooleanSupplier up
+			) { this(inc, ()->false, vrb, und, up); }
 			public DirectSwitching(
-				BooleanSupplier inc,
-				BooleanSupplier fwd, BooleanSupplier arm, BooleanSupplier top
-			) { this(inc, ()->false, ()->false, fwd, arm, top); }
+				BooleanSupplier inc, BooleanSupplier dec, BooleanSupplier vrb,
+				BooleanSupplier und, BooleanSupplier up
+			) {
+				super(inc, dec, vrb);
+				this.sel_under = und;
+				this.sel_upper = up;
+			}
 
 			@Override
 			public void execute() {
 				super.execute();
-				if(this.sel_forward.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.FORWARD); }
-				if(this.sel_arm.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.ARM); }
-				if(this.sel_top.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.TOP); }
+				if(this.sel_under.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.UNDERARM); }
+				if(this.sel_upper.getAsBoolean()) { Vision.selectCamera(super.selected = CameraSelect.UPPER); }
 			}
 
 		}
@@ -184,143 +268,381 @@ public class Vision {
 
 
 
+	public static void setAprilTagMode(int m) {
+		nt.aprilp_mode.set(m);
+	}
+	public static void setAprilTagCamera(CameraSelect c) {
+		nt.aprilp_mode.set(c.id);
+	}
+	public static void setAprilTagAutomatic() {
+		nt.aprilp_mode.set(-1);
+	}
+	public static void setAprilTagDisabled() {
+		nt.aprilp_mode.set(-2);
+	}
+	public static int getAprilTagMode() {
+		return (int)nt.aprilp_mode.get();
+	}
+	public static int aprilTagModeToCamID(int m) {
+		if(m > -1) { return -1; }
+		else if(m == -1) { return getSelectedCamID(); }
+		else { return m; }
+	}
+	public static int getAprilTagCamID() {
+		return aprilTagModeToCamID(getAprilTagMode());
+	}
 
-
-
-
-
-	public static class photonVision {
-		String camera_name = "cameraZ";
-
-		// Creates a photon camera w/ same name as camera
-		PhotonCamera camera = new PhotonCamera(camera_name);
-
-
-		public PhotonPipelineResult getLResult()
-		{
-			// Query the latest result from PhotonVision (huh? -z)
-			// Info about currently detected targets
-			// returns a container (query? -z) of information w/ timestamp
-			PhotonPipelineResult result = camera.getLatestResult();
-			return result;
-
-			// should "result" be an instance variable?
-			// should camera be a parameter that gets passed in?
-		}
-
-		public boolean hasTargets()
-		{
-			// This checks if the latest result(!!! -z) has any targets.
-			boolean hasTargets = getLResult().hasTargets();
-			return hasTargets;
-
-			// should result be a parameter that gets passed in?
-		}
-
-		/* 
-			What is a PhotonTrackedTarget???
-			A tracked target contains information about each target from a pipeline result. 
-			Information includes:
-				yaw, 
-				pitch, 
-				area, 
-				and robot relative pose.
-
-			// results are pipelined in?
-		*/ 
+	public static void setRetroRefMode(int m) {
+		nt.retror_mode.set(m);
+	}
+	public static void setRetroRefCamera(CameraSelect c) {
+		nt.retror_mode.set(c.id);
+	}
+	public static void setRetroRefAutomatic() {
+		nt.retror_mode.set(-1);
+	}
+	public static void setRetroRefDisabled() {
+		nt.retror_mode.set(-2);
+	}
+	public static int getRetroRefMode() {
+		return (int)nt.retror_mode.get();
+	}
+	public static int retroRefModeToCamID(int m) {
+		if(m > -1) { return -1; }
+		else if(m == -1) { return getSelectedCamID(); }
+		else { return m; }
+	}
+	public static int getRetroRefCamID() {
+		return retroRefModeToCamID(getRetroRefMode());
 		
-		public List<PhotonTrackedTarget> getTargets() {
-			// Get a list of currently tracked targets.
-			List<PhotonTrackedTarget> targets = getLResult().getTargets();
-			return targets;
-		}
+	}
 
-		public PhotonTrackedTarget bestTarget()
-		{
-			// Get the current best target.
-			PhotonTrackedTarget target = getLResult().getBestTarget();
-			return target;
-		}
 
-		// what is this?
-		public double getYaw(PhotonTrackedTarget target)
-		{
-			return target.getYaw();
-		}
 
-		// what is this?
-		public double getPitch(PhotonTrackedTarget target)
-		{
-			return target.getPitch();
-		}
 
-		public double getArea(PhotonTrackedTarget target)
-		{
-			return target.getArea();
-		}
 
-		public double getSkew(PhotonTrackedTarget target)
-		{
-			return target.getSkew();
-		}
 
-		// look at docs for Transform2d 
-		// https://docs.wpilib.org/en/latest/docs/software/advanced-controls/geometry/transformations.html#transform2d-and-twist2d
-		public Transform2d getPose(PhotonTrackedTarget target)
-		{
-			Transform3d t3d = target.getBestCameraToTarget();
-			Transform2d pose = new Transform2d(t3d.getTranslation().toTranslation2d(), t3d.getRotation().toRotation2d());
-			return pose;
+
+
+
+
+	public static final class PoseEstimation {
+
+		public static final Transform3d		// the inverses of the camera locations in robot coord space -- +x is "forward", +y is right, +z is up
+			UNDER_ARM_C2R = new Transform3d(
+				new Translation3d(
+					+0.075431,	// forward amount
+					-0.004467,	// rightward amount
+					+0.936205),	// upward amount
+				new Rotation3d(0.0, 10.927535, 0.0)
+			).inverse(),
+			UPPER_C2R = new Transform3d(
+				new Translation3d(
+					+0.271950,	// forward amount
+					-0.106706,	// rightward amount
+					+0.994151),	// upward amount
+				new Rotation3d(0.0, 12.0, 0.0)
+			).inverse();
+
+		public static final double getXYDeviation(double dx) {
+			if(dx < 1) { return 0.01; }
+			if(dx < 2) { return 0.02 * dx - 0.01; }	// from log data: deviation follows ~ 0.103x-0.157 (approximated here), but we also don't want negative values
+			return 0.11 * dx - 0.19;
 		}
-		
-		public List<TargetCorner> getCorners(PhotonTrackedTarget target)
-		{
-			List<TargetCorner> corners = target.getDetectedCorners();
-			return corners;
+		public static final double getXYZDeviation(double dx) {
+			if(dx < 1) { return 0.01; }
+			if(dx < 2) { return 0.04 * dx - 0.03; }
+			return 0.14 * dx - 0.23;
+		}
+		public static final double getThetaDeviation(double dx) {
+			return 0.01 * dx + 0.025;			// this is more of a guesstimate
 		}
 
 
-		// Getting April Tag Data:
-		public int getID(PhotonTrackedTarget target)
-		{
-			// The ID of the detected fiducial marker.
-			int targetID = target.getFiducialId();
-			return targetID;
+
+		public static final class RawEstimationBuffer {
+			public TimestampedDoubleArray[] estimations;
+			public TimestampedFloatArray[] errors, distances;
+		}
+		public static final class Estimation {
+			public Pose3d pose;
+			public float rmse, distance;
+		}
+		public static final class EstimationFrame {
+			public long tstamp;
+			public Estimation[] estimations;
 		}
 
-		public double poseAmbig(PhotonTrackedTarget target)
-		{
-			double poseAmbiguity = target.getPoseAmbiguity();
-			return poseAmbiguity;
-		}
-		
-		public Transform3d bestCamera2Target(PhotonTrackedTarget target)
-		{
-			Transform3d bestCameraToTarget = target.getBestCameraToTarget();
-			return bestCameraToTarget;
-		}
-		
-		public Transform3d altCamera2Target(PhotonTrackedTarget target)
-		{
-			Transform3d alternateCameraToTarget = target.getAlternateCameraToTarget();
-			return alternateCameraToTarget;
-		}
-		
-		// Say click, Take a pic
-		// https://www.youtube.com/watch?v=gktOri8vP7E&t=9s
-		public void inputSnap()
-		{
-			// Capture pre-process camera stream image
-			camera.takeInputSnapshot();
+		public static Pose3d[] extract3dPoses(double[] raw, Pose3d[] buff) {
+			final int len = raw.length / 7;
+			if(buff == null || buff.length != len) {
+				buff = new Pose3d[len];
+			}
+			for(int i = 0; i / 7 < buff.length;) {
+				buff[i / 7] = new Pose3d(
+					new Translation3d(
+						raw[i++],
+						raw[i++],
+						raw[i++]
+					),
+					new Rotation3d(
+						new Quaternion(
+							raw[i++],
+							raw[i++],
+							raw[i++],
+							raw[i++]
+						))
+				);
+			}
+			return buff;
 		}
 
-		public void outputSnap()
-		{
-			// Capture post-process camera stream image
-			camera.takeOutputSnapshot();
+		public static RawEstimationBuffer readEstimationQueue(RawEstimationBuffer buff) {
+			if(buff == null) {
+				buff = new RawEstimationBuffer();
+			}
+			buff.estimations = Vision.nt.combined_estimations.readQueue();
+			buff.errors = Vision.nt.estimate_errors.readQueue();
+			buff.distances = Vision.nt.tag_distances.readQueue();
+			// handle size mismatches -- match arrays with the same timestamp
+			return buff;
+		}
+		public static EstimationFrame[] extractEstimations(RawEstimationBuffer buff, EstimationFrame[] frames) {
+			if(buff != null && buff.estimations != null) {
+				final int len = buff.estimations.length;
+				if(buff.errors.length != len || buff.distances.length != len) {
+					return null;
+				}
+				if(frames == null || frames.length != len) {
+					frames = new EstimationFrame[len];
+				}
+				for(int i = 0; i < len; i++) {
+					frames[i] = new EstimationFrame();
+					TimestampedDoubleArray posedata = buff.estimations[i];
+					frames[i].tstamp = posedata.timestamp;
+					Pose3d[] poses = extract3dPoses(posedata.value, null);
+					frames[i].estimations = new Estimation[poses.length];
+					for(int p = 0; p < poses.length; p++) {			// maybe assert that all the inner data lengths are the same
+						frames[i].estimations[p] = new Estimation();
+						frames[i].estimations[p].pose = poses[p];
+						frames[i].estimations[p].rmse = buff.errors[i].value[p];		// or check during each loop
+						frames[i].estimations[p].distance = buff.distances[i].value[p];
+					}
+				}
+			}
+			return frames;
+		}
+
+		public static boolean insideBufferedFieldBounds(Estimation e, double flen, double fwidth) {
+			return insideBufferedFieldBounds(e.pose, getXYZDeviation(e.distance), flen, fwidth);
+		}
+		public static boolean insideBufferedFieldBounds(Pose3d p, double dv, double flen, double fwidth) {
+			return (
+				(p.getX() > - dv) && (p.getX() < flen + dv) &&
+				(p.getY() > - dv) && (p.getY() < fwidth + dv) &&
+				(p.getZ() > - dv)
+			);
+		}
+
+
+
+
+		public static void fuseVision(DriveBase db, boolean filter_bounds) {
+			RawEstimationBuffer rbuff = PoseEstimation.readEstimationQueue(null);
+			EstimationFrame[] frames = PoseEstimation.extractEstimations(rbuff, null);
+			if(frames == null || frames.length == 0) { return; }
+			TimestampedInteger apmode_ts = nt.aprilp_mode.getAtomic();
+			for(EstimationFrame frame : frames) {
+				if((frame.tstamp - apmode_ts.timestamp) * 1e6 < 0.15) {		// 150ms max delay between apmode change and detection up to date
+					continue;
+				}
+				Transform3d c2r = selectedCameraFromID(aprilTagModeToCamID((int)apmode_ts.value)).c2r;
+
+				Estimation best_rp = null;
+				switch(frame.estimations.length) {
+					case 0:
+					default:
+						continue;
+					case 1:
+					{
+						best_rp = frame.estimations[0];
+						best_rp.pose = best_rp.pose.transformBy(c2r);
+						if(filter_bounds && !insideBufferedFieldBounds(best_rp, Field.FIELD_LENGTH, Field.FIELD_WIDTH)) {
+							continue;
+						}
+						// the STDV seemed to be lower for megatag -- update 'distance'?
+						break;
+					}
+					case 2:
+					{
+						Estimation a = frame.estimations[0];
+						Estimation b = frame.estimations[1];
+						a.pose.transformBy(c2r);
+						b.pose.transformBy(c2r);
+						double a_dv3 = getXYZDeviation(a.distance);
+						double b_dv3 = getXYZDeviation(b.distance);
+						// use field bound filtering
+						if(filter_bounds) {
+							boolean _a = insideBufferedFieldBounds(a.pose, a_dv3, Field.FIELD_LENGTH, Field.FIELD_WIDTH);
+							boolean _b = insideBufferedFieldBounds(b.pose, b_dv3, Field.FIELD_LENGTH, Field.FIELD_WIDTH);
+							if(!(_a || _b)) {
+								continue;
+							}
+							if(_a && !_b) {
+								best_rp = a;
+								break;
+							}
+							if(_b && !_a) {
+								best_rp = b;
+								break;
+							}
+						}
+						// apply the more statistically correct pose if margin is large enough
+						if(a.rmse < b.rmse * 0.15) {
+							best_rp = a;
+							break;
+						} else if(b.rmse < a.rmse * 0.15) {
+							best_rp = b;
+							break;
+						}
+						// if the poses are close enough to each other, apply both with increased empirical deviation
+						double dx3 = a.pose.getTranslation().getDistance(b.pose.getTranslation());
+						if(dx3 < a_dv3 || dx3 < b_dv3) {
+							double cdist = (a.distance + b.distance);	// combine to get higher deviation
+							db.setVisionStdDevs(getXYDeviation(cdist), getThetaDeviation(cdist));
+							db.applyVisionUpdate(a.pose.toPose2d(), frame.tstamp / 1e6);
+							db.applyVisionUpdate(b.pose.toPose2d(), frame.tstamp / 1e6);
+							continue;
+						}
+						// compare to current pose, rotation, etc..?
+						continue;	// skip frame if correct pose couldn't be deduced
+					}
+				}
+				db.applyVisionUpdate(
+					best_rp.pose.toPose2d(),
+					frame.tstamp / 1e6,
+					getXYDeviation(best_rp.distance),
+					getThetaDeviation(best_rp.distance)
+				);
+			}
 		}
 
 	}
 
+	public static final class RetroDetection {
+
+		public static Translation3d[] extractTranslations(double[] raw, Translation3d[] buff) {
+			final int len = raw.length / 3;
+			if(buff == null || buff.length != len) {
+				buff = new Translation3d[len];
+			}
+			for(int i = 0; i / 3 < buff.length;) {
+				buff[i / 3] = new Translation3d(
+					raw[i++],
+					raw[i++],
+					raw[i++]
+				);
+			}
+			return buff;
+		}
+		public static Translation3d[][] extractTranslations(double[][] raw, Translation3d[][] buff) {
+			if(buff == null || buff.length != raw.length) {
+				buff = new Translation3d[raw.length][];
+			}
+			for(int i = 0; i < raw.length; i++) {
+				buff[i] = extractTranslations(raw[i], buff[i]);
+			}
+			return buff;
+		}
+		public static Translation2d[] extractCenters(double[] raw, Translation2d[] buff) {
+			final int len = raw.length / 2;
+			if(buff == null || buff.length != len) {
+				buff = new Translation2d[len];
+			}
+			for(int i = 0; i / 2 < buff.length;) {
+				buff[i / 2] = new Translation2d(
+					raw[i++],
+					raw[i++]
+				);
+			}
+			return buff;
+		}
+		public static Translation2d[][] extractCenters(double[][] raw, Translation2d[][] buff) {
+			if(buff == null || buff.length != raw.length) {
+				buff = new Translation2d[raw.length][];
+			}
+			for(int i = 0; i < raw.length; i++) {
+				buff[i] = extractCenters(raw[i], buff[i]);
+			}
+			return buff;
+		}
+
+		public static Translation3d[] getTranslations(Translation3d[] buff) {
+			return extractTranslations(Vision.nt.retrorefl_locations.get(), buff);
+		}
+		public static Translation3d[] getTranslations() {
+			return getTranslations(null);
+		}
+		public static Translation3d[][] getQueuedTranslations(Translation3d[][] buff) {
+			return extractTranslations(Vision.nt.retrorefl_locations.readQueueValues(), buff);
+		}
+		public static Translation3d[][] getQueuedTranslations() {
+			return getQueuedTranslations(null);
+		}
+		public static Translation2d[] getCenters(Translation2d[] buff) {
+			return extractCenters(Vision.nt.retrorefl_centers.get(), buff);
+		}
+		public static Translation2d[] getCenters() {
+			return getCenters(null);
+		}
+		public static Translation2d[][] getQueuedCenters(Translation2d[][] buff) {
+			return extractCenters(Vision.nt.retrorefl_centers.readQueueValues(), buff);
+		}
+		public static Translation2d[][] getQueuedCenters() {
+			return getQueuedCenters(null);
+		}
+
+	}
+
+
+	public enum OperationMode {
+		EstimatePose	(0b00001),	// run AP detection on the top camera
+		EstimatePoseUA	(0b00010),	// run AP detection on the underarm camera
+		DetectTape		(0b00100),
+		ViewActive		(0b01000),	// apply viewing priority
+		DebugView		(0b10000);	// prioritize multistream and complex annotations
+
+		private int value = 0;
+		private OperationMode(int v) { this.value = v; }
+
+		public OperationMode plus(OperationMode x) {
+			this.value |= x.value;
+			return this;
+		}
+		public boolean has(OperationMode x) {
+			return (this.value & x.value) > 0;
+		}
+		public boolean nhas(OperationMode x) {
+			return !this.has(x);
+		}
+		public int val() {
+			return this.value;
+		}
+	}
+
+	public static void applyOps(OperationMode... modes) {
+		OperationMode mask;
+		if(modes.length > 0) {
+			mask = modes[0];
+			if(modes.length > 1) {
+				for(int i = 1; i < modes.length; i++) {
+					mask = mask.plus(modes[i]);
+				}
+			}
+		} else {
+			return;
+		}
+		// eval the ops
+	}
 
 }

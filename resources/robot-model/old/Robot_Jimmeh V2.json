@@ -1,0 +1,29 @@
+{
+	"sourceUrl": "https://cad.onshape.com/documents/bc6454e7e996f2d92f5bf145/w/dc65128aaf6a2b4c60ec9c68/e/7401b289fc5383e08baece18?renderMode=0&uiState=644f0f5425f1f3234bdfeee1",
+	"rotations": [
+		{ "axis" : "x", "degrees": 90 },
+		{ "axis" : "z", "degrees": 90 }
+	],
+	"position": [0, 0, 0],
+	"cameras": [],
+	"components": [
+		{
+			"zeroedRotations": [
+				{ "axis": "x", "degrees": -90 },
+				{ "axis": "y", "degrees": 0 },
+				{ "axis": "z", "degrees": 90 }
+			],
+			"zeroedPosition": [0.136785, 0, 1.110984],
+			"random": -3.679565
+		},
+		{
+			"zeroedRotations": [
+				{ "axis": "x", "degrees": -90 },
+				{ "axis": "y", "degrees": 0 },
+				{ "axis": "z", "degrees": 90 }
+			],
+			"zeroedPosition": [0.232492, 0, 0.315387],
+			"random": 24.531084
+		}
+	]
+}

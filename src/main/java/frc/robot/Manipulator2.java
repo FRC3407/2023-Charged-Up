@@ -1012,9 +1012,9 @@ public class Manipulator2 implements Subsystem, Sendable {
 	}
 	public BaseControl controlManipulatorAdv(
 		DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
-		BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl
+		BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl, BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
 	) {
-		return new BaseControl(this, a, g, w, wr, al, gl);
+		return new BaseControl(this, a, g, w, wr, al, gl, wheelIntakeRight, wheelIntakeLeft);
 	}
 
 
@@ -1060,7 +1060,8 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public BaseControl(
 			Manipulator2 m,
 			DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
-			BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl
+			BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl,
+			BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
 		) {
 			this.manipulator = m;
 			this.arm_rate = a;

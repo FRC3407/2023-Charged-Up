@@ -481,9 +481,10 @@ public final class Manipulator implements Subsystem, Sendable {
 	}
 	public ManipulatorControl controlManipulator(
 		DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
-		BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl
+		BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl,
+		BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
 	) {
-		return new ManipulatorControl(this, a, g, w, wr, al, gl);
+		return new ManipulatorControl(this, a, g, w, wr, al, gl, wheelIntakeRight, wheelIntakeLeft);
 	}
 
 	public ManipulatorControl2 controlManipulatorAdv(
@@ -493,9 +494,10 @@ public final class Manipulator implements Subsystem, Sendable {
 	}
 	public ManipulatorControl2 controlManipulatorAdv(
 		DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
-		BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl
+		BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl,
+		BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
 	) {
-		return new ManipulatorControl2(this, a, g, w, wr, al, gl);
+		return new ManipulatorControl2(this, a, g, w, wr, al, gl, wheelIntakeRight, wheelIntakeLeft);
 	}
 
 
@@ -544,7 +546,8 @@ public final class Manipulator implements Subsystem, Sendable {
 		public ManipulatorControl(
 			Manipulator m,
 			DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
-			BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl
+			BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl,
+			BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
 		) {
 			this.manipulator = m;
 			this.arm_rate = a;
@@ -632,9 +635,10 @@ public final class Manipulator implements Subsystem, Sendable {
 		public ManipulatorControl2(
 			Manipulator m,
 			DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
-			BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl
+			BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl,
+			BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
 		) {
-			super(m, a, g, w, wr, al, gl);
+			super(m, a, g, w, wr, al, gl, wheelIntakeRight, wheelIntakeLeft);
 		}
 
 		public double getRelArmAngle() {

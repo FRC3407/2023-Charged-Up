@@ -231,15 +231,14 @@ public final class Controls {
 		CommandBase
 			drive_control = robot.drivebase.tankDriveVelocityProfiled(dds),
 			mpl_control = robot.manipulator.controlManipulatorAdv(
-				()->0.0,
 				Xbox.Analog.RY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),
-				// XMinusY(Xbox.Analog.RT, Xbox.Analog.LT, controller),
-				// ()->0.0,
+				XMinusY(Xbox.Analog.RT, Xbox.Analog.LT, controller),
 				Xbox.Analog.LY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),
 				Xbox.Digital.LS.getPressedSupplier(controller),
-				// Xbox.Digital.RB.getPressedSupplier(controller),
-				// Xbox.Digital.LB.getPressedSupplier(controller)
-				()->false, ()->false
+				Xbox.Digital.RB.getPressedSupplier(controller),
+				Xbox.Digital.A.getPressedSupplier(controller),		// arm lock
+				Xbox.Digital.RB.getPressedSupplier(controller),    //wheel intake right
+				Xbox.Digital.LB.getPressedSupplier(controller)     //wheel intake left
 			);
 
 		setupBaseTeleopControls(drive_control, mpl_control);
@@ -288,7 +287,9 @@ public final class Controls {
 				Xbox.Analog.LY.getDriveInputSupplier(controller2, DEADZONE, -1.0, 1.0),
 				Xbox.Digital.LS.getPressedSupplier(controller2),
 				Xbox.Digital.RB.getPressedSupplier(controller2),
-				Xbox.Digital.LB.getPressedSupplier(controller2)
+				Xbox.Digital.A.getPressedSupplier(controller2),		// arm lock
+				Xbox.Digital.RB.getPressedSupplier(controller2),    //wheel intake right
+				Xbox.Digital.LB.getPressedSupplier(controller2)     //wheel intake left
 			);
 
 		setupBaseTeleopControls(drive_control, mpl_control);
@@ -363,7 +364,9 @@ public final class Controls {
 				XMinusY(Xbox.Analog.RT, Xbox.Analog.LT, controller),							// grabber output
 				Xbox.Analog.LY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),		// wrist range
 				Xbox.Digital.LS.getPressedSupplier(controller),		// reset the wrist
-				Xbox.Digital.RB.getPressedSupplier(controller),		// arm lock
+				Xbox.Digital.A.getPressedSupplier(controller),		// arm lock
+				Xbox.Digital.RB.getPressedSupplier(controller),    //wheel intake right
+				Xbox.Digital.LB.getPressedSupplier(controller),     //wheel intake left
 				()->false
 				// Xbox.Digital.LB.getPressedSupplier(controller)	// grab lock
 			);

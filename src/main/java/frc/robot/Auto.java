@@ -396,7 +396,7 @@ public final class Auto {
 		}
 		@Override
 		public void execute() {
-			this.grabber.setGrabberVoltage(this.grab_volts);
+			//this.grabber.setGrabberVoltage(this.grab_volts);
 		}
 		@Override
 		public boolean isFinished() {

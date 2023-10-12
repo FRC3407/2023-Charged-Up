@@ -9,6 +9,7 @@ import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.interpolation.Interpolatable;
 import edu.wpi.first.wpilibj.Counter;
+import edu.wpi.first.wpilibj.Encoder;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.CommandBase;
@@ -165,137 +166,213 @@ public final class Manipulator implements Subsystem, Sendable {
 		 * Configure PIDF
 		 */
 
-		public static final double
-			WRIST_MIN_PULSE_uS = 550.0,
-			WRIST_MAX_PULSE_uS = 2450.0,
-			WRIST_TOTAL_INPUT_RANGE = 270.0,	// range before gearing
-			WRIST_GEARING = (3.0 / 2.0),
-			WRIST_TOTAL_OUTPUT_RANGE = (WRIST_TOTAL_INPUT_RANGE / WRIST_GEARING),
-			WRIST_PARALLEL_OFFSET = 65.0,	// translates the absolute rotation so that 0 deg is when the hand is parallel with the arm
-			WRIST_MIN_ANGLE = -40.0,		// in arm-standardized coord space
-			WRIST_MAX_ANGLE = 90.0,			// in arm-standardized coord space
-			WRIST_PARALLEL_PERCENT = WRIST_PARALLEL_OFFSET / WRIST_TOTAL_OUTPUT_RANGE,
-			WRIST_MIN_PERCENT = (WRIST_MIN_ANGLE + WRIST_PARALLEL_OFFSET) / WRIST_TOTAL_OUTPUT_RANGE,
-			WRIST_MAX_PERCENT = (WRIST_MAX_ANGLE + WRIST_PARALLEL_OFFSET) / WRIST_TOTAL_OUTPUT_RANGE,
-			GRAB_MAX_ANGLE = 125.0;
-		public static final int
-			FB_UNITS_PER_ROTATION = (int)(Constants.NEVEREST_UNITS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT),
-			CONTROL_LOOP_IDX = 0;
+		// public static final double
+		// 	WRIST_MIN_PULSE_uS = 550.0,
+		// 	WRIST_MAX_PULSE_uS = 2450.0,
+		// 	WRIST_TOTAL_INPUT_RANGE = 270.0,	// range before gearing
+		// 	WRIST_GEARING = (3.0 / 2.0),
+		// 	WRIST_TOTAL_OUTPUT_RANGE = (WRIST_TOTAL_INPUT_RANGE / WRIST_GEARING),
+		// 	WRIST_PARALLEL_OFFSET = 65.0,	// translates the absolute rotation so that 0 deg is when the hand is parallel with the arm
+		// 	WRIST_MIN_ANGLE = -40.0,		// in arm-standardized coord space
+		// 	WRIST_MAX_ANGLE = 90.0,			// in arm-standardized coord space
+		// 	WRIST_PARALLEL_PERCENT = WRIST_PARALLEL_OFFSET / WRIST_TOTAL_OUTPUT_RANGE,
+		// 	WRIST_MIN_PERCENT = (WRIST_MIN_ANGLE + WRIST_PARALLEL_OFFSET) / WRIST_TOTAL_OUTPUT_RANGE,
+		// 	WRIST_MAX_PERCENT = (WRIST_MAX_ANGLE + WRIST_PARALLEL_OFFSET) / WRIST_TOTAL_OUTPUT_RANGE,
+		// 	GRAB_MAX_ANGLE = 125.0;
+		// public static final int
+		// 	FB_UNITS_PER_ROTATION = (int)(Constants.NEVEREST_UNITS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT),
+		// 	CONTROL_LOOP_IDX = 0;
 		public static final boolean
-			INVERT_WRIST_OUTPUT = true,
+			INVERT_WRIST_OUTPUT = false,
 			INVERT_GRAB_ENCODER = false,
 			ENABLE_GRAB_SOFT_FWD_LIMIT = false,
 			CLEAR_GRAB_ANGLE_ON_RLIMIT = true;
 
-		private final WPI_TalonSRX main;
-		private final Servo wrist;
+		public static final LimitSwitchSource LIMIT_SWITCH_SOURCE = LimitSwitchSource.FeedbackConnector;
+		public static final LimitSwitchNormal LIMIT_SWITCH_NORMALITY = LimitSwitchNormal.NormallyOpen;
+		public static final FeedbackDevice WINCH_FEEDBACK_TYPE = FeedbackDevice.Analog;
+		public static final int
+			FB_UNITS_PER_RANGE = Constants.ANALOG_UNITS_PER_REVOLUTION,
+			CONTROL_LOOP_IDX = 0;
+		public static final boolean
+			INVERT_ARM_ENCODER = false,
+			CLEAR_ANGLE_ON_BOTTOM = true,
+			CLEAR_ANGLE_ON_TOP = true,
+			DISABLE_CONTINUOUS_ANGLE = true;
+		public static final double
+			FB_RANGE_DEGREES = 270.0,
+			TOP_ROTATION_ABSOLUTE = 625.0,	// << SET THIS TO THE ABSOLUTE MEASUREMENT WHEN TOP LIMIT IS TRIGGERED
+			TOP_ROTATION_DEGREES = TOP_ROTATION_ABSOLUTE / FB_UNITS_PER_RANGE * FB_RANGE_DEGREES;
 
+		private final WPI_TalonSRX wrist;
+		//private final Encoder wristEncoder;
+
+		public static final double
+		WRISTENCODER_MAX_DISTANCE = 100,
+		WRISTENCODER_MIN_DISTANCE = -100,
+		WRIST_PARALLEL_OFFSET = 65.0,
+		WRIST_MAX_ANGLE = 200;
 		public Grabber(int id, int schan) {
-			this.main = new WPI_TalonSRX(id);
-			this.wrist = new Servo(schan);
+			// this.main = new WPI_TalonSRX(id);
+			// this.wrist = new Servo(schan);
 
-			this.wrist.setBounds(WRIST_MAX_PULSE_uS / 1000.0, 0, 0, 0, WRIST_MIN_PULSE_uS / 1000.0);
-			this.main.configFactoryDefault();
-			this.main.configSelectedFeedbackSensor(FeedbackDevice.QuadEncoder, CONTROL_LOOP_IDX, 0);
-			this.main.setSelectedSensorPosition(0.0, CONTROL_LOOP_IDX, 0);
-			this.main.setSensorPhase(INVERT_GRAB_ENCODER);
-			this.main.configForwardSoftLimitThreshold(GRAB_MAX_ANGLE / 360.0 * FB_UNITS_PER_ROTATION);		// 125 degrees max
-			this.main.configReverseSoftLimitThreshold(0.0);								// dont let it go backwards
-			this.main.configForwardSoftLimitEnable(ENABLE_GRAB_SOFT_FWD_LIMIT);
-			this.main.configClearPositionOnLimitR(CLEAR_GRAB_ANGLE_ON_RLIMIT, 0);
-			this.main.config_kF(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KF);
-			this.main.config_kP(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KP);
-			this.main.config_kI(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KI);
-			this.main.config_kD(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KD);
+			// this.wrist.setBounds(WRIST_MAX_PULSE_uS / 1000.0, 0, 0, 0, WRIST_MIN_PULSE_uS / 1000.0);
+			// this.main.configFactoryDefault();
+			// this.main.configSelectedFeedbackSensor(FeedbackDevice.QuadEncoder, CONTROL_LOOP_IDX, 0);
+			// this.main.setSelectedSensorPosition(0.0, CONTROL_LOOP_IDX, 0);
+			// this.main.setSensorPhase(INVERT_GRAB_ENCODER);
+			// this.main.configForwardSoftLimitThreshold(GRAB_MAX_ANGLE / 360.0 * FB_UNITS_PER_ROTATION);		// 125 degrees max
+			// this.main.configReverseSoftLimitThreshold(0.0);								// dont let it go backwards
+			// this.main.configForwardSoftLimitEnable(ENABLE_GRAB_SOFT_FWD_LIMIT);
+			// this.main.configClearPositionOnLimitR(CLEAR_GRAB_ANGLE_ON_RLIMIT, 0);
+			// this.main.config_kF(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KF);
+			// this.main.config_kP(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KP);
+			// this.main.config_kI(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KI);
+			// this.main.config_kD(CONTROL_LOOP_IDX, Constants.GRAB_POSITION_KD);
+			this.wrist = new WPI_TalonSRX(id);
+			//wristEncoder = new Encoder(0, 1, false, Encoder.EncodingType.k2X);
+			this.wrist.configFactoryDefault();
+			this.wrist.configSelectedFeedbackSensor(WINCH_FEEDBACK_TYPE, CONTROL_LOOP_IDX, 0);
+			this.wrist.configFeedbackNotContinuous(DISABLE_CONTINUOUS_ANGLE, 0);
+			this.wrist.setSensorPhase(INVERT_ARM_ENCODER);
+			// this.winch.setSelectedSensorPosition(this.winch.getSelectedSensorPosition() - TOP_ROTATION_ABSOLUTE, CONTROL_LOOP_IDX, 0);
+			this.wrist.setNeutralMode(NeutralMode.Brake);
+			this.wrist.configForwardLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
+			this.wrist.configReverseLimitSwitchSource(LIMIT_SWITCH_SOURCE, LIMIT_SWITCH_NORMALITY);
+			this.wrist.configClearPositionOnLimitF(CLEAR_ANGLE_ON_TOP, 0);
+			this.wrist.configClearPositionOnLimitR(CLEAR_ANGLE_ON_BOTTOM, 0);
+			this.wrist.config_kF(CONTROL_LOOP_IDX, Constants.ARM_ANGLE_KF);
+			this.wrist.config_kP(CONTROL_LOOP_IDX, Constants.ARM_ANGLE_KP);
+			this.wrist.config_kI(CONTROL_LOOP_IDX, Constants.ARM_ANGLE_KI);
+			this.wrist.config_kD(CONTROL_LOOP_IDX, Constants.ARM_ANGLE_KD);
+			this.wrist.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
+			this.wrist.configMotionAcceleration(
+				Constants.ARM_ANGLE_ACC_DEG_PER_SEC_SQRD / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE / 10.0);
+			this.wrist.configMotionCruiseVelocity(
+				Constants.ARM_ANGLE_CRUISE_DEG_PER_SEC / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE / 10.0);
+				//wrist.set(ControlMode.MotionMagic, angle, DemandType.ArbitraryFeedForward, voltageNeededToHoldInPlace);
 		}
 
 		@Override
 		public void initSendable(SendableBuilder b) {
-			b.addDoubleProperty("Wrist Angle", this::getWristAngle, null);
-			b.addDoubleProperty("Wrist Percent Output", this::getWristPercent, null);
-			b.addDoubleProperty("Wrist PWM Raw", this.wrist::getRaw, null);
-			b.addDoubleProperty("Grabber Rotation (degrees)", this::getGrabDegPosition, null);
-			b.addDoubleProperty("Grabber Encoder Raw", this::getGrabRawPosition, null);
-			b.addDoubleProperty("Grabber Rotation Rate", this::getGrabDegVelocity, null);
-			b.addDoubleProperty("Grabber Width (inches)", this::getGrabWidth, null);
-			b.addBooleanProperty("Grabber Reset Limit", ()->this.main.isRevLimitSwitchClosed() == 1, null);
-			b.addDoubleProperty("Grab Motor Voltage", this.main::getMotorOutputVoltage, null);
-			b.addDoubleArrayProperty("Grab Motor Current [In:Out]", ()->{
-				return new double[]{
-					this.main.getSupplyCurrent(),
-					this.main.getStatorCurrent()
+			b.addDoubleProperty("Arm Encoder Value Raw", this::getWinchRawPosition, null);
+			b.addDoubleProperty("Arm Angle (degrees)", this::getWinchDegPosition, null);
+			b.addDoubleProperty("Arm Angle Rate", this::getWinchDegVelocity, null);
+			b.addBooleanProperty("Winch Lower Limit", ()->this.wrist.isRevLimitSwitchClosed() == 1, null);
+			b.addBooleanProperty("Winch Upper Limit", ()->this.wrist.isFwdLimitSwitchClosed() == 1, null);
+			b.addDoubleProperty("Winch Voltage", this.wrist::getMotorOutputVoltage, null);
+			b.addDoubleArrayProperty("Winch Current [In:Out]",
+				()->{ return new double[]{
+					this.wrist.getSupplyCurrent(),
+					this.wrist.getStatorCurrent()
 				}; }, null);
-			b.addDoubleProperty("Grab MC Temp", this.main::getTemperature, null);
+			b.addDoubleProperty("Winch MC Temp", this.wrist::getTemperature, null);
 		}
 
-		public static double grabAngleToWidth(double deg) {
-			return 2.0 * (Constants.GRABBER_PIVOT_OFFSET_INCHES +
-				Constants.GRABBER_ROT_RADIUS_INCHES * Math.sin(Math.toRadians(deg)) -
-					Constants.GRABBER_FINGER_OFFSET_INCHES);
+		public void setWinchVoltage(double v) {
+			this.wrist.setVoltage(v);
 		}
-		public static double grabWidthToAngle(double inches) {
-			double ratio = (((inches / 2.0) + Constants.GRABBER_FINGER_OFFSET_INCHES -
-				Constants.GRABBER_PIVOT_OFFSET_INCHES) / Constants.GRABBER_ROT_RADIUS_INCHES);
-			if(ratio >= 1.0) { return 90.0; }
-			return Math.toDegrees(Math.asin(ratio));
+		public void setWinchPosition(double deg) {
+			this.wrist.set(ControlMode.Position,
+				deg / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE);
+		}
+		public void setWinchPosition_MM(double deg) {
+			this.wrist.set(ControlMode.MotionMagic,
+				deg / FB_RANGE_DEGREES * FB_UNITS_PER_RANGE);
+		}
+		public void setPosition(double sval) {
+			this.wrist.setSelectedSensorPosition(sval);
 		}
 
-		public void setGrabberVoltage(double v) {
-			this.main.setVoltage(v);
+		public double getWinchRawPosition() {
+			return this.wrist.getSelectedSensorPosition(CONTROL_LOOP_IDX);
 		}
-		public void setGrabberAngle(double deg) {	// also probably account for W0 being not perfectly at 0 degrees
-			this.main.set(ControlMode.Position,
-				deg / 360.0 * FB_UNITS_PER_ROTATION);
+		public double getWinchRawVelocity() {
+			return this.wrist.getSelectedSensorVelocity(CONTROL_LOOP_IDX);
 		}
-		public void setGrabberWidth(double inches) {	// also probably account for A0 being not perfectly at 0 inches
-			this.main.set(ControlMode.Position,
-				grabWidthToAngle(inches) / 360.0 * FB_UNITS_PER_ROTATION);
+
+		public double getWinchRotPosition() {
+			return this.getWinchRawPosition() / FB_UNITS_PER_RANGE;
 		}
+		public double getWinchDegPosition() {
+			return this.getWinchRawPosition() / FB_UNITS_PER_RANGE * FB_RANGE_DEGREES;
+		}
+		public double getWinchRotVelocity() {
+			return this.getWinchRawVelocity() * 10.0 / FB_UNITS_PER_RANGE;
+		}
+		public double getWinchDegVelocity() {
+			return this.getWinchRawVelocity() * 10.0 / FB_UNITS_PER_RANGE * FB_RANGE_DEGREES;
+		}
+
+		// public static double grabAngleToWidth(double deg) {
+		// 	return 2.0 * (Constants.GRABBER_PIVOT_OFFSET_INCHES +
+		// 		Constants.GRABBER_ROT_RADIUS_INCHES * Math.sin(Math.toRadians(deg)) -
+		// 			Constants.GRABBER_FINGER_OFFSET_INCHES);
+		// }
+		// public static double grabWidthToAngle(double inches) {
+		// 	double ratio = (((inches / 2.0) + Constants.GRABBER_FINGER_OFFSET_INCHES -
+		// 		Constants.GRABBER_PIVOT_OFFSET_INCHES) / Constants.GRABBER_ROT_RADIUS_INCHES);
+		// 	if(ratio >= 1.0) { return 90.0; }
+		// 	return Math.toDegrees(Math.asin(ratio));
+		// }
+
+		// public void setGrabberVoltage(double v) {
+		// 	this.main.setVoltage(v);
+		// }
+		// public void setGrabberAngle(double deg) {	// also probably account for W0 being not perfectly at 0 degrees
+		// 	this.main.set(ControlMode.Position,
+		// 		deg / 360.0 * FB_UNITS_PER_ROTATION);
+		// }
+		// public void setGrabberWidth(double inches) {	// also probably account for A0 being not perfectly at 0 inches
+		// 	this.main.set(ControlMode.Position,
+		// 		grabWidthToAngle(inches) / 360.0 * FB_UNITS_PER_ROTATION);
+		// }
 
 		public void setWristPercent(double p) {
-			p = Math.max(WRIST_MIN_PERCENT, Math.min(WRIST_MAX_PERCENT, p));
+			int voltageNeededToHoldInPlace = 100;
+			p = Math.max(WRISTENCODER_MAX_DISTANCE, Math.min(WRISTENCODER_MIN_DISTANCE, p));
 			if(INVERT_WRIST_OUTPUT) { p = 1.0 - p; }
-			this.wrist.setPosition(p);
+			this.wrist.set(ControlMode.MotionMagic, p, DemandType.ArbitraryFeedForward, voltageNeededToHoldInPlace);
 		}
 		public void setWristAngle(double deg) {
 			deg += WRIST_PARALLEL_OFFSET;
 			if(deg < 0) { deg = 0; }
-			if(deg > WRIST_TOTAL_OUTPUT_RANGE) { deg = WRIST_TOTAL_OUTPUT_RANGE; }
-			this.setWristPercent(deg / WRIST_TOTAL_OUTPUT_RANGE);
+			if(deg > (WRISTENCODER_MAX_DISTANCE-WRISTENCODER_MIN_DISTANCE)) { deg = (WRISTENCODER_MAX_DISTANCE-WRISTENCODER_MIN_DISTANCE); }
+			this.setWristPercent(deg / (WRISTENCODER_MAX_DISTANCE-WRISTENCODER_MIN_DISTANCE));
 		}
 		public void setWristDisabled() {
-			this.wrist.setDisabled();
+			this.wrist.disable();
 		}
 
 		public double getWristPercent() {
-			return this.wrist.getPosition();
+			return this.wrist.getSelectedSensorPosition()/(WRISTENCODER_MAX_DISTANCE-WRISTENCODER_MIN_DISTANCE);
 		}
 		public double getWristAngle() {
-			double v = this.wrist.getPosition();
-			return (INVERT_WRIST_OUTPUT ? (1.0 - v) : v) * WRIST_TOTAL_OUTPUT_RANGE - WRIST_PARALLEL_OFFSET;
+			double v = this.wrist.getSelectedSensorPosition()/(WRISTENCODER_MAX_DISTANCE-WRISTENCODER_MIN_DISTANCE)*WRIST_MAX_ANGLE;
+			return (INVERT_WRIST_OUTPUT ? (1.0 - v) : v) * (WRISTENCODER_MAX_DISTANCE-WRISTENCODER_MIN_DISTANCE) - WRIST_PARALLEL_OFFSET;
 		}
 
-		public double getGrabRawPosition() {
-			return this.main.getSelectedSensorPosition(CONTROL_LOOP_IDX);
-		}
-		public double getGrabRawVelocity() {
-			return this.main.getSelectedSensorVelocity(CONTROL_LOOP_IDX);
-		}
-		public double getGrabRotPosition() {
-			return this.getGrabRawPosition() / FB_UNITS_PER_ROTATION;
-		}
-		public double getGrabDegPosition() {
-			return this.getGrabRawPosition() / FB_UNITS_PER_ROTATION * 360.0;
-		}
-		public double getGrabWidth() {
-			return grabAngleToWidth(this.getGrabDegPosition());
-		}
-		public double getGrabRotVelocity() {
-			return this.getGrabRawVelocity() * 10.0 / FB_UNITS_PER_ROTATION;
-		}
-		public double getGrabDegVelocity() {
-			return this.getGrabRawVelocity() * 10.0 / FB_UNITS_PER_ROTATION * 360.0;
-		}
+		// public double getGrabRawPosition() {
+		// 	return this.main.getSelectedSensorPosition(CONTROL_LOOP_IDX);
+		// }
+		// public double getGrabRawVelocity() {
+		// 	return this.main.getSelectedSensorVelocity(CONTROL_LOOP_IDX);
+		// }
+		// public double getGrabRotPosition() {
+		// 	return this.getGrabRawPosition() / FB_UNITS_PER_ROTATION;
+		// }
+		// public double getGrabDegPosition() {
+		// 	return this.getGrabRawPosition() / FB_UNITS_PER_ROTATION * 360.0;
+		// }
+		// public double getGrabWidth() {
+		// 	return grabAngleToWidth(this.getGrabDegPosition());
+		// }
+		// public double getGrabRotVelocity() {
+		// 	return this.getGrabRawVelocity() * 10.0 / FB_UNITS_PER_ROTATION;
+		// }
+		// public double getGrabDegVelocity() {
+		// 	return this.getGrabRawVelocity() * 10.0 / FB_UNITS_PER_ROTATION * 360.0;
+		// }
 
 	}
 
@@ -465,11 +542,11 @@ public final class Manipulator implements Subsystem, Sendable {
 
 	public void sendSetPoint(ManipulatorPose p) {
 		this.arm.setWinchPosition_MM(p.arm_angle);	// apply transform if necessary
-		this.grabber.setWristAngle(p.elbow_angle);	// apply transform if necessary
+		this.grabber.setWinchPosition_MM(p.elbow_angle);	// apply transform if necessary
 	}
 	public void sendSetPoint(ManipulatorState s) {
 		this.sendSetPoint(s.aquisition_pose);
-		this.grabber.setGrabberVoltage(s.aquisition_voltage);
+		//this.grabber.setGrabberVoltage(s.aquisition_voltage);
 	}
 
 
@@ -511,7 +588,7 @@ public final class Manipulator implements Subsystem, Sendable {
 			ARM_WINCH_LOCK_VOLTAGE = 1.1,
 			GRAB_CLAW_VOLTAGE_SCALE = 7.0,
 			GRAB_CLAW_LOCK_VOLTAGE = 8.0,
-			WRIST_NEUTRAL_SETPOINT = Grabber.WRIST_MAX_PERCENT,
+			WRIST_NEUTRAL_SETPOINT = Grabber.WRISTENCODER_MAX_DISTANCE,
 			WRIST_ACCUMULATION_RATE_SCALE = 0.01;	// at full throttle, add 0.01 x 50 loops per second = 0.5 per second change [maximum]
 
 		protected final Manipulator
@@ -571,8 +648,8 @@ public final class Manipulator implements Subsystem, Sendable {
 				this.wrist_position = WRIST_NEUTRAL_SETPOINT;
 			} else {
 				this.wrist_position = Math.max(
-					Grabber.WRIST_MIN_PERCENT, Math.min(
-						Grabber.WRIST_MAX_PERCENT, this.wrist_position));
+					Grabber.WRISTENCODER_MAX_DISTANCE, Math.min(
+						Grabber.WRISTENCODER_MIN_DISTANCE, this.wrist_position));
 			}
 			double
 				arate = this.arm_rate.getAsDouble(),
@@ -582,7 +659,7 @@ public final class Manipulator implements Subsystem, Sendable {
 			if(arate != 0) { this.is_arm_locked = false; }
 			if(grate != 0) { this.is_grab_locked = false; }
 			this.manipulator.arm.setWinchVoltage(this.is_arm_locked ? ARM_WINCH_LOCK_VOLTAGE : (arate * ARM_WINCH_VOLTAGE_SCALE));
-			this.manipulator.grabber.setGrabberVoltage(this.is_grab_locked ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
+			//this.manipulator.grabber.setGrabberVoltage(this.is_grab_locked ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
 			this.manipulator.grabber.setWristPercent(this.wrist_position);
 		}
 		@Override
@@ -592,7 +669,7 @@ public final class Manipulator implements Subsystem, Sendable {
 		@Override
 		public void end(boolean isfinished) {
 			this.manipulator.arm.setWinchVoltage(0);
-			this.manipulator.grabber.setGrabberVoltage(0);
+			//this.manipulator.grabber.setGrabberVoltage(0);
 			this.manipulator.grabber.setWristDisabled();
 		}
 
@@ -657,11 +734,11 @@ public final class Manipulator implements Subsystem, Sendable {
 		public void execute() {
 			this.arm_rel_angle = this.getRelArmAngle();
 			this.wrist_hz_angle = 90.0 - this.arm_rel_angle;	// if the arm is 0deg relative, then the wrist should be 90, if the arm is 90deg relative, the wrist should be 0
-			this.wrist_pos_offset += super.wrist_rate.getAsDouble() * WRIST_ACCUMULATION_RATE_SCALE * Grabber.WRIST_TOTAL_OUTPUT_RANGE;
+			this.wrist_pos_offset += super.wrist_rate.getAsDouble() * WRIST_ACCUMULATION_RATE_SCALE * (Grabber.WRISTENCODER_MAX_DISTANCE-Grabber.WRISTENCODER_MIN_DISTANCE);
 			if(super.wrist_reset.getAsBoolean()) {
 				this.wrist_pos_offset = 0.0;
 			} else {
-				this.wrist_bounded_lower_limit = Grabber.WRIST_MIN_ANGLE;
+				this.wrist_bounded_lower_limit = Grabber.WRISTENCODER_MIN_DISTANCE;
 				if(ENABLE_WRIST_PARK_BOUND_LIMITING && this.arm_rel_angle < ARM_PARK_UPPER_ANGLE_REL) {
 					this.wrist_bounded_lower_limit = (ARM_PARK_UPPER_ANGLE_REL - this.arm_rel_angle) * 8.0 - 30.0;	// [inverted based on threshold] arm angle from vertical  / threshold range * 120 degrees wrist range - 30.0 degrees lowest wrist angle
 				}
@@ -678,7 +755,7 @@ public final class Manipulator implements Subsystem, Sendable {
 			if(arate != 0.0) { super.is_arm_locked = false; }
 			if(grate != 0.0) { super.is_grab_locked = false; }
 			super.manipulator.arm.setWinchVoltage(super.is_arm_locked ? ARM_WINCH_LOCK_VOLTAGE : (arate * ARM_WINCH_VOLTAGE_SCALE));
-			super.manipulator.grabber.setGrabberVoltage(super.is_grab_locked ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
+			//super.manipulator.grabber.setGrabberVoltage(super.is_grab_locked ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
 			super.manipulator.grabber.setWristAngle(super.wrist_position);
 		}
 
@@ -688,7 +765,7 @@ public final class Manipulator implements Subsystem, Sendable {
 			b.addDoubleProperty("Position Offset", ()->this.wrist_pos_offset, null);
 			b.addDoubleProperty("Arm Relative Angle", ()->this.arm_rel_angle, null);
 			b.addDoubleProperty("Wrist Horizontal Angle", ()->this.wrist_hz_angle, null);
-			b.addDoubleProperty("Bumper Bounded Wrist Limit", ()->this.wrist_bounded_lower_limit, null);
+			b.addDoubleProperty("Bumper Bounktded Wrist Limit", ()->this.wrist_bounded_lower_limit, null);
 		}
 
 	}

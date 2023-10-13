@@ -24,6 +24,8 @@ import frc.robot.team3407.SenderNT;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
+import javax.lang.model.util.ElementScanner14;
+
 import com.ctre.phoenix.motorcontrol.*;
 import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
 
@@ -1131,6 +1133,9 @@ public class Manipulator2 implements Subsystem, Sendable {
 			{
 				this.manipulator.wheelintake.intakeCargo(-0.2);
 				System.out.print("going backwards/left");
+			}
+			else{
+				this.manipulator.wheelintake.intakeCargo(0.0);
 			}
 
 			this.manipulator.wheelintake.intakeCargo(0.5);

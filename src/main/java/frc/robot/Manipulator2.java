@@ -1125,10 +1125,12 @@ public class Manipulator2 implements Subsystem, Sendable {
 			
 			if(wheel_intake_right.getAsBoolean()){
 				this.manipulator.wheelintake.intakeCargo(0.5);
+				System.out.print("going forwards/right");
 			}
 			else if (wheel_intake_left.getAsBoolean())
 			{
 				this.manipulator.wheelintake.intakeCargo(-0.2);
+				System.out.print("going backwards/left");
 			}
 
 			this.manipulator.wheelintake.intakeCargo(0.5);

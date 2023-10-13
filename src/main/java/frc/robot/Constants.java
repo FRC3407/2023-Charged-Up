@@ -53,10 +53,10 @@ public final class Constants {
 		GRABBER_CAN_ID =			11,
 		ARM_EXTENDER_CAN_ID =		12,
 
-		GRABBER_WRIST_PWM_PORT =	0//,
+		GRABBER_WRIST_PWM_PORT =	0,
 
-		// WHEEL_INTAKE_CAN_ID = 11,
-		// WHEEL_WRIST_CAN_ID = 12
+		WHEEL_INTAKE_CAN_ID = 12,
+		WHEEL_WRIST_CAN_ID = 11;
 	;
 
 	public static final ModuleType

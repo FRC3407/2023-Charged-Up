@@ -770,115 +770,132 @@ public class Manipulator2 implements Subsystem, Sendable {
 		// }
 	}
 
-	public static abstract class Hand implements Subsystem, Sendable {
+	public static class WheelIntake implements Subsystem{
+		protected final WPI_TalonSRX wheel_Motor;
 
-		protected final WPI_TalonSRX main;
-
-		protected Hand(int canid) {
-			this.main = new WPI_TalonSRX(canid);
-			this.main.configFactoryDefault();
+		public WheelIntake(int canid)
+		{
+			this.wheel_Motor = new WPI_TalonSRX(canid);
+			this.wheel_Motor.configFactoryDefault();
 		}
 
-		public void setVoltage(double v) {
-			this.main.setVoltage(v);
+		public void intakeCargo(double speed){
+			wheel_Motor.set(speed);
 		}
-		public double getVoltage() {
-			return this.main.getMotorOutputVoltage();
-		}
-		public double getCurrent() {
-			return this.main.getStatorCurrent();
-		}
-		public boolean getOpenLimit() {
-			return this.main.isRevLimitSwitchClosed() > 0;
-		}
-		public boolean getClosedLimit() {
-			return this.main.isFwdLimitSwitchClosed() > 0;
-		}
-		public abstract double getActuatorDegrees();
-
-		@Override
-		public void initSendable(SendableBuilder b) {
-			b.addDoubleProperty("Output Volts", this::getVoltage, null);
-			b.addDoubleArrayProperty("Current [In:Out]", ()->{
-				return new double[]{
-					this.main.getSupplyCurrent(),
-					this.main.getStatorCurrent()
-				}; }, null);
-			b.addBooleanProperty("Open Limit", this::getOpenLimit, null);
-			b.addBooleanProperty("Closed Limit", this::getClosedLimit, null);
-			b.addDoubleProperty("Actuator Angle", this::getActuatorDegrees, null);
-			// b.addDoubleProperty("MC Temp", this.main::getTemperature, null);
-		}
-
-
-		public static final class NeverestGrabber extends Hand {
-
-			public static final int
-				FB_UNITS_PER_REVOLUTION = (int)(Constants.NEVEREST_UNITS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT),
-				CL_IDX = 0;
-			public static final boolean
-				INVERT_ENCODER_RANGE = false,
-				CLEAR_ANGLE_ON_LIMIT = true;
-
-			public NeverestGrabber(int canid) {
-				super(canid);
-				super.main.configSelectedFeedbackSensor(FeedbackDevice.QuadEncoder, CL_IDX, 0);
-				super.main.setSelectedSensorPosition(0.0, CL_IDX, 0);
-				super.main.setSensorPhase(INVERT_ENCODER_RANGE);
-				super.main.configClearPositionOnLimitR(CLEAR_ANGLE_ON_LIMIT, 0);
-			}
-
-			public double getActuatorDegrees() {
-				return this.main.getSelectedSensorPosition(CL_IDX) / FB_UNITS_PER_REVOLUTION * 360.0;
-			}
-
-		}
-		public static final class SeatMotorGrabber extends Hand {
-
-			public static final double FB_UNITS_PER_REVOLUTION =
-				(Constants.SEAT_MOTOR_COUNTS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT);
-
-			private final Counter counter;
-			private int v_sign = 0, count = 0;
-
-			public SeatMotorGrabber(int canid, int dio) {
-				super(canid);
-				this.counter = new Counter(dio);
-			}
-
-			@Override
-			public void setVoltage(double v) {
-				this.v_sign = (int)Math.signum(v);
-				super.setVoltage(v);
-			}
-			public double getActuatorDegrees() {
-				return this.count / FB_UNITS_PER_REVOLUTION * 360.0;
-			}
-
-			@Override
-			public void periodic() {
-				this.count += this.counter.get() * this.v_sign;
-				if(super.getOpenLimit()) {
-					this.count = 0;
-				}	// set the count to equivelent amount of degrees when closed
-				this.counter.reset();
-			}
-
-			@Override
-			public  void initSendable(SendableBuilder b) {
-				super.initSendable(b);
-				b.addIntegerProperty("Total Counts", ()->this.count, null);
-			}
-
-		}
-		// public static final class Wheeled extends Intake {
-
-		// 	public Wheeled(int canid) {
-		// 		super(canid);
-		// 	}
-
-		// }
 	}
+
+	// public static abstract class Hand implements Subsystem, Sendable {
+
+	// 	protected final WPI_TalonSRX main;
+
+	// 	protected Hand(int canid) {
+	// 		this.main = new WPI_TalonSRX(canid);
+	// 		this.main.configFactoryDefault();
+	// 	}
+
+	// 	public void setVoltage(double v) {
+	// 		this.main.setVoltage(v);
+	// 	}
+	// 	public double getVoltage() {
+	// 		return this.main.getMotorOutputVoltage();
+	// 	}
+	// 	public double getCurrent() {
+	// 		return this.main.getStatorCurrent();
+	// 	}
+	// 	public boolean getOpenLimit() {
+	// 		return this.main.isRevLimitSwitchClosed() > 0;
+	// 	}
+	// 	public boolean getClosedLimit() {
+	// 		return this.main.isFwdLimitSwitchClosed() > 0;
+	// 	}
+	// 	public abstract double getActuatorDegrees();
+
+	// 	@Override
+	// 	public void initSendable(SendableBuilder b) {
+	// 		b.addDoubleProperty("Output Volts", this::getVoltage, null);
+	// 		b.addDoubleArrayProperty("Current [In:Out]", ()->{
+	// 			return new double[]{
+	// 				this.main.getSupplyCurrent(),
+	// 				this.main.getStatorCurrent()
+	// 			}; }, null);
+	// 		b.addBooleanProperty("Open Limit", this::getOpenLimit, null);
+	// 		b.addBooleanProperty("Closed Limit", this::getClosedLimit, null);
+	// 		b.addDoubleProperty("Actuator Angle", this::getActuatorDegrees, null);
+	// 		// b.addDoubleProperty("MC Temp", this.main::getTemperature, null);
+	// 	}
+
+			// public double getActuatorDegrees() {
+			// 	return this.main.getSelectedSensorPosition(CL_IDX) / FB_UNITS_PER_REVOLUTION * 360.0;
+			// }
+
+	// 	public static final class NeverestGrabber extends Hand {
+
+	// 		public static final int
+	// 			FB_UNITS_PER_REVOLUTION = (int)(Constants.NEVEREST_UNITS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT),
+	// 			CL_IDX = 0;
+	// 		public static final boolean
+	// 			INVERT_ENCODER_RANGE = false,
+	// 			CLEAR_ANGLE_ON_LIMIT = true;
+
+	// 		public NeverestGrabber(int canid) {
+	// 			super(canid);
+	// 			super.main.configSelectedFeedbackSensor(FeedbackDevice.QuadEncoder, CL_IDX, 0);
+	// 			super.main.setSelectedSensorPosition(0.0, CL_IDX, 0);
+	// 			super.main.setSensorPhase(INVERT_ENCODER_RANGE);
+	// 			super.main.configClearPositionOnLimitR(CLEAR_ANGLE_ON_LIMIT, 0);
+	// 		}
+
+	// 		public double getActuatorDegrees() {
+	// 			return this.main.getSelectedSensorPosition(CL_IDX) / FB_UNITS_PER_REVOLUTION * 360.0;
+	// 		}
+
+	// 	}
+	// 	public static final class SeatMotorGrabber extends Hand {
+
+	// 		public static final double FB_UNITS_PER_REVOLUTION =
+	// 			(Constants.SEAT_MOTOR_COUNTS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT);
+
+	// 		private final Counter counter;
+	// 		private int v_sign = 0, count = 0;
+
+	// 		public SeatMotorGrabber(int canid, int dio) {
+	// 			super(canid);
+	// 			this.counter = new Counter(dio);
+	// 		}
+
+	// 		@Override
+	// 		public void setVoltage(double v) {
+	// 			this.v_sign = (int)Math.signum(v);
+	// 			super.setVoltage(v);
+	// 		}
+	// 		public double getActuatorDegrees() {
+	// 			return this.count / FB_UNITS_PER_REVOLUTION * 360.0;
+	// 		}
+
+	// 		@Override
+	// 		public void periodic() {
+	// 			this.count += this.counter.get() * this.v_sign;
+	// 			if(super.getOpenLimit()) {
+	// 				this.count = 0;
+	// 			}	// set the count to equivelent amount of degrees when closed
+	// 			this.counter.reset();
+	// 		}
+
+	// 		@Override
+	// 		public  void initSendable(SendableBuilder b) {
+	// 			super.initSendable(b);
+	// 			b.addIntegerProperty("Total Counts", ()->this.count, null);
+	// 		}
+
+	// 	}
+	// 	// public static final class Wheeled extends Intake {
+
+	// 	// 	public Wheeled(int canid) {
+	// 	// 		super(canid);
+	// 	// 	}
+
+	// 	// }
+	// }
 
 
 	// SET THESE USING VALUES OBTAINED PHYSICALLY OR USING ABSOLUTE SENSOR OUTPUT
@@ -893,17 +910,18 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 	public final Arm arm;
 	public final Wrist wrist;
-	public final Hand hand;
+	// public final Hand hand;
+	public final WheelIntake wheelintake;
 
 	private final TalonSRXSimCollection simwinch;
 	private final Dynamics.IntegratorV2 simarm = new Dynamics.IntegratorV2();
 
 	private double dynamic_arm_transform = Arm.sensorUnitsToDegrees(ARM_TOP_ABSOLUTE_RAW_POSITION);
 
-	public Manipulator2(Arm a, Wrist w, Hand h) {
+	public Manipulator2(Arm a, Wrist w, WheelIntake wi) {
 		this.arm = a;
 		this.wrist = w;
-		this.hand = h;
+		this.wheelintake = wi;
 		this.simwinch = this.arm.winch.getSimCollection();
 	}
 
@@ -912,7 +930,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 	public void periodic() {
 		this.arm.periodic();
 		this.wrist.periodic();
-		this.hand.periodic();
+		this.wheelintake.periodic(); // here -z
 		if(RobotBase.isReal() && this.arm.winch.isFwdLimitSwitchClosed() > 0) {
 			this.dynamic_arm_transform = this.arm.getAbsoluteDegrees();
 		}
@@ -933,7 +951,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 		SmartDashboard.putData(basekey, this);
 		SmartDashboard.putData(basekey + "/Arm", this.arm);
 		SmartDashboard.putData(basekey + "/Wrist", this.wrist);
-		SmartDashboard.putData(basekey + "/Hand", this.hand);
+		//SmartDashboard.putData(basekey + "/Wheel Intake", this.wheelintake);
 	}
 	public void logSim(SenderNT sender) {
 		sender.putData("Arm Sim", this.simarm);
@@ -998,18 +1016,18 @@ public class Manipulator2 implements Subsystem, Sendable {
 		this.setArmStandardized(p.arm_angle);
 		this.setWristStandardized(p.elbow_angle);
 	}
-	public void setTargetState(ManipulatorState s) {
-		this.setTargetPose(s.pose);
-		this.hand.setVoltage(s.intake_voltage);
-	}
+	// public void setTargetState(ManipulatorState s) {
+	// 	this.setTargetPose(s.pose);
+	// 	this.hand.setVoltage(s.intake_voltage);
+	// }
+	// here -z
 
 
-
-	public BaseControl controlManipulatorAdv(
-		DoubleSupplier a, DoubleSupplier g, DoubleSupplier w
-	) {
-		return new BaseControl(this, a, g, w);
-	}
+	// public BaseControl controlManipulatorAdv(
+	// 	DoubleSupplier a, DoubleSupplier g, DoubleSupplier w
+	// ) {
+	// 	return new BaseControl(this, a, g, w);
+	// }
 	public BaseControl controlManipulatorAdv(
 		DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
 		BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl, BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
@@ -1028,7 +1046,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 			WRIST_ACCUMULATION_RATE = 1.8;
 		public static final boolean
 			ENABLE_BBOX_LIMITING = true;
-
+		
 		protected final Manipulator2
 			manipulator;
 		protected final DoubleSupplier
@@ -1038,7 +1056,9 @@ public class Manipulator2 implements Subsystem, Sendable {
 		protected final BooleanSupplier
 			wrist_reset,
 			arm_lock,
-			grab_lock;
+			grab_lock,
+			wheel_intake_right,
+			wheel_intake_left;
 
 		protected double
 			wrist_position = 0.0;
@@ -1046,17 +1066,20 @@ public class Manipulator2 implements Subsystem, Sendable {
 			arm_locked_state = false,
 			intake_locked_state = false;
 
-		public BaseControl(
-			Manipulator2 m,
-			DoubleSupplier a, DoubleSupplier g, DoubleSupplier w
-		) {
-			this.manipulator = m;
-			this.arm_rate = a;
-			this.grab_rate = g;
-			this.wrist_rate = w;
-			this.wrist_reset = this.arm_lock = this.grab_lock = ()->false;
-			super.addRequirements(m.arm, m.wrist, m.hand);
-		}
+		// public BaseControl(
+		// 	Manipulator2 m,
+		// 	DoubleSupplier a, DoubleSupplier g, DoubleSupplier w
+		// ) {
+		// 	this.manipulator = m;
+		// 	this.arm_rate = a;
+		// 	this.grab_rate = g;
+		// 	this.wrist_rate = w;
+		// 	this.wrist_reset = this.arm_lock = this.grab_lock = ()->false;
+		// 	// here -z
+		// 	wheel_intake_left = false;
+		// 	wheel_intake_right = true;
+		// 	super.addRequirements(m.arm, m.wrist, m.wheelintake);
+		// }
 		public BaseControl(
 			Manipulator2 m,
 			DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
@@ -1070,14 +1093,17 @@ public class Manipulator2 implements Subsystem, Sendable {
 			this.wrist_reset = wr;
 			this.arm_lock = al;
 			this.grab_lock = gl;
-			super.addRequirements(m.arm, m.wrist, m.hand);
+			this.wheel_intake_right = wheelIntakeRight;
+			this.wheel_intake_left = wheelIntakeLeft;
+			super.addRequirements(m.arm, m.wrist, m.wheelintake);
 		}
 
 		@Override
 		public void initialize() {
 			this.wrist_position = 0.0;
 			this.arm_locked_state = false;
-			this.intake_locked_state = false;
+			//this.intake_locked_state = false;
+			// here -z
 		}
 		@Override
 		public void execute() {
@@ -1096,7 +1122,18 @@ public class Manipulator2 implements Subsystem, Sendable {
 			if(arate != 0) { this.arm_locked_state = false; }
 			if(grate != 0) { this.intake_locked_state = false; }
 			this.manipulator.arm.setVoltage(this.arm_locked_state ? ARM_WINCH_LOCK_VOLTS : (arate * ARM_WINCH_VOLTAGE_SCALE));
-			this.manipulator.hand.setVoltage(this.intake_locked_state ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
+			
+			if(wheel_intake_right.getAsBoolean()){
+				this.manipulator.wheelintake.intakeCargo(0.5);
+			}
+			else if (wheel_intake_left.getAsBoolean())
+			{
+				this.manipulator.wheelintake.intakeCargo(-0.2);
+			}
+
+			this.manipulator.wheelintake.intakeCargo(0.5);
+			//this.manipulator.hand.setVoltage(this.intake_locked_state ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
+			// here -z
 			this.manipulator.setWristStandardized(this.wrist_position);
 		}
 		@Override
@@ -1105,7 +1142,8 @@ public class Manipulator2 implements Subsystem, Sendable {
 		}
 		public void end(boolean isfinished) {
 			this.manipulator.arm.setVoltage(0);
-			this.manipulator.hand.setVoltage(0);
+			//this.manipulator.hand.setVoltage(0);
+			// here -z
 			this.manipulator.wrist.setDisabled();
 		}
 

@@ -59,7 +59,8 @@ public final class Runtime extends TimedRobot {
 			new Manipulator2.Arm(Constants.ARM_WINCH_CAN_ID),
 			new Manipulator2.Wrist.ServoImpl(Constants.GRABBER_WRIST_PWM_PORT),
 			// new Manipulator2.Hand.NeverestGrabber(Constants.GRABBER_CAN_ID)
-			new Manipulator2.Hand.SeatMotorGrabber(Constants.GRABBER_CAN_ID, 0)
+			// new Manipulator2.Hand.SeatMotorGrabber(Constants.GRABBER_CAN_ID, 0)
+			new Manipulator2.WheelIntake(Constants.GRABBER_CAN_ID)
 		);
 
 

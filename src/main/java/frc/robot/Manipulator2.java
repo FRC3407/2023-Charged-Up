@@ -24,6 +24,7 @@ import frc.robot.team3407.SenderNT;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
+import javax.imageio.plugins.tiff.TIFFDirectory;
 import javax.lang.model.util.ElementScanner14;
 
 import com.ctre.phoenix.motorcontrol.*;
@@ -690,86 +691,105 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 	}
 
-	public static abstract class Wrist implements Subsystem, Sendable {
+	// public static abstract class Wrist implements Subsystem, Sendable {
 
-		public abstract void setDegrees(double degrees_absolute);
-		public abstract void setDisabled();
+	// 	public abstract void setDegrees(double degrees_absolute);
+	// 	public abstract void setDisabled();
 
-		public abstract double getAbsoluteDegrees();
+	// 	public abstract double getAbsoluteDegrees();
 
-		@Override
-		public void initSendable(SendableBuilder b) {
-			b.addDoubleProperty("Wrist Absolute Degrees", this::getAbsoluteDegrees, null);
-		}
-
-
-		public static final class ServoImpl extends Wrist {
-
-			public static final boolean
-				INVERT_OUTPUT_RANGE = true && RobotBase.isReal();
-			public static final double
-				MIN_PULSE_uS = 550.0,
-				MAX_PULSE_uS = 2450.0,
-				TOTAL_INPUT_RANGE = 270.0,
-				GEARING = 3.0 / 2.0,
-				TOTAL_OUTPUT_RANGE = TOTAL_INPUT_RANGE / GEARING;
-
-				// PARALLEL_OFFSET_ANGLE = 65.0,
-				// STANDARDIZED_MIN_ANGLE = -40.0,
-				// STANDARDIZED_MAX_ANGLE = 90.0,
-				// PARALLEL_OFFSET_PERCENT = PARALLEL_OFFSET_ANGLE / TOTAL_OUTPUT_RANGE,
-				// MIN_PERCENT = (STANDARDIZED_MIN_ANGLE + PARALLEL_OFFSET_ANGLE) / TOTAL_OUTPUT_RANGE,
-				// MAX_PERCENT = (STANDARDIZED_MAX_ANGLE + PARALLEL_OFFSET_ANGLE) / TOTAL_OUTPUT_RANGE;
-
-			private final Servo servo;
-
-			public ServoImpl(int pwm_id) {
-				this.servo = new Servo(pwm_id);
-				this.servo.setBounds(MAX_PULSE_uS / 1000.0, 0.0, 0.0, 0.0, MIN_PULSE_uS / 1000.0);
-			}
+	// 	@Override
+	// 	public void initSendable(SendableBuilder b) {
+	// 		b.addDoubleProperty("Wrist Absolute Degrees", this::getAbsoluteDegrees, null);
+	// 	}
 
 
-			@Override
-			public void initSendable(SendableBuilder b) {
-				super.initSendable(b);
-				b.addDoubleProperty("Wrist Percent Range", this::getPercent, null);
-				b.addDoubleProperty("Wrist Raw PWM", this.servo::getRaw, null);
-			}
+	// 	public static final class ServoImpl extends Wrist {
 
-			public void setPercent(double percent) {
-				percent = Math.max(0.0, Math.min(1.0, percent));
-				if(INVERT_OUTPUT_RANGE) { percent = 1.0 - percent; }
-				this.servo.setPosition(percent);
-			}
-			public double getPercent() {
-				return this.servo.getPosition();
-			}
+	// 		public static final boolean
+	// 			INVERT_OUTPUT_RANGE = true && RobotBase.isReal();
+	// 		public static final double
+	// 			MIN_PULSE_uS = 550.0,
+	// 			MAX_PULSE_uS = 2450.0,
+	// 			TOTAL_INPUT_RANGE = 270.0,
+	// 			GEARING = 3.0 / 2.0,
+	// 			TOTAL_OUTPUT_RANGE = TOTAL_INPUT_RANGE / GEARING;
 
-			@Override
-			public void setDegrees(double degrees_absolute) {
-				this.setPercent(degrees_absolute / TOTAL_OUTPUT_RANGE);
-			}
-			@Override
-			public void setDisabled() {
-				this.servo.setDisabled();
-			}
-			@Override
-			public double getAbsoluteDegrees() {
-				return this.getPercent() * TOTAL_OUTPUT_RANGE;
-			}
+	// 			// PARALLEL_OFFSET_ANGLE = 65.0,
+	// 			// STANDARDIZED_MIN_ANGLE = -40.0,
+	// 			// STANDARDIZED_MAX_ANGLE = 90.0,
+	// 			// PARALLEL_OFFSET_PERCENT = PARALLEL_OFFSET_ANGLE / TOTAL_OUTPUT_RANGE,
+	// 			// MIN_PERCENT = (STANDARDIZED_MIN_ANGLE + PARALLEL_OFFSET_ANGLE) / TOTAL_OUTPUT_RANGE,
+	// 			// MAX_PERCENT = (STANDARDIZED_MAX_ANGLE + PARALLEL_OFFSET_ANGLE) / TOTAL_OUTPUT_RANGE;
+
+	// 		private final Servo servo;
+
+	// 		public ServoImpl(int pwm_id) {
+	// 			this.servo = new Servo(pwm_id);
+	// 			this.servo.setBounds(MAX_PULSE_uS / 1000.0, 0.0, 0.0, 0.0, MIN_PULSE_uS / 1000.0);
+	// 		}
 
 
-		}
-		// public static final class SeatMotorImpl extends Wrist {
+	// 		@Override
+	// 		public void initSendable(SendableBuilder b) {
+	// 			super.initSendable(b);
+	// 			b.addDoubleProperty("Wrist Percent Range", this::getPercent, null);
+	// 			b.addDoubleProperty("Wrist Raw PWM", this.servo::getRaw, null);
+	// 		}
+
+	// 		public void setPercent(double percent) {
+	// 			percent = Math.max(0.0, Math.min(1.0, percent));
+	// 			if(INVERT_OUTPUT_RANGE) { percent = 1.0 - percent; }
+	// 			this.servo.setPosition(percent);
+	// 		}
+	// 		public double getPercent() {
+	// 			return this.servo.getPosition();
+	// 		}
+
+	// 		@Override
+	// 		public void setDegrees(double degrees_absolute) {
+	// 			this.setPercent(degrees_absolute / TOTAL_OUTPUT_RANGE);
+	// 		}
+	// 		@Override
+	// 		public void setDisabled() {
+	// 			this.servo.setDisabled();
+	// 		}
+	// 		@Override
+	// 		public double getAbsoluteDegrees() {
+	// 			return this.getPercent() * TOTAL_OUTPUT_RANGE;
+	// 		}
+
+
+	// 	}
+	// 	// public static final class SeatMotorImpl extends Wrist {
 	
-		// 	private final WPI_TalonSRX main;
+	// 	// 	private final WPI_TalonSRX main;
 
-		// 	public SeatMotorImpl(int canid) {
-		// 		this.main = new WPI_TalonSRX(canid);
-		// 		this.main.configFactoryDefault();
-		// 	}
+	// 	// 	public SeatMotorImpl(int canid) {
+	// 	// 		this.main = new WPI_TalonSRX(canid);
+	// 	// 		this.main.configFactoryDefault();
+	// 	// 	}
 
-		// }
+	// 	// }
+	// }
+
+	public static class Wrist implements Subsystem{
+		protected final WPI_TalonSRX wrist_Motor;
+		double initialSensorPosition = 0.0;
+
+		public Wrist(int canid){
+			this.wrist_Motor = new WPI_TalonSRX(canid);
+			this.wrist_Motor.configFactoryDefault();
+			initialSensorPosition = wrist_Motor.getSelectedSensorPosition();
+		}
+		
+		public double getEncoderPosition(){
+			return wrist_Motor.getSelectedSensorPosition() - initialSensorPosition;
+		}
+
+		public void moveWrist(double speed){
+			wrist_Motor.set(speed);
+		}
 	}
 
 	public static class WheelIntake implements Subsystem{
@@ -786,119 +806,6 @@ public class Manipulator2 implements Subsystem, Sendable {
 		}
 	}
 
-	// public static abstract class Hand implements Subsystem, Sendable {
-
-	// 	protected final WPI_TalonSRX main;
-
-	// 	protected Hand(int canid) {
-	// 		this.main = new WPI_TalonSRX(canid);
-	// 		this.main.configFactoryDefault();
-	// 	}
-
-	// 	public void setVoltage(double v) {
-	// 		this.main.setVoltage(v);
-	// 	}
-	// 	public double getVoltage() {
-	// 		return this.main.getMotorOutputVoltage();
-	// 	}
-	// 	public double getCurrent() {
-	// 		return this.main.getStatorCurrent();
-	// 	}
-	// 	public boolean getOpenLimit() {
-	// 		return this.main.isRevLimitSwitchClosed() > 0;
-	// 	}
-	// 	public boolean getClosedLimit() {
-	// 		return this.main.isFwdLimitSwitchClosed() > 0;
-	// 	}
-	// 	public abstract double getActuatorDegrees();
-
-	// 	@Override
-	// 	public void initSendable(SendableBuilder b) {
-	// 		b.addDoubleProperty("Output Volts", this::getVoltage, null);
-	// 		b.addDoubleArrayProperty("Current [In:Out]", ()->{
-	// 			return new double[]{
-	// 				this.main.getSupplyCurrent(),
-	// 				this.main.getStatorCurrent()
-	// 			}; }, null);
-	// 		b.addBooleanProperty("Open Limit", this::getOpenLimit, null);
-	// 		b.addBooleanProperty("Closed Limit", this::getClosedLimit, null);
-	// 		b.addDoubleProperty("Actuator Angle", this::getActuatorDegrees, null);
-	// 		// b.addDoubleProperty("MC Temp", this.main::getTemperature, null);
-	// 	}
-
-			// public double getActuatorDegrees() {
-			// 	return this.main.getSelectedSensorPosition(CL_IDX) / FB_UNITS_PER_REVOLUTION * 360.0;
-			// }
-
-	// 	public static final class NeverestGrabber extends Hand {
-
-	// 		public static final int
-	// 			FB_UNITS_PER_REVOLUTION = (int)(Constants.NEVEREST_UNITS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT),
-	// 			CL_IDX = 0;
-	// 		public static final boolean
-	// 			INVERT_ENCODER_RANGE = false,
-	// 			CLEAR_ANGLE_ON_LIMIT = true;
-
-	// 		public NeverestGrabber(int canid) {
-	// 			super(canid);
-	// 			super.main.configSelectedFeedbackSensor(FeedbackDevice.QuadEncoder, CL_IDX, 0);
-	// 			super.main.setSelectedSensorPosition(0.0, CL_IDX, 0);
-	// 			super.main.setSensorPhase(INVERT_ENCODER_RANGE);
-	// 			super.main.configClearPositionOnLimitR(CLEAR_ANGLE_ON_LIMIT, 0);
-	// 		}
-
-	// 		public double getActuatorDegrees() {
-	// 			return this.main.getSelectedSensorPosition(CL_IDX) / FB_UNITS_PER_REVOLUTION * 360.0;
-	// 		}
-
-	// 	}
-	// 	public static final class SeatMotorGrabber extends Hand {
-
-	// 		public static final double FB_UNITS_PER_REVOLUTION =
-	// 			(Constants.SEAT_MOTOR_COUNTS_PER_REVOLUTION * Constants.GRABBER_GEARING_IN2OUT);
-
-	// 		private final Counter counter;
-	// 		private int v_sign = 0, count = 0;
-
-	// 		public SeatMotorGrabber(int canid, int dio) {
-	// 			super(canid);
-	// 			this.counter = new Counter(dio);
-	// 		}
-
-	// 		@Override
-	// 		public void setVoltage(double v) {
-	// 			this.v_sign = (int)Math.signum(v);
-	// 			super.setVoltage(v);
-	// 		}
-	// 		public double getActuatorDegrees() {
-	// 			return this.count / FB_UNITS_PER_REVOLUTION * 360.0;
-	// 		}
-
-	// 		@Override
-	// 		public void periodic() {
-	// 			this.count += this.counter.get() * this.v_sign;
-	// 			if(super.getOpenLimit()) {
-	// 				this.count = 0;
-	// 			}	// set the count to equivelent amount of degrees when closed
-	// 			this.counter.reset();
-	// 		}
-
-	// 		@Override
-	// 		public  void initSendable(SendableBuilder b) {
-	// 			super.initSendable(b);
-	// 			b.addIntegerProperty("Total Counts", ()->this.count, null);
-	// 		}
-
-	// 	}
-	// 	// public static final class Wheeled extends Intake {
-
-	// 	// 	public Wheeled(int canid) {
-	// 	// 		super(canid);
-	// 	// 	}
-
-	// 	// }
-	// }
-
 
 	// SET THESE USING VALUES OBTAINED PHYSICALLY OR USING ABSOLUTE SENSOR OUTPUT
 	public static final double
@@ -911,8 +818,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 
 
 	public final Arm arm;
-	public final Wrist wrist;
-	// public final Hand hand;
+	public final Wrist wrist; 
 	public final WheelIntake wheelintake;
 
 	private final TalonSRXSimCollection simwinch;
@@ -932,7 +838,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 	public void periodic() {
 		this.arm.periodic();
 		this.wrist.periodic();
-		this.wheelintake.periodic(); // here -z
+		this.wheelintake.periodic();
 		if(RobotBase.isReal() && this.arm.winch.isFwdLimitSwitchClosed() > 0) {
 			this.dynamic_arm_transform = this.arm.getAbsoluteDegrees();
 		}
@@ -945,14 +851,14 @@ public class Manipulator2 implements Subsystem, Sendable {
 	public void initSendable(SendableBuilder b) {
 		b.addDoubleProperty("Dynamic Transform", ()->this.dynamic_arm_transform, null);
 		b.addDoubleProperty("Transformed Arm Angle", this::getArmTransformedAngle, null);
-		b.addDoubleProperty("Transformed Wrist Angle", this::getWristTransformedAngle, null);
-		b.addDoubleArrayProperty("Components Pose3d", this::getComponentData, null);
+		// b.addDoubleProperty("Transformed Wrist Angle", this::getWristTransformedAngle, null);
+		// b.addDoubleArrayProperty("Components Pose3d", this::getComponentData, null);
 	}
 
 	public void startLogging(String basekey) {
 		SmartDashboard.putData(basekey, this);
 		SmartDashboard.putData(basekey + "/Arm", this.arm);
-		SmartDashboard.putData(basekey + "/Wrist", this.wrist);
+		//SmartDashboard.putData(basekey + "/Wrist", this.wrist);
 		//SmartDashboard.putData(basekey + "/Wheel Intake", this.wheelintake);
 	}
 	public void logSim(SenderNT sender) {
@@ -963,8 +869,8 @@ public class Manipulator2 implements Subsystem, Sendable {
 		this.simwinch.setBusVoltage(RobotController.getBatteryVoltage());
 
 		this.simarm.setInputs(
-			this.simwinch.getMotorOutputLeadVoltage(),
-			this.getWristTransformedAngle()
+			this.simwinch.getMotorOutputLeadVoltage(), 0.0
+			/*this.getWristTransformedAngle()*/
 		);
 		this.simarm.update(dt_s);
 
@@ -985,21 +891,21 @@ public class Manipulator2 implements Subsystem, Sendable {
 	public double getArmTransformedAngle() {
 		return this.arm_toTransformed(this.arm.getAbsoluteDegrees());
 	}
-	public double getWristTransformedAngle() {
-		return wrist_toTransformed(this.wrist.getAbsoluteDegrees());
-	}
-	public ManipulatorPose getFeedbackPose() {
-		return new ManipulatorPose(
-			this.getArmTransformedAngle(),
-			this.getWristTransformedAngle()
-		);
-	}
-	public double[] getComponentData() {
-		return Kinematics.getV1ComponentData(
-			this.getArmTransformedAngle(),
-			this.getWristTransformedAngle()
-		);
-	}
+	// public double getWristTransformedAngle() {
+	// 	return wrist_toTransformed(this.wrist.getAbsoluteDegrees());
+	// }
+	// public ManipulatorPose getFeedbackPose() {
+	// 	return new ManipulatorPose(
+	// 		this.getArmTransformedAngle(),
+	// 		this.getWristTransformedAngle()
+	// 	);
+	// }
+	// public double[] getComponentData() {
+	// 	return Kinematics.getV1ComponentData(
+	// 		this.getArmTransformedAngle(),
+	// 		this.getWristTransformedAngle()
+	// 	);
+	// }
 
 	public void setSimForwardAcc(double robot_acc) {
 		this.simarm.applyForwardAcceleration(robot_acc);
@@ -1011,18 +917,17 @@ public class Manipulator2 implements Subsystem, Sendable {
 	public void setArmStandardized(double degrees) {
 		this.arm.setTargetPosition_MM(this.arm_toAbsolute(degrees));
 	}
-	public void setWristStandardized(double degrees) {
-		this.wrist.setDegrees(wrist_toAbsolute(degrees));
-	}
-	public void setTargetPose(ManipulatorPose p) {
-		this.setArmStandardized(p.arm_angle);
-		this.setWristStandardized(p.elbow_angle);
-	}
+	// public void setWristStandardized(double degrees) {
+	// 	this.wrist.setDegrees(wrist_toAbsolute(degrees));
+	// }
+	// public void setTargetPose(ManipulatorPose p) {
+	// 	this.setArmStandardized(p.arm_angle);
+	// 	this.setWristStandardized(p.elbow_angle);
+	// }
 	// public void setTargetState(ManipulatorState s) {
 	// 	this.setTargetPose(s.pose);
 	// 	this.hand.setVoltage(s.intake_voltage);
 	// }
-	// here -z
 
 
 	// public BaseControl controlManipulatorAdv(
@@ -1031,10 +936,10 @@ public class Manipulator2 implements Subsystem, Sendable {
 	// 	return new BaseControl(this, a, g, w);
 	// }
 	public BaseControl controlManipulatorAdv(
-		DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
-		BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl, BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
+		DoubleSupplier a, DoubleSupplier wup,
+		DoubleSupplier wdwn, BooleanSupplier al, BooleanSupplier gl, BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
 	) {
-		return new BaseControl(this, a, g, w, wr, al, gl, wheelIntakeRight, wheelIntakeLeft);
+		return new BaseControl(this, a, wup, wdwn, al, gl, wheelIntakeRight, wheelIntakeLeft);
 	}
 
 
@@ -1053,10 +958,11 @@ public class Manipulator2 implements Subsystem, Sendable {
 			manipulator;
 		protected final DoubleSupplier
 			arm_rate,
-			grab_rate,
-			wrist_rate;
+			wrist_up,
+			wrist_down;
+			// wrist_rate;
 		protected final BooleanSupplier
-			wrist_reset,
+			// wrist_reset,
 			arm_lock,
 			grab_lock,
 			wheel_intake_right,
@@ -1077,27 +983,27 @@ public class Manipulator2 implements Subsystem, Sendable {
 		// 	this.grab_rate = g;
 		// 	this.wrist_rate = w;
 		// 	this.wrist_reset = this.arm_lock = this.grab_lock = ()->false;
-		// 	// here -z
 		// 	wheel_intake_left = false;
 		// 	wheel_intake_right = true;
 		// 	super.addRequirements(m.arm, m.wrist, m.wheelintake);
 		// }
 		public BaseControl(
 			Manipulator2 m,
-			DoubleSupplier a, DoubleSupplier g, DoubleSupplier w,
-			BooleanSupplier wr, BooleanSupplier al, BooleanSupplier gl,
+			DoubleSupplier a, DoubleSupplier wup,
+			DoubleSupplier wdwn, BooleanSupplier al, BooleanSupplier gl,
 			BooleanSupplier wheelIntakeRight, BooleanSupplier wheelIntakeLeft
 		) {
 			this.manipulator = m;
 			this.arm_rate = a;
-			this.grab_rate = g;
-			this.wrist_rate = w;
-			this.wrist_reset = wr;
+			this.wrist_up = wup;
+			this.wrist_down = wdwn;
 			this.arm_lock = al;
 			this.grab_lock = gl;
 			this.wheel_intake_right = wheelIntakeRight;
 			this.wheel_intake_left = wheelIntakeLeft;
 			super.addRequirements(m.arm, m.wrist, m.wheelintake);
+			//this.wrist_rate = w;
+			// this.wrist_reset = wr;
 		}
 
 		@Override
@@ -1105,43 +1011,45 @@ public class Manipulator2 implements Subsystem, Sendable {
 			this.wrist_position = 0.0;
 			this.arm_locked_state = false;
 			//this.intake_locked_state = false;
-			// here -z
 		}
 		@Override
 		public void execute() {
-			this.wrist_position += this.wrist_rate.getAsDouble() * WRIST_ACCUMULATION_RATE;
-			if(this.wrist_reset.getAsBoolean()) {
-				this.wrist_position = 0.0;
-			} else {
-				this.wrist_position = Math.min(Math.max(-80.0, this.wrist_position), 100.0);
-			}
+			// this.wrist_position += this.wrist_rate.getAsDouble() * WRIST_ACCUMULATION_RATE;
+			// if(this.wrist_reset.getAsBoolean()) {
+			// 	this.wrist_position = 0.0;
+			// } else {
+			// 	this.wrist_position = Math.min(Math.max(-80.0, this.wrist_position), 100.0);
+			// }
 			// ^ not complete
+			
+			double setWristVal = wrist_up.getAsDouble() - wrist_down.getAsDouble();
+			this.manipulator.wrist.moveWrist(setWristVal);
+
 			double
-				arate = this.arm_rate.getAsDouble(),
-				grate = this.grab_rate.getAsDouble();
+				arate = this.arm_rate.getAsDouble();
+				// grate = this.grab_rate.getAsDouble();
 			if(this.arm_lock.getAsBoolean()) { this.arm_locked_state = !this.arm_locked_state; }
 			if(this.grab_lock.getAsBoolean()) { this.intake_locked_state = !this.intake_locked_state; }
 			if(arate != 0) { this.arm_locked_state = false; }
-			if(grate != 0) { this.intake_locked_state = false; }
+			// if(grate != 0) { this.intake_locked_state = false; }
 			this.manipulator.arm.setVoltage(this.arm_locked_state ? ARM_WINCH_LOCK_VOLTS : (arate * ARM_WINCH_VOLTAGE_SCALE));
 			
+
+
 			if(wheel_intake_right.getAsBoolean()){
-				this.manipulator.wheelintake.intakeCargo(0.5);
+				this.manipulator.wheelintake.intakeCargo(0.8);
 				System.out.print("going forwards/right");
 			}
 			else if (wheel_intake_left.getAsBoolean())
 			{
-				this.manipulator.wheelintake.intakeCargo(-0.2);
+				this.manipulator.wheelintake.intakeCargo(-0.8);
 				System.out.print("going backwards/left");
 			}
 			else{
 				this.manipulator.wheelintake.intakeCargo(0.0);
 			}
-
-			this.manipulator.wheelintake.intakeCargo(0.5);
 			//this.manipulator.hand.setVoltage(this.intake_locked_state ? GRAB_CLAW_LOCK_VOLTAGE : (grate * GRAB_CLAW_VOLTAGE_SCALE));
-			// here -z
-			this.manipulator.setWristStandardized(this.wrist_position);
+			// this.manipulator.setWristStandardized(this.wrist_position);
 		}
 		@Override
 		public boolean isFinished() {
@@ -1150,8 +1058,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public void end(boolean isfinished) {
 			this.manipulator.arm.setVoltage(0);
 			//this.manipulator.hand.setVoltage(0);
-			// here -z
-			this.manipulator.wrist.setDisabled();
+			//this.manipulator.wrist.setDisabled();
 		}
 
 		@Override
@@ -1159,8 +1066,8 @@ public class Manipulator2 implements Subsystem, Sendable {
 			super.initSendable(b);
 			b.addDoubleProperty("Winch Voltage Setpoint",
 				()->this.arm_locked_state ? ARM_WINCH_LOCK_VOLTS : (this.arm_rate.getAsDouble() * ARM_WINCH_VOLTAGE_SCALE), null);
-			b.addDoubleProperty("Grabber Voltage Setpoint",
-				()->this.intake_locked_state ? GRAB_CLAW_LOCK_VOLTAGE : (this.grab_rate.getAsDouble() * GRAB_CLAW_VOLTAGE_SCALE), null);
+			// b.addDoubleProperty("Grabber Voltage Setpoint",
+			// 	()->this.intake_locked_state ? GRAB_CLAW_LOCK_VOLTAGE : (this.grab_rate.getAsDouble() * GRAB_CLAW_VOLTAGE_SCALE), null);
 			b.addDoubleProperty("Wrist Position Setpoint", ()->this.wrist_position, null);
 			b.addBooleanProperty("Arm Locked", ()->this.arm_locked_state, null);
 			b.addBooleanProperty("Grab Locked", ()->this.intake_locked_state, null);

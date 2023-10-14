@@ -1,23 +1,31 @@
 package frc.robot;
 
-import java.util.HashMap;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
-import edu.wpi.first.wpilibj2.command.*;
-import edu.wpi.first.wpilibj2.command.button.Trigger;
-import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.wpilibj.event.EventLoop;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-
-import frc.robot.team3407.commandbased.EventTriggers.*;
-import frc.robot.team3407.controls.ControlSchemeManager;
-import frc.robot.team3407.controls.ControlSchemeManager.*;
-import frc.robot.team3407.controls.Input.*;
-import frc.robot.team3407.drive.DriveSupplier.*;
-import frc.robot.team3407.Util;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.CommandBase;
+import edu.wpi.first.wpilibj2.command.button.Trigger;
 import frc.robot.Constants.ButtonBox;
 import frc.robot.Runtime.Robot;
+import frc.robot.team3407.Util;
+import frc.robot.team3407.commandbased.EventTriggers.TeleopTrigger;
+import frc.robot.team3407.controls.ControlSchemeManager;
+import frc.robot.team3407.controls.ControlSchemeManager.AmbiguousSolution;
+import frc.robot.team3407.controls.ControlSchemeManager.AutomatedTester;
+import frc.robot.team3407.controls.ControlSchemeManager.ControlScheme;
+import frc.robot.team3407.controls.ControlSchemeManager.ControlSchemeBase;
+import frc.robot.team3407.controls.Input.AnalogMap;
+import frc.robot.team3407.controls.Input.AnalogSupplier;
+import frc.robot.team3407.controls.Input.Attack3;
+import frc.robot.team3407.controls.Input.DigitalMap;
+import frc.robot.team3407.controls.Input.InputDevice;
+import frc.robot.team3407.controls.Input.InputMap;
+import frc.robot.team3407.controls.Input.Xbox;
+import frc.robot.team3407.drive.DriveSupplier.ArcadeSupplierLM;
+import frc.robot.team3407.drive.DriveSupplier.DifferentialDriveSupplier;
+import frc.robot.team3407.drive.DriveSupplier.TankSupplierRS;
 
 
 public final class Controls {
@@ -231,14 +239,13 @@ public final class Controls {
 		CommandBase
 			drive_control = robot.drivebase.tankDriveVelocityProfiled(dds),
 			mpl_control = robot.manipulator.controlManipulatorAdv(
-				Xbox.Analog.RY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),
-				XMinusY(Xbox.Analog.RT, Xbox.Analog.LT, controller),
-				Xbox.Analog.LY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),
-				Xbox.Digital.LS.getPressedSupplier(controller),
-				Xbox.Digital.RB.getPressedSupplier(controller),
+				Xbox.Analog.RY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),		// arm output
+				Xbox.Analog.RT.getSupplier(controller), // wrist up
+				Xbox.Analog.LT.getSupplier(controller), // wrist down
 				Xbox.Digital.A.getPressedSupplier(controller),		// arm lock
+				()->false, // grab lock
 				Xbox.Digital.RB.getSupplier(controller),    //wheel intake right
-				Xbox.Digital.LB.getSupplier(controller)     //wheel intake left
+				Xbox.Digital.LB.getSupplier(controller)    //wheel intake left
 			);
 
 		setupBaseTeleopControls(drive_control, mpl_control);
@@ -283,11 +290,13 @@ public final class Controls {
 			drive_control = robot.drivebase.tankDriveVelocityProfiled(dds),
 			mpl_control = robot.manipulator.controlManipulatorAdv(
 				Xbox.Analog.RY.getDriveInputSupplier(controller2, DEADZONE, -1.0, 1.0),
-				XMinusY(Xbox.Analog.RT, Xbox.Analog.LT, controller2),
-				Xbox.Analog.LY.getDriveInputSupplier(controller2, DEADZONE, -1.0, 1.0),
-				Xbox.Digital.LS.getPressedSupplier(controller2),
-				Xbox.Digital.RB.getPressedSupplier(controller2),
+				Xbox.Analog.RT.getSupplier(controller2), // wrist up
+				Xbox.Analog.LT.getSupplier(controller2), // wrist down
+				// Xbox.Analog.LY.getDriveInputSupplier(controller2, DEADZONE, -1.0, 1.0),
+				// Xbox.Digital.LS.getPressedSupplier(controller2),
+				// Xbox.Digital.RB.getPressedSupplier(controller2),
 				Xbox.Digital.A.getPressedSupplier(controller2),		// arm lock
+				()->false, // grab lock
 				Xbox.Digital.RB.getSupplier(controller2),    //wheel intake right
 				Xbox.Digital.LB.getSupplier(controller2)     //wheel intake left
 			);
@@ -361,14 +370,12 @@ public final class Controls {
 			drive_control = robot.drivebase.tankDriveVelocityProfiled(dds),
 			mpl_control = robot.manipulator.controlManipulatorAdv(
 				Xbox.Analog.RY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),		// arm output
-				XMinusY(Xbox.Analog.RT, Xbox.Analog.LT, controller),							// grabber output
-				Xbox.Analog.LY.getDriveInputSupplier(controller, DEADZONE, -1.0, 1.0),		// wrist range
-				Xbox.Digital.LS.getPressedSupplier(controller),		// reset the wrist
+				Xbox.Analog.RT.getSupplier(controller), // wrist up
+				Xbox.Analog.LT.getSupplier(controller), // wrist down
 				Xbox.Digital.A.getPressedSupplier(controller),		// arm lock
+				()->false, // grab lock
 				Xbox.Digital.RB.getSupplier(controller),    //wheel intake right
-				Xbox.Digital.LB.getSupplier(controller),     //wheel intake left
-				()->false
-				// Xbox.Digital.LB.getPressedSupplier(controller)	// grab lock
+				Xbox.Digital.LB.getSupplier(controller)    //wheel intake left
 			);
 
 		setupBaseTeleopControls(drive_control, mpl_control);

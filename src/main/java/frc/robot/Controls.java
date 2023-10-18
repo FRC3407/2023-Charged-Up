@@ -40,7 +40,7 @@ public final class Controls {
 	}
 
 	public static final FeatureLevel DEFAULT_FEATURE_LEVEL = FeatureLevel.TESTING;
-	public static final DriveMode DEFAULT_DRIVE_MODE = DriveMode.ARCADE;
+	public static final DriveMode DEFAULT_DRIVE_MODE = DriveMode.TANK;
 
 	private static final EventLoop loop = new EventLoop();
 	private static final Trigger

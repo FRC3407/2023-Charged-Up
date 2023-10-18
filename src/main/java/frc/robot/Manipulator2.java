@@ -790,6 +790,14 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public void moveWrist(double speed){
 			wrist_Motor.set(speed);
 		}
+
+		public void moveWristRelativePosition(int encoderDistanceFinal)
+		{
+			if (getEncoderPosition()!=encoderDistanceFinal)
+			{
+				moveWrist(-(encoderDistanceFinal-getEncoderPosition())/encoderDistanceFinal);
+			}
+		}
 	}
 
 	public static class WheelIntake implements Subsystem{
@@ -804,6 +812,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 		public void intakeCargo(double speed){
 			wheel_Motor.set(speed);
 		}
+		
 	}
 
 
@@ -851,6 +860,7 @@ public class Manipulator2 implements Subsystem, Sendable {
 	public void initSendable(SendableBuilder b) {
 		b.addDoubleProperty("Dynamic Transform", ()->this.dynamic_arm_transform, null);
 		b.addDoubleProperty("Transformed Arm Angle", this::getArmTransformedAngle, null);
+		b.addDoubleProperty("Wrist encoder", this::getWristEncoderValue, null);
 		// b.addDoubleProperty("Transformed Wrist Angle", this::getWristTransformedAngle, null);
 		// b.addDoubleArrayProperty("Components Pose3d", this::getComponentData, null);
 	}
@@ -887,10 +897,15 @@ public class Manipulator2 implements Subsystem, Sendable {
 	private static double wrist_toTransformed(double a) { return a - WRIST_PARALLEL_TRANSLATION; }
 	private static double wrist_toAbsolute(double t) { return t + WRIST_PARALLEL_TRANSLATION; }
 
+	public double getWristEncoderValue()
+	{
+			return wrist.wrist_Motor.getSelectedSensorPosition();
+	}
 
 	public double getArmTransformedAngle() {
 		return this.arm_toTransformed(this.arm.getAbsoluteDegrees());
 	}
+
 	// public double getWristTransformedAngle() {
 	// 	return wrist_toTransformed(this.wrist.getAbsoluteDegrees());
 	// }
@@ -1021,9 +1036,16 @@ public class Manipulator2 implements Subsystem, Sendable {
 			// 	this.wrist_position = Math.min(Math.max(-80.0, this.wrist_position), 100.0);
 			// }
 			// ^ not complete
-			
+			//double lastEncoderPos = Arm.getWristEncoderValue();
 			double setWristVal = wrist_up.getAsDouble() - wrist_down.getAsDouble();
-			this.manipulator.wrist.moveWrist(setWristVal);
+			if(wrist_up.getAsDouble() <= 0.02 && wrist_down.getAsDouble() <= 0.02)
+			{
+				this.manipulator.wrist.moveWrist(0.1);
+			}
+			else
+			{
+				this.manipulator.wrist.moveWrist(setWristVal);
+			}
 
 			double
 				arate = this.arm_rate.getAsDouble();
@@ -1073,6 +1095,8 @@ public class Manipulator2 implements Subsystem, Sendable {
 			b.addBooleanProperty("Grab Locked", ()->this.intake_locked_state, null);
 		}
 
+	}
+	public class Hand {
 	}
 
 }

@@ -109,8 +109,11 @@ public final class Auto {
 	public static CommandBase setWristPercent(Manipulator m, double p) {
 		return new InstantCommand(()->m.grabber.setWristPercent(p));
 	}
-	public static AutoGrabControl setGrabber(Manipulator m, double wa, double gv) {
-		return new AutoGrabControl(m, wa, gv);
+	public static CommandBase setGrabber(Manipulator2 m, double gv, double seconds) {
+		return new AutoGrabControl(m, gv).withTimeout(seconds);
+	}
+	public static CommandBase setWrist(Manipulator2 m, int wa, double seconds) {
+		return new AutoWristControl(m, wa).withTimeout(seconds);
 	}
 	public static CommandBase timedArm(Manipulator2 m, double v, double seconds) {
 		return new AutoArmControl(m, v).withTimeout(seconds);
@@ -380,23 +383,55 @@ public final class Auto {
 	}
 
 	public static class AutoGrabControl extends CommandBase {
+		private final Manipulator2.WheelIntake intake;
+		private final DoubleSupplier grab_volts;
 
-		private final Manipulator.Grabber grabber;
-		private final double wrist_angle, grab_volts;
+		public AutoGrabControl(Manipulator2 m, double gvolts)
+		{
+			this(m, ()->gvolts);
+		}
 
-		public AutoGrabControl(Manipulator m, double wangle, double gvolts) {
-			grabber = m.grabber;
-			this.wrist_angle = wangle;
+		public AutoGrabControl(Manipulator2 m, DoubleSupplier gvolts) {
+			intake = m.wheelintake;
 			this.grab_volts = gvolts;
 		}
 
 		@Override
 		public void initialize() {
-			this.grabber.setWristAngle(this.wrist_angle);
+	
 		}
 		@Override
 		public void execute() {
-			this.grabber.setGrabberVoltage(this.grab_volts);
+			this.intake.intakeCargo(grab_volts.getAsDouble());
+		}
+		@Override
+		public boolean isFinished() {
+			return false;
+		}
+		@Override
+		public void end(boolean i) {
+			this.intake.intakeCargo(0);
+		}
+
+	}
+
+	public static class AutoWristControl extends CommandBase {
+
+		private final Manipulator2.Wrist wrist;
+		private final int wrist_angle;
+
+		public AutoWristControl(Manipulator2 m, int wangle) {
+			wrist = m.wrist;
+			this.wrist_angle = wangle;
+		}
+
+		@Override
+		public void initialize() {
+	
+		}
+		@Override
+		public void execute() {
+			this.wrist.moveWristRelativePosition(this.wrist_angle);
 		}
 		@Override
 		public boolean isFinished() {
@@ -408,6 +443,7 @@ public final class Auto {
 		}
 
 	}
+
 	public static class AutoArmControl extends CommandBase {
 
 		private final Manipulator2.Arm arm;

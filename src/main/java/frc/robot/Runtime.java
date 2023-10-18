@@ -1,37 +1,40 @@
 package frc.robot;
 
 import java.io.File;
-
+import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
 import javax.swing.filechooser.FileSystemView;
 
-import com.pathplanner.lib.commands.PPRamseteCommand;
-import com.pathplanner.lib.server.PathPlannerServer;
-
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.geometry.*;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.util.sendable.Sendable;
 import edu.wpi.first.util.sendable.SendableBuilder;
+import edu.wpi.first.wpilibj.AnalogPotentiometer;
 import edu.wpi.first.wpilibj.DataLogManager;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.PowerDistribution;
 import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.interfaces.Gyro;
-import edu.wpi.first.wpilibj.simulation.BatterySim;
 import edu.wpi.first.wpilibj.simulation.RoboRioSim;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj.simulation.BatterySim;
 import edu.wpi.first.wpilibj.util.WPILibVersion;
-import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.CommandScheduler;
-import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
-import edu.wpi.first.wpilibj2.command.WaitCommand;
+import edu.wpi.first.wpilibj2.command.*;
+
+import com.pathplanner.lib.server.PathPlannerServer;
+import com.pathplanner.lib.commands.PPRamseteCommand;
+
+import frc.robot.Constants.ButtonBox;
+import frc.robot.Manipulator2.WheelIntake;
+import frc.robot.Manipulator2.Wrist;
+import frc.robot.team3407.controls.Input.*;
+import frc.robot.team3407.drive.DriveSupplier.*;
+import frc.robot.team3407.controls.ControlSchemeManager;
 import frc.robot.team3407.ADIS16470_3X;
 import frc.robot.team3407.SenderNT;
 import frc.robot.team3407.Util;
-import frc.robot.team3407.controls.ControlSchemeManager;
 
 
 public final class Runtime extends TimedRobot {
@@ -178,8 +181,8 @@ public final class Runtime extends TimedRobot {
 		Auto.setDefaultOptionA(taxi_balance, "Taxi Climb");
 		Auto.addSelectableOptionA(balance, "Climb");
 		Auto.setDefaultOptionB(
-			Auto.timedArmPush(this.robot.manipulator, 5.0, 1.0).andThen(
-			Auto.driveStraight(this.robot.drivebase, -3.5, -1.2)), "Taxi and Dump");
+			Auto.timedArm(this.robot.manipulator, 5.0, 2.3).alongWith(Auto.setWrist(this.robot.manipulator, 0,2.3)).andThen(Auto.setGrabber(this.robot.manipulator, -0.9, 0.5).andThen(
+			Auto.driveStraight(this.robot.drivebase, -3.5, -1.2))), "Taxi and Dump");
 		Auto.addSelectableOptionB(Auto.driveStraight(this.robot.drivebase, -3.5, -1.2), "Just Taxi");
 		Auto.addSelectableOptionB(new SequentialCommandGroup(
 			Auto.driveStraight(this.robot.drivebase, -0.3, -0.8),

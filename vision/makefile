@@ -72,6 +72,8 @@ CP := copy
 / := \\
 
 else
+
+CXX := $(CROSS_PREFIX)$(CXX)
 RM-R := rm -r
 CP := cp
 / := /
@@ -115,7 +117,9 @@ clean:
 	$(RM-R) $(OBJ_DIR)
 	$(RM-R) $(OUT_DIR)
 
-rebuild: build | clean
+rebuild: 
+	make clean
+	make
 
 
 -include $(OBJS:.o=.d)
